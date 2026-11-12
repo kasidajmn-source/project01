@@ -389,4 +389,3 @@ git push -u origin main
 | SharePoint: กดลงชื่อเข้าใช้แล้วไม่มีหน้าต่าง | เบราว์เซอร์บล็อก pop-up ให้กดอนุญาตที่แถบที่อยู่ แล้วลองใหม่ |
 
 รายละเอียดสถาปัตยกรรมและ API อยู่ใน [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-# project01
