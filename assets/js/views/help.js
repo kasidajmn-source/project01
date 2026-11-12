@@ -89,7 +89,7 @@ export function renderHelp(el) {
   </details>`;
 
   el.innerHTML = `
-  ${pageHead('คู่มือการเข้าใช้งาน', `เวอร์ชัน ${APP_VERSION}`)}
+  ${pageHead('คู่มือการเข้าใช้งาน', `เวอร์ชัน ${APP_VERSION}`, `<button class="btn" data-act="intro">${icon('present')}เปิดหน้าแนะนำระบบ</button>`)}
   <div class="help">
     <section class="panel">
       <header class="panel-head"><h2>ใครทำอะไรได้</h2>${me.email ? `<span class="muted">คุณ: ${esc(me.email)}${me.isAdmin ? ' · ผู้ดูแลระบบ' : ''}${me.isExec ? ' · ผู้บริหาร' : ''}</span>` : ''}</header>
@@ -165,6 +165,15 @@ export function renderHelp(el) {
       </ul>
     </section>
 
+    <section class="panel" id="help-motion">
+      <header class="panel-head"><h2>หน้าแนะนำและภาพเคลื่อนไหว</h2></header>
+      <ul class="help-list">
+        <li>ปุ่ม <b>เปิดหน้าแนะนำระบบ</b> ด้านบนของหน้านี้ เปิดหน้าแนะนำแบบเต็มจอ (เลื่อนดูภาพรวม ขั้นตอน และบทบาท) — ใช้แนะนำระบบให้ผู้รับจ้างหรือกรรมการใหม่ได้</li>
+        <li>ตัวเลขนับขึ้น แถบผลงานค่อยๆ เติม และการ์ดค่อยๆ ปรากฏเมื่อเลื่อนถึง — เป็นการแสดงผลเท่านั้น ตัวเลขสุดท้ายคือค่าจริงเสมอ</li>
+        <li>ปิดได้ที่ ตั้งค่า › บัญชีของฉัน › <b>ภาพเคลื่อนไหว</b>: อัตโนมัติ (ปิดเองเมื่อเครื่องตั้ง "ลดการเคลื่อนไหว") · เปิด · ปิด — เหมาะกับคอมพิวเตอร์ที่เครื่องช้าหรือใช้นำเสนอ</li>
+      </ul>
+    </section>
+
     <section class="panel">
       <header class="panel-head"><h2>การป้องกันสิทธิ์</h2></header>
       <div class="table-wrap"><table class="table"><thead><tr><th>รายการ</th><th>ผู้ที่ทำได้</th></tr></thead>
@@ -177,4 +186,5 @@ export function renderHelp(el) {
       </ul>
     </section>
   </div>`;
+  el.querySelector('[data-act="intro"]')?.addEventListener('click', () => window.dispatchEvent(new Event('pt:intro')));
 }

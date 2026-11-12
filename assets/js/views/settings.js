@@ -9,6 +9,7 @@ import { esc, icon, toast, confirmBox, setBusy, fmt, download, openModal } from 
 import { pageHead, loadDemoData } from './common.js';
 import { APP_VERSION } from '../defaults.js';
 import { openLogin } from './login.js';
+import { applyMotion } from '../motion.js';
 
 const R = globalThis.PTRules;
 
@@ -623,6 +624,12 @@ function accountSection(me) {
           <option value="light" ${conf.theme === 'light' ? 'selected' : ''}>สว่าง</option>
           <option value="dark" ${conf.theme === 'dark' ? 'selected' : ''}>มืด</option>
         </select></label>
+      <label class="field"><span>ภาพเคลื่อนไหว</span>
+        <select id="me-motion">
+          <option value="auto" ${(conf.motion || 'auto') === 'auto' ? 'selected' : ''}>ตามการตั้งค่าเครื่อง</option>
+          <option value="full" ${conf.motion === 'full' ? 'selected' : ''}>เปิด</option>
+          <option value="off" ${conf.motion === 'off' ? 'selected' : ''}>ปิด (หน้านิ่ง ประหยัดแบตเตอรี่)</option>
+        </select></label>
     </div>
     ${mode === 'local' ? `
     <div class="actas-box">
@@ -659,6 +666,7 @@ function bindAccount(el) {
     toast('บันทึกอีเมลแล้ว');
   });
   el.querySelector('#me-theme').addEventListener('change', (e) => { conf.theme = e.target.value; saveConf(); applyTheme(); });
+  el.querySelector('#me-motion').addEventListener('change', (e) => { conf.motion = e.target.value; saveConf(); applyMotion(); toast(conf.motion === 'off' ? 'ปิดภาพเคลื่อนไหวแล้ว' : 'ตั้งค่าภาพเคลื่อนไหวแล้ว', 'info'); });
   el.querySelector('[data-act="actas"]')?.addEventListener('click', () => {
     conf.actAs = el.querySelector('#me-actas').value;
     saveConf();

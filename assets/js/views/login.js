@@ -2,6 +2,7 @@
 import { conf, saveConf } from '../config.js';
 import { gasBackend } from '../backends/gas.js';
 import { esc, icon, openModal, setBusy, toast } from '../ui.js';
+import { introBackdrop } from './intro.js';
 
 let open = null;
 
@@ -10,11 +11,13 @@ export function openLogin({ reason = '' } = {}) {
   if (open) return open;
   open = new Promise((resolve) => {
     let done = false;
+    const dropBg = introBackdrop();
     const m = openModal({
       title: 'เข้าสู่ระบบ',
       size: 'sm',
       dismissable: false,
       onClose: () => {
+        dropBg();
         if (done) return;
         clearInterval(timer);
         open = null;

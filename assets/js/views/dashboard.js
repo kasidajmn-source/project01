@@ -5,6 +5,7 @@ import { esc, fmt, icon, gauge, emptyState, moneyHTML } from '../ui.js';
 import { projectRow, deltaHTML, pageHead, loadDemoData } from './common.js';
 import { openProjectForm } from './project-form.js';
 import { openReportDialog, REPORT_KINDS } from './reports.js';
+import { coilSVG } from '../motion.js';
 
 const R = globalThis.PTRules;
 
@@ -15,7 +16,7 @@ export function renderDashboard(el) {
   const today = todayISO();
   const sub = `ข้อมูล ณ วันที่ ${fmt.dateLong(today)}${S.orgName ? ` <span class="sep"></span>${esc(S.orgName)}` : ''}`;
   const me = store.me;
-  const newBtn = me.canCreate ? `<button class="btn btn-primary" data-act="new">${icon('plus')}สร้างโครงการ</button>` : '';
+  const newBtn = me.canCreate ? `<button class="btn btn-primary magnet" data-act="new">${icon('plus')}สร้างโครงการ</button>` : '';
 
   if (!rows.length) {
     const hidden = store.data.projects.length && !store.cloud;
@@ -58,7 +59,11 @@ export function renderDashboard(el) {
     .filter((x) => x.p && store.canView(x.p));
 
   el.innerHTML = `
-  ${pageHead('ภาพรวมโครงการ', sub, newBtn)}
+  <header class="page-head page-hero">
+    ${coilSVG({ rings: 11, cls: 'ph-coil' })}
+    <div class="ph-text"><h1>ภาพรวม<em>โครงการ</em></h1>${sub ? `<p class="sub">${sub}</p>` : ''}</div>
+    ${newBtn ? `<div class="head-actions">${newBtn}</div>` : ''}
+  </header>
   ${jobsNotice()}
   ${myWork('mw-top')}
   <section class="portfolio panel">

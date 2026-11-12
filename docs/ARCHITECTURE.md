@@ -167,7 +167,7 @@ Projects เพิ่ม `ownerEmail, ownerName, ownerRole, members[], rolePerms
 | `app.js` | สร้างเมนู, hash router (`#/`, `#/inbox`, `#/projects`, `#/p/:id/:tab/:sub`, `#/summary`, `#/settings`, `#/connect?…`), เข้าสู่ระบบ (Google OTP), ตัวเลขงานค้างบนเมนู, กันออกจากหน้าที่ยังไม่บันทึก |
 | `rules.js` | กฎกลาง (สิทธิ์ ขั้นตอนพิจารณา SLA อีเมล) ใช้ร่วมกับ Code.gs |
 | `store.js` | อ่าน/เขียนข้อมูล ตรวจสิทธิ์ก่อนส่ง (`store.me`, `store.can()`), สร้าง/ส่งอีเมลสำหรับ SharePoint และโหมดทดลอง (Google ให้เซิร์ฟเวอร์ส่ง), แคชผลวิเคราะห์ |
-| `config.js` | ค่าตั้งค่าของเครื่องนี้ (โหมด, URL, ค่า SharePoint/OneDrive (`conf.sp`, `conf.od`), ชื่อผู้ใช้, ธีม) |
+| `config.js` | ค่าตั้งค่าของเครื่องนี้ (โหมด, URL, ค่า SharePoint/OneDrive (`conf.sp`, `conf.od`), ชื่อผู้ใช้, ธีม, ภาพเคลื่อนไหว `conf.motion`) |
 | `backends/*.js` | ตัวเชื่อม Google / SharePoint / OneDrive และการลงชื่อเข้าใช้ Microsoft |
 | `calc.js` | สูตรทั้งหมด (ไม่มีการเข้าถึงหน้าจอ ทดสอบแยกได้) |
 | `charts.js` | วาด S-Curve เป็น SVG ตามขนาดจริงของกล่อง |
@@ -188,6 +188,14 @@ Projects เพิ่ม `ownerEmail, ownerName, ownerRole, members[], rolePerms
 - **หน้าเว็บ**: `forms.js` (PT-F01–F06 เปิดเป็นหน้าพิมพ์ A4 ในแท็บใหม่) · `views/library.js` (หน้าแบบฟอร์มและระเบียบ + `libraryBox()` สำหรับวางในหน้าต่างๆ) · `views/tab-daily.js` · `views/reports.js` (ตัวอย่าง/ส่งอีเมล)
   · `store.reportPlan/reportPreview/sendReport/pendingJobs/runPendingJobs` — Microsoft 365/โหมดทดลองเก็บบันทึกการส่งใน `settings.jobLog`
 
+
+### 1.0.6 — หน้าแนะนำและภาพเคลื่อนไหว
+
+- `motion.js`: ระดับภาพเคลื่อนไหวใน `html[data-motion="full"|"off"]` จาก `conf.motion` (`auto`/`full`/`off`) — `auto` ปิดเมื่อ `prefers-reduced-motion` หรือเบราว์เซอร์อัตโนมัติ (`navigator.webdriver`) เพื่อให้การทดสอบอัตโนมัติคงที่
+  · `enterView(view)` เรียกหลังวาดทุกหน้า: ใส่ `.rv` (ปรากฏเมื่อเลื่อนถึงด้วย IntersectionObserver, เรียงลำดับด้วย `--i`) และนับตัวเลขขึ้น (แก้เฉพาะ text node แล้วคืนข้อความเดิมเมื่อจบ) เฉพาะเมื่อเปลี่ยนหน้า — การวาดซ้ำจากข้อมูลอัปเดตไม่เล่นซ้ำ
+  · `bindPointerFx()` แสงตามเมาส์ (`--mx/--my`) และปุ่ม `.magnet` · `syncTabIndicator()` ตัวชี้แท็บบนมือถือ · `coilSVG()` ลายขดลวด (id ไล่สีไม่ซ้ำกัน)
+- `views/intro.js`: `showIntro({ onPick, tour })` หน้าแนะนำเต็มจอ (แทนหน้าต่างต้อนรับเดิม) · `introBackdrop()` ฉากหลังของหน้าต่างเข้าสู่ระบบ Google · เปิดซ้ำผ่านเหตุการณ์ `pt:intro`
+- CSS ทั้งหมดอยู่ท้าย `styles.css` (ส่วน 1.0.6) — ทุกเอฟเฟกต์ใช้ `transform`/`opacity` และถูกปิดด้วย `[data-motion="off"]` · ไม่มีไลบรารีเพิ่ม
 ## แนวทางพัฒนาต่อ
 
 - เพิ่มฟิลด์ในโครงการ: เพิ่มชื่อคอลัมน์ใน `SCHEMA.Projects` (Code.gs) — ชีตเดิมจะได้คอลัมน์ใหม่อัตโนมัติ แล้วเพิ่มช่องกรอกใน `views/project-form.js`

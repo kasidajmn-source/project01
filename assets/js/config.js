@@ -15,6 +15,7 @@ const K_CONF = 'pt.conf.v1';
 export const conf = Object.assign(
   {
     mode: 'local', url: '', key: '', user: '', email: '', theme: 'auto', onboarded: false,
+    motion: 'auto', // ภาพเคลื่อนไหว: auto (ตามการตั้งค่าเครื่อง) | full | off
     // token: รหัสเข้าสู่ระบบของ Google (ได้จากการยืนยันรหัส OTP ทางอีเมล)
     // actAs: (เฉพาะโหมดทดลอง) สลับเป็นผู้ใช้อื่นเพื่อทดสอบสิทธิ์
     token: '', actAs: '',

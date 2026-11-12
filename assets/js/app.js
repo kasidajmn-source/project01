@@ -12,6 +12,8 @@ import { renderChat } from './views/chat.js';
 import { renderMeetings } from './views/meetings.js';
 import { renderActivity } from './views/activity.js';
 import { renderLibrary } from './views/library.js';
+import { showIntro } from './views/intro.js';
+import { applyMotion, enterView, bindPointerFx, replayNext } from './motion.js';
 import { openLogin } from './views/login.js';
 import { loadDemoData } from './views/common.js';
 import { msAuth } from './backends/ms-auth.js';
@@ -120,7 +122,7 @@ function route() {
     const m = h.match(re);
     if (!m) continue;
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('is-on', a.dataset.nav === nav));
-    try { fn(m); } catch (e) {
+    try { fn(m); enterView(view); } catch (e) {
       console.error(e);
       view.innerHTML = `<section class="panel"><div class="empty"><div class="empty-ic">${icon('alert')}</div><h3>แสดงหน้านี้ไม่ได้</h3><p>${esc(e.message)}</p><a class="btn" href="#/">กลับหน้าหลัก</a></div></section>`;
     }
@@ -254,35 +256,20 @@ window.addEventListener('pt:relogin', async () => {
 
 // ---------- ต้อนรับผู้ใช้ใหม่ ----------
 function welcome() {
-  const m = openModal({
-    title: 'ยินดีต้อนรับ',
-    size: 'md',
-    body: `<div class="welcome">
-      <p>ระบบนี้ใช้รวบรวมเอกสารของแต่ละโครงการ ติดตามความคืบหน้าจาก BOQ รายสัปดาห์ และสรุปภาพรวมให้หัวหน้านำไปนำเสนอ</p>
-      <div class="form-grid">
-        <label class="field"><span>ชื่อของคุณ</span><input id="wc-name" value="${esc(conf.user)}" placeholder="เช่น นายช่างสมชาย" autofocus></label>
-        <label class="field"><span>อีเมล <small class="muted">(ใช้ระบุสิทธิ์ในโครงการ)</small></span><input id="wc-email" type="email" value="${esc(conf.email)}" placeholder="name@egat.co.th"></label>
-      </div>
-      <div class="opt-cards">
-        <button class="opt opt-btn" data-pick="demo"><span><b>ลองด้วยข้อมูลตัวอย่าง</b><small>เปิดดูระบบพร้อมโครงการตัวอย่าง 4 โครงการ มีสมาชิก เรื่องขออนุมัติ และแผนงาน ลองสลับบทบาทได้ที่หน้าตั้งค่า</small></span></button>
-        <button class="opt opt-btn" data-pick="empty"><span><b>เริ่มแบบว่าง</b><small>สร้างโครงการของคุณเองในโหมดทดลอง (เก็บในเบราว์เซอร์)</small></span></button>
-        <button class="opt opt-btn" data-pick="cloud"><span><b>เชื่อมต่อ Google Drive, SharePoint หรือ OneDrive</b><small>ใช้งานจริงร่วมกับทีม ต้องตั้งค่าที่เก็บข้อมูลก่อนตามคู่มือ</small></span></button>
-      </div>
-    </div>`,
+  showIntro({
+    onPick: (pick, { name, email }) => {
+      conf.user = name || conf.user;
+      if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) conf.email = email;
+      conf.onboarded = true;
+      saveConf();
+      updateConn();
+      if (pick === 'demo') { loadDemoData(); location.hash = '#/'; replayNext(); route(); }
+      else if (pick === 'cloud') location.hash = '#/settings';
+      else { replayNext(); route(); }
+    },
   });
-  m.el.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => {
-    conf.user = m.el.querySelector('#wc-name').value.trim() || conf.user;
-    const em = m.el.querySelector('#wc-email').value.trim().toLowerCase();
-    if (em && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) conf.email = em;
-    conf.onboarded = true;
-    saveConf();
-    updateConn();
-    const pick = b.dataset.pick;
-    m.close();
-    if (pick === 'demo') { loadDemoData(); location.hash = '#/'; route(); }
-    else if (pick === 'cloud') location.hash = '#/settings';
-  }));
 }
+window.addEventListener('pt:intro', () => showIntro({ tour: true }));
 
 // ---------- ซิงก์อัตโนมัติเมื่อกลับมาที่แท็บ ----------
 let syncing = false;
@@ -301,6 +288,9 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // ---------- เริ่มต้น ----------
 async function boot() {
   applyTheme();
+  applyMotion();
+  bindPointerFx();
+  matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', applyMotion);
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
   renderShell();
   if ((location.hash || '').startsWith('#/connect')) {
