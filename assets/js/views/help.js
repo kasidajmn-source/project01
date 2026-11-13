@@ -3,6 +3,7 @@ import { store } from '../store.js';
 import { esc, icon } from '../ui.js';
 import { pageHead, roleChip } from './common.js';
 import { APP_VERSION } from '../defaults.js';
+import { LESSONS, recommended, lessonCtx, isDone } from '../guide.js';
 
 const R = globalThis.PTRules;
 
@@ -76,6 +77,21 @@ const ENFORCE = [
   ['ส่งรายงานทางอีเมลด้วยมือ', 'รายวัน/รายสัปดาห์ของโครงการ: เจ้าของโครงการและผู้ควบคุมงาน · ทุกโครงการและเตือนงานค้าง: ผู้ดูแลระบบ · รายเดือน: ผู้ดูแลระบบ ผู้บริหาร'],
 ];
 
+/** บทเรียนสอนการใช้งานตามบทบาท (1.0.7) */
+function guideSection() {
+  const c = lessonCtx();
+  const rec = new Set(recommended(c).map((l) => l.id));
+  return `<section class="panel" id="help-guide">
+    <header class="panel-head"><h2>${icon('compass')}บทเรียนสอนการใช้งาน</h2><span class="muted">ไฮไลต์ทีละขั้น ลองกดเองได้ หรือข้ามได้ทุกเมื่อ</span></header>
+    <div class="help-lessons">${LESSONS.map((l) => `<button type="button" class="hl-card ${rec.has(l.id) ? 'is-rec' : ''}" data-lesson="${l.id}">
+      <span class="gp-tile t-${l.tone}">${icon(l.icon)}</span>
+      <span class="gp-txt"><b>${esc(l.title)}</b><small>${esc(l.short)}</small>
+        <span class="gp-meta">${esc(l.role)}${isDone(l.id) ? ' · เรียนแล้ว' : rec.has(l.id) ? ' · <em>แนะนำสำหรับคุณ</em>' : ''}</span></span>
+      ${icon(isDone(l.id) ? 'check' : 'play')}</button>`).join('')}</div>
+    <p class="hint">${icon('compass')}เปิดบทเรียนได้จากปุ่ม <b>ไกด์</b> มุมขวาล่างทุกหน้า (ซ่อนปุ่มได้ที่ ตั้งค่า › บัญชีของฉัน) · ผู้ใช้ใหม่จะได้รับคำชวนเริ่มบทเรียนครั้งแรกที่เข้าหน้าใช้งาน</p>
+  </section>`;
+}
+
 export function renderHelp(el) {
   const mode = store.mode;
   const me = store.me;
@@ -91,6 +107,7 @@ export function renderHelp(el) {
   el.innerHTML = `
   ${pageHead('คู่มือการเข้าใช้งาน', `เวอร์ชัน ${APP_VERSION}`, `<button class="btn" data-act="intro">${icon('present')}เปิดหน้าแนะนำระบบ</button>`)}
   <div class="help">
+    ${guideSection()}
     <section class="panel">
       <header class="panel-head"><h2>ใครทำอะไรได้</h2>${me.email ? `<span class="muted">คุณ: ${esc(me.email)}${me.isAdmin ? ' · ผู้ดูแลระบบ' : ''}${me.isExec ? ' · ผู้บริหาร' : ''}</span>` : ''}</header>
       <div class="table-wrap"><table class="table help-roles"><tbody>
@@ -187,4 +204,5 @@ export function renderHelp(el) {
     </section>
   </div>`;
   el.querySelector('[data-act="intro"]')?.addEventListener('click', () => window.dispatchEvent(new Event('pt:intro')));
+  el.querySelectorAll('[data-lesson]').forEach((b) => b.addEventListener('click', () => window.dispatchEvent(new CustomEvent('pt:guide', { detail: { lesson: b.dataset.lesson } }))));
 }

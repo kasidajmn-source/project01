@@ -10,6 +10,7 @@ import { pageHead, loadDemoData } from './common.js';
 import { APP_VERSION } from '../defaults.js';
 import { openLogin } from './login.js';
 import { applyMotion } from '../motion.js';
+import { guideHidden, setGuideHidden, resetGuide } from '../guide.js';
 
 const R = globalThis.PTRules;
 
@@ -630,6 +631,14 @@ function accountSection(me) {
           <option value="full" ${conf.motion === 'full' ? 'selected' : ''}>เปิด</option>
           <option value="off" ${conf.motion === 'off' ? 'selected' : ''}>ปิด (หน้านิ่ง ประหยัดแบตเตอรี่)</option>
         </select></label>
+      <div class="field"><span>ไกด์สอนการใช้งาน</span>
+        <div class="row-actions">
+          <select id="me-guide" aria-label="ปุ่มไกด์">
+            <option value="show" ${guideHidden() ? '' : 'selected'}>แสดงปุ่มไกด์มุมขวาล่าง</option>
+            <option value="hide" ${guideHidden() ? 'selected' : ''}>ซ่อนปุ่มไกด์ (เปิดบทเรียนจากหน้าคู่มือ)</option>
+          </select>
+          <button type="button" class="btn btn-sm" data-act="guide-reset" title="ล้างสถานะ “เรียนแล้ว” ของบทเรียนทั้งหมดบนเครื่องนี้">${icon('refresh')}เริ่มบทเรียนใหม่</button>
+        </div></div>
     </div>
     ${mode === 'local' ? `
     <div class="actas-box">
@@ -666,6 +675,8 @@ function bindAccount(el) {
     toast('บันทึกอีเมลแล้ว');
   });
   el.querySelector('#me-theme').addEventListener('change', (e) => { conf.theme = e.target.value; saveConf(); applyTheme(); });
+  el.querySelector('#me-guide').addEventListener('change', (e) => { setGuideHidden(e.target.value === 'hide'); toast(e.target.value === 'hide' ? 'ซ่อนปุ่มไกด์แล้ว — เปิดบทเรียนได้จากหน้าคู่มือ' : 'แสดงปุ่มไกด์แล้ว', 'info'); });
+  el.querySelector('[data-act="guide-reset"]').addEventListener('click', () => { resetGuide(); setGuideHidden(false); el.querySelector('#me-guide').value = 'show'; toast('ล้างสถานะบทเรียนแล้ว — เปิดบทเรียนได้จากปุ่มไกด์', 'info'); });
   el.querySelector('#me-motion').addEventListener('change', (e) => { conf.motion = e.target.value; saveConf(); applyMotion(); toast(conf.motion === 'off' ? 'ปิดภาพเคลื่อนไหวแล้ว' : 'ตั้งค่าภาพเคลื่อนไหวแล้ว', 'info'); });
   el.querySelector('[data-act="actas"]')?.addEventListener('click', () => {
     conf.actAs = el.querySelector('#me-actas').value;

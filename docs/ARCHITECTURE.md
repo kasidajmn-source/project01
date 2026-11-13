@@ -196,6 +196,15 @@ Projects เพิ่ม `ownerEmail, ownerName, ownerRole, members[], rolePerms
   · `bindPointerFx()` แสงตามเมาส์ (`--mx/--my`) และปุ่ม `.magnet` · `syncTabIndicator()` ตัวชี้แท็บบนมือถือ · `coilSVG()` ลายขดลวด (id ไล่สีไม่ซ้ำกัน)
 - `views/intro.js`: `showIntro({ onPick, tour })` หน้าแนะนำเต็มจอ (แทนหน้าต่างต้อนรับเดิม) · `introBackdrop()` ฉากหลังของหน้าต่างเข้าสู่ระบบ Google · เปิดซ้ำผ่านเหตุการณ์ `pt:intro`
 - CSS ทั้งหมดอยู่ท้าย `styles.css` (ส่วน 1.0.6) — ทุกเอฟเฟกต์ใช้ `transform`/`opacity` และถูกปิดด้วย `[data-motion="off"]` · ไม่มีไลบรารีเพิ่ม
+
+### 1.0.7 — ไกด์สอนการใช้งาน
+
+- `lessons.js`: นิยามบทเรียน `LESSONS` (`id, title, short, role, icon, tone, who(ctx), steps(ctx)`) · `lessonCtx()` (ผู้ใช้ บทบาทในแต่ละโครงการ โครงการตัวอย่างของแต่ละบทบาท) · `recommended()` · `stepsOf()` ตัดขั้นที่ไม่มีโครงการรองรับ
+  · ขั้นตอน: `{ title, text, route, target, do: 'click', optional, note }` — `target` เป็นตัวเลือก CSS (ใช้ตัวแรกที่มองเห็น) รายการตัวเลือก หรือฟังก์ชัน (`nav(k)`, `panel('หัวข้อ')`)
+- `guide.js`: `mountGuide()` ปุ่มไกด์ + แผงบทเรียน · `startLesson(id)` ตัวเดินบทเรียน (ไฮไลต์ด้วย box-shadow, แผ่นกันคลิก 4 ด้าน + แผ่นกลางสำหรับขั้นที่ไม่ต้องกด, ตามตำแหน่งเป้าหมายทุกเฟรม, รอเป้าหมายหลังเปลี่ยนหน้า, เลื่อนให้เห็น) · `maybeOffer()` เรียกท้าย `route()` ชวนผู้ใช้ใหม่ครั้งเดียว
+  · สถานะใน `conf.guide = { hide, users: { [อีเมล]: { offered, done: [...] } } }` · เปิดจากที่อื่นด้วยเหตุการณ์ `pt:guide` (`detail.lesson`)
+  · เบราว์เซอร์อัตโนมัติ (`navigator.webdriver`) ไม่ชวนเอง เว้นแต่ตั้ง `localStorage['pt.guide.auto'] = '1'` — ชุดทดสอบเดิมจึงไม่ถูกรบกวน
+- เพิ่มบทเรียน: เพิ่มรายการใน `LESSONS` และใส่ id ในลำดับของ `recommended()` — ทดสอบด้วย `test/e2e-107.js` (เดินทุกบทและรายงานขั้นที่หาเป้าหมายไม่พบ)
 ## แนวทางพัฒนาต่อ
 
 - เพิ่มฟิลด์ในโครงการ: เพิ่มชื่อคอลัมน์ใน `SCHEMA.Projects` (Code.gs) — ชีตเดิมจะได้คอลัมน์ใหม่อัตโนมัติ แล้วเพิ่มช่องกรอกใน `views/project-form.js`

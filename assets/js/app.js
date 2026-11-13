@@ -14,6 +14,7 @@ import { renderActivity } from './views/activity.js';
 import { renderLibrary } from './views/library.js';
 import { showIntro } from './views/intro.js';
 import { applyMotion, enterView, bindPointerFx, replayNext } from './motion.js';
+import { mountGuide, maybeOffer } from './guide.js';
 import { openLogin } from './views/login.js';
 import { loadDemoData } from './views/common.js';
 import { msAuth } from './backends/ms-auth.js';
@@ -122,7 +123,7 @@ function route() {
     const m = h.match(re);
     if (!m) continue;
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('is-on', a.dataset.nav === nav));
-    try { fn(m); enterView(view); } catch (e) {
+    try { fn(m); enterView(view); maybeOffer(); } catch (e) {
       console.error(e);
       view.innerHTML = `<section class="panel"><div class="empty"><div class="empty-ic">${icon('alert')}</div><h3>แสดงหน้านี้ไม่ได้</h3><p>${esc(e.message)}</p><a class="btn" href="#/">กลับหน้าหลัก</a></div></section>`;
     }
@@ -293,6 +294,7 @@ async function boot() {
   matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', applyMotion);
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
   renderShell();
+  mountGuide();
   if ((location.hash || '').startsWith('#/connect')) {
     try { await store.init(); } catch { /* ignore */ }
     updateConn();
