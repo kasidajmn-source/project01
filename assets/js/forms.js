@@ -28,8 +28,8 @@ const CSS = `
 * { box-sizing: border-box; }
 body { font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: 14.5px; line-height: 1.55; color: #111; margin: 0; background: #E9EBE6; }
 .sheet { background: #fff; width: 210mm; min-height: 297mm; margin: 12px auto; padding: 14mm; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
-.bar { position: sticky; top: 0; background: #172238; color: #fff; padding: 8px 14px; display: flex; gap: 10px; align-items: center; font-family: Tahoma, sans-serif; font-size: 13px; z-index: 2; }
-.bar button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 0; cursor: pointer; background: #F2A900; color: #172238; font-weight: 700; }
+.bar { position: sticky; top: 0; background: #1D4F91; color: #fff; padding: 8px 14px; display: flex; gap: 10px; align-items: center; font-family: Tahoma, sans-serif; font-size: 13px; z-index: 2; }
+.bar button { font: inherit; padding: 6px 14px; border-radius: 3px; border: 0; cursor: pointer; background: #fff; color: #1D4F91; font-weight: 700; }
 .bar button.ghost { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.4); font-weight: 400; }
 .bar span { opacity: .8; }
 header.fh { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 6px; margin-bottom: 10px; }

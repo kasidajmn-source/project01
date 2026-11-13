@@ -1,5 +1,6 @@
 // ตัวช่วยด้านหน้าจอ: ไอคอน, รูปแบบตัวเลข/วันที่, modal, toast, gauge
 import { STATUS, num } from './calc.js';
+import { mascot, cheerAllowed } from './mascot.js';
 
 export const $ = (s, el = document) => el.querySelector(s);
 export const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -239,7 +240,10 @@ export function toast(msg, tone = 'ok', ms = 3200) {
   const el = document.createElement('div');
   el.className = `toast toast-${tone}`;
   el.setAttribute('role', tone === 'bad' ? 'alert' : 'status');
-  el.innerHTML = `${icon(tone === 'bad' ? 'alert' : tone === 'info' ? 'refresh' : 'check')}<span>${esc(msg)}</span>`;
+  // บันทึกสำเร็จ: มาสคอตกระโดดดีใจ (ไม่เกินทุก 2 นาที เพื่อไม่ให้รบกวน)
+  const cheer = tone === 'ok' && cheerAllowed() ? mascot({ pose: 'cheer', size: 'xs', cls: 'toast-msc' }) : '';
+  if (cheer) el.classList.add('has-msc');
+  el.innerHTML = `${cheer || icon(tone === 'bad' ? 'alert' : tone === 'info' ? 'refresh' : 'check')}<span>${esc(msg)}</span>`;
   root.appendChild(el);
   requestAnimationFrame(() => el.classList.add('in'));
   const close = () => { el.classList.remove('in'); setTimeout(() => el.remove(), 250); };
@@ -340,7 +344,7 @@ export function chip(status, extra = '') {
   return `<span class="chip chip-${s.tone} ${extra}">${esc(s.label)}</span>`;
 }
 
-/** มาตรวัดความคืบหน้าแบบไม้สต๊าฟ: แถบเหลือง = ผลงานจริง, เส้นตั้ง = แผน, ลายเฉียงแดง = ส่วนที่ตามหลังแผน */
+/** มาตรวัดความคืบหน้าแบบไม้สต๊าฟ: แถบน้ำเงิน = ผลงานจริง, เส้นตั้ง = แผน, ลายเฉียงแดง = ส่วนที่ตามหลังแผน */
 export function gauge(actual, plan, { size = 'sm', scale = false } = {}) {
   const a = Math.max(0, Math.min(1, num(actual))) * 100;
   const p = Math.max(0, Math.min(1, num(plan))) * 100;
@@ -355,9 +359,14 @@ export function gauge(actual, plan, { size = 'sm', scale = false } = {}) {
   </div>`;
 }
 
-export function emptyState({ ic = 'folder', title, text = '', actions = '' }) {
+/** ท่ามาสคอตตามความหมายของหน้าว่าง: ไม่มีสิทธิ์/ผิดพลาด → ตกใจ · ค้นหา → คิด · อื่นๆ → แกว่งรอ */
+const EMPTY_POSE = { lock: 'oops', alert: 'oops', search: 'think' };
+export function emptyArt(ic, pose) {
+  return mascot({ pose: pose || EMPTY_POSE[ic] || 'idle', size: 'md', cls: 'empty-msc' }) || `<div class="empty-ic">${icon(ic)}</div>`;
+}
+export function emptyState({ ic = 'folder', title, text = '', actions = '', pose = '' }) {
   return `<div class="empty">
-    <div class="empty-ic">${icon(ic)}</div>
+    ${emptyArt(ic, pose)}
     <h3>${esc(title)}</h3>
     ${text ? `<p>${text}</p>` : ''}
     ${actions ? `<div class="empty-actions">${actions}</div>` : ''}

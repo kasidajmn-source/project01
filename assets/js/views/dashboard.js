@@ -5,7 +5,9 @@ import { esc, fmt, icon, gauge, emptyState, moneyHTML } from '../ui.js';
 import { projectRow, deltaHTML, pageHead, loadDemoData } from './common.js';
 import { openProjectForm } from './project-form.js';
 import { openReportDialog, REPORT_KINDS } from './reports.js';
-import { coilSVG } from '../motion.js';
+import { conf } from '../config.js';
+import { mascot, greetDue, greetDone, greetWord } from '../mascot.js';
+import { offerPending } from '../guide.js';
 
 const R = globalThis.PTRules;
 
@@ -16,7 +18,7 @@ export function renderDashboard(el) {
   const today = todayISO();
   const sub = `ข้อมูล ณ วันที่ ${fmt.dateLong(today)}${S.orgName ? ` <span class="sep"></span>${esc(S.orgName)}` : ''}`;
   const me = store.me;
-  const newBtn = me.canCreate ? `<button class="btn btn-primary magnet" data-act="new">${icon('plus')}สร้างโครงการ</button>` : '';
+  const newBtn = me.canCreate ? `<button class="btn btn-primary" data-act="new">${icon('plus')}สร้างโครงการ</button>` : '';
 
   if (!rows.length) {
     const hidden = store.data.projects.length && !store.cloud;
@@ -60,10 +62,10 @@ export function renderDashboard(el) {
 
   el.innerHTML = `
   <header class="page-head page-hero">
-    ${coilSVG({ rings: 11, cls: 'ph-coil' })}
-    <div class="ph-text"><h1>ภาพรวม<em>โครงการ</em></h1>${sub ? `<p class="sub">${sub}</p>` : ''}</div>
+    <div class="ph-text"><h1>ภาพรวมโครงการ</h1>${sub ? `<p class="sub">${sub}</p>` : ''}</div>
     ${newBtn ? `<div class="head-actions">${newBtn}</div>` : ''}
   </header>
+  ${greeting(pf)}
   ${jobsNotice()}
   ${myWork('mw-top')}
   <section class="portfolio panel">
@@ -115,6 +117,12 @@ export function renderDashboard(el) {
 
 function bind(el) {
   el.querySelector('[data-act="new"]')?.addEventListener('click', openProjectForm);
+  el.querySelector('[data-act="greet-x"]')?.addEventListener('click', (e) => {
+    const g = e.currentTarget.closest('.greet');
+    greetClosed = true;
+    g.classList.add('is-out');
+    setTimeout(() => g.remove(), 220);
+  });
   el.querySelectorAll('[data-job]').forEach((b) => b.addEventListener('click', () => {
     const k = b.dataset.job;
     openReportDialog(k, k === 'monthly' ? {} : { date: store.thaiNow().date });
@@ -144,6 +152,38 @@ function dailyMissing() {
   if (new Date(`${t}T00:00:00Z`).getUTCDay() === 0) return [];
   return store.visibleProjects().filter((p) => store.can(p, 'recordProgress') && R.projectActive(p, t) && !store.dailyAt(p.id, t)
     && (R.roleOf(p, store.me.email) === 'supervisor' || (R.isOwner(p, store.me) && R.ownerActsAs(p) === 'supervisor')));
+}
+
+/** คำทักทายจากมาสคอต วันละครั้งต่อผู้ใช้ — บอกเรื่องที่สำคัญที่สุดของวันนี้เรื่องเดียว */
+let greetFor = null; // ผู้ใช้ที่ได้รับคำทักทายในรอบนี้ (หน้าหลักวาดใหม่ได้หลายครั้ง)
+let greetClosed = false;
+function greeting(pf) {
+  const who = R.norm(store.me.email || conf.email) || 'me';
+  // ระหว่างหน้าแนะนำหรือบทเรียน ยังไม่ทักทาย (ไม่ให้หน้าขยับ และให้ผู้ใช้เห็นคำทักทายจริงๆ ในครั้งถัดไป)
+  if (greetFor !== who && (document.querySelector('.intro, .tour, .intro-backdrop') || offerPending())) return '';
+  if (greetDue(who)) { greetFor = who; greetClosed = false; }
+  if (greetFor !== who || greetClosed) return '';
+  const q = store.legacy || !store.me.email ? null : store.myQueue();
+  const miss = store.legacy || !store.me.email ? [] : dailyMissing();
+  const name = store.me.name && store.me.name !== store.me.email ? store.me.name : conf.user;
+  let pose = 'wave', line, act = '';
+  if (q && q.decide.length) {
+    line = `มีเรื่องรอคุณพิจารณา ${q.decide.length} เรื่อง`;
+    act = '<a class="btn btn-sm" href="#/inbox">ดูเรื่องที่รอ</a>';
+  } else if (miss.length) {
+    line = `วันนี้ยังไม่ได้บันทึกรายงานประจำวัน ${miss.length} โครงการ`;
+    act = `<a class="btn btn-sm" href="#/p/${encodeURIComponent(miss[0].id)}/daily">บันทึกรายงาน</a>`;
+  } else if (pf.behind) {
+    line = `มีโครงการล่าช้ากว่าแผน ${pf.behind} โครงการ ดูได้ในส่วน "ต้องติดตาม"`;
+    pose = 'think';
+  } else {
+    line = 'ทุกโครงการเป็นไปตามแผน';
+    pose = 'cheer';
+  }
+  const art = mascot({ pose, size: 'sm', hang: true });
+  if (!art) return '';
+  greetDone(who);
+  return `<aside class="greet" aria-label="คำทักทาย">${art}<div class="greet-bubble"><b>${esc(greetWord())}${name ? ` ${esc(name)}` : ''}</b><span>${esc(line)}</span></div>${act}<button type="button" class="icon-btn greet-x" data-act="greet-x" aria-label="ปิดคำทักทาย">${icon('x')}</button></aside>`;
 }
 
 /** งานของฉัน (สรุป) */

@@ -10,6 +10,7 @@ import { pageHead, loadDemoData } from './common.js';
 import { APP_VERSION } from '../defaults.js';
 import { openLogin } from './login.js';
 import { applyMotion } from '../motion.js';
+import { mascot, mascotOn, setMascotOn, mascotName, hasCustomPack } from '../mascot.js';
 import { guideHidden, setGuideHidden, resetGuide } from '../guide.js';
 
 const R = globalThis.PTRules;
@@ -620,7 +621,7 @@ function accountSection(me) {
       ? `<div class="field"><span>บัญชี Microsoft</span><div class="acc-line">${icon('user')}<span><b>${esc(me.email || 'ยังไม่ได้ลงชื่อเข้าใช้')}</b></span></div></div>`
       : `<label class="field"><span>อีเมลของคุณ <small class="muted">(ใช้ระบุบทบาทในโครงการ)</small></span><input id="me-email" type="email" value="${esc(conf.email)}" placeholder="name@egat.co.th"></label>`;
   return `<section class="panel">
-    <header class="panel-head"><h2>บัญชีของฉัน</h2><span class="muted">${flags.map(esc).join(' · ')}</span></header>
+    <header class="panel-head"><h2>บัญชีของฉัน</h2><span class="muted">${flags.map(esc).join('<span class="sep"></span>')}</span></header>
     <div class="form-grid">
       <label class="field"><span>ชื่อที่แสดง (ในบันทึก เรื่องขออนุมัติ และอีเมล)</span><input id="me-name" value="${esc(mode === 'gas' && !store.legacy ? me.name : conf.user)}" placeholder="เช่น นายช่างสมชาย"></label>
       ${emailField}
@@ -636,6 +637,12 @@ function accountSection(me) {
           <option value="full" ${conf.motion === 'full' ? 'selected' : ''}>เปิด</option>
           <option value="off" ${conf.motion === 'off' ? 'selected' : ''}>ปิด (หน้านิ่ง ประหยัดแบตเตอรี่)</option>
         </select></label>
+      <div class="field"><span>มาสคอต${hasCustomPack() ? ` (${esc(mascotName())})` : ' (น้องดิ่ง)'}</span>
+        <div class="msc-pick">${mascot({ pose: 'wave', size: 'xs', force: true })}
+          <select id="me-mascot" aria-label="มาสคอต">
+            <option value="on" ${mascotOn() ? 'selected' : ''}>แสดง — ทักทาย สอนการใช้งาน และแจ้งผล</option>
+            <option value="off" ${mascotOn() ? '' : 'selected'}>ซ่อน (ใช้ไอคอนแทน)</option>
+          </select></div></div>
       <div class="field"><span>ไกด์สอนการใช้งาน</span>
         <div class="row-actions">
           <select id="me-guide" aria-label="ปุ่มไกด์">
@@ -682,6 +689,7 @@ function bindAccount(el) {
   el.querySelector('#me-theme').addEventListener('change', (e) => { conf.theme = e.target.value; saveConf(); applyTheme(); });
   el.querySelector('#me-guide').addEventListener('change', (e) => { setGuideHidden(e.target.value === 'hide'); toast(e.target.value === 'hide' ? 'ซ่อนปุ่มไกด์แล้ว — เปิดบทเรียนได้จากหน้าคู่มือ' : 'แสดงปุ่มไกด์แล้ว', 'info'); });
   el.querySelector('[data-act="guide-reset"]').addEventListener('click', () => { resetGuide(); setGuideHidden(false); el.querySelector('#me-guide').value = 'show'; toast('ล้างสถานะบทเรียนแล้ว — เปิดบทเรียนได้จากปุ่มไกด์', 'info'); });
+  el.querySelector('#me-mascot').addEventListener('change', (e) => { setMascotOn(e.target.value === 'on'); toast(e.target.value === 'on' ? `แสดง${mascotName()}แล้ว` : 'ซ่อนมาสคอตแล้ว', 'info'); });
   el.querySelector('#me-motion').addEventListener('change', (e) => { conf.motion = e.target.value; saveConf(); applyMotion(); toast(conf.motion === 'off' ? 'ปิดภาพเคลื่อนไหวแล้ว' : 'ตั้งค่าภาพเคลื่อนไหวแล้ว', 'info'); });
   el.querySelector('[data-act="actas"]')?.addEventListener('click', () => {
     conf.actAs = el.querySelector('#me-actas').value;
@@ -721,7 +729,8 @@ function systemSection(me, S) {
   const myDomain = (String(me.email || '').split('@')[1] || '').toLowerCase();
   const orgDomain = myDomain && !/^(gmail|hotmail|outlook|yahoo|live|icloud)\./.test(myDomain) ? `@${myDomain}` : '';
   return `<section class="panel" id="sys-users">
-    ${gasAdmin && store.serverOutdated('1.0.8') ? `<p class="notice notice-warn">${icon('shield')}<span><b>มีการปรับปรุงความปลอดภัยของ Code.gs (1.0.8)</b> — ระงับอีเมลที่ใส่รหัสผิดหลายครั้งและแจ้งผู้ดูแล · ลิงก์ในอีเมลใช้เฉพาะลิงก์ที่ผู้ดูแลตั้ง · ออกจากระบบทุกเครื่อง · ซ่อนรายชื่ออีเมลภายในจากผู้รับจ้าง — วาง Code.gs ใหม่ แล้ว "จัดการการทำให้ใช้งานได้ › แก้ไข › เวอร์ชันใหม่"</span></p>` : ''}
+    ${gasAdmin && store.serverOutdated('1.0.8') ? `<p class="notice notice-warn">${icon('shield')}<span><b>มีการปรับปรุงความปลอดภัยของ Code.gs (1.0.8)</b> — ระงับอีเมลที่ใส่รหัสผิดหลายครั้งและแจ้งผู้ดูแล · ลิงก์ในอีเมลใช้เฉพาะลิงก์ที่ผู้ดูแลตั้ง · ออกจากระบบทุกเครื่อง · ซ่อนรายชื่ออีเมลภายในจากผู้รับจ้าง — วาง Code.gs ใหม่ แล้ว "จัดการการทำให้ใช้งานได้ › แก้ไข › เวอร์ชันใหม่"</span></p>`
+    : gasAdmin && store.serverOutdated('1.0.9') ? `<p class="notice notice-warn">${icon('shield')}<span><b>มี Code.gs เวอร์ชัน 1.0.9</b> — เซิร์ฟเวอร์ตรวจข้อมูลเข้มขึ้น (รหัสข้อมูล วันที่และปริมาณงานในบันทึกความคืบหน้า ไฟล์นำเข้า) กันข้อมูลผิดรูปแบบทำให้ระบบใช้งานไม่ได้ — วาง Code.gs ใหม่ แล้ว "จัดการการทำให้ใช้งานได้ › แก้ไข › เวอร์ชันใหม่"</span></p>` : ''}
     <header class="panel-head"><h2>ผู้ใช้และสิทธิ์ของระบบ</h2>${gasAdmin && !store.serverOutdated('1.0.8') ? menu({ btnCls: 'btn-sm btn-ghost', title: 'เครื่องมือความปลอดภัย', items: [{ act: 'revoke', icon: 'shield', label: 'บังคับออกจากระบบ / ปลดล็อกอีเมล', sub: 'ออกจากระบบทุกเครื่องของอีเมลนั้น และปลดการระงับจากการใส่รหัสผิด' }] }) : ''}<span class="muted">${me.isAdmin ? 'ผู้ดูแลระบบแก้ไขได้' : 'ดูได้อย่างเดียว — แก้ไขได้เฉพาะผู้ดูแลระบบ'}</span></header>
     ${noAdmins ? `<div class="notice notice-warn">${icon('alert')}<div><b>ยังไม่ได้กำหนดผู้ดูแลระบบ</b><span>ตอนนี้ทุกคนที่เข้าไซต์ได้มีสิทธิ์ผู้ดูแลระบบ ใส่อีเมลของคุณในช่องผู้ดูแลระบบเพื่อจำกัดสิทธิ์</span></div></div>` : ''}
     <div class="form-grid">

@@ -1,21 +1,23 @@
 // หน้าแนะนำระบบแบบเต็มจอ (1.0.6) — แทนหน้าต่าง "ยินดีต้อนรับ" เดิม
-// โทนเดิมของระบบ: น้ำเงินพิมพ์เขียว + เหลืองเซฟตี้ · ตัวอักษรใหญ่ · การ์ดลอยเลื่อนตามการเลื่อนหน้า · แถบเมนูลอยด้านล่าง
+// 1.0.9: กระดาษพิมพ์เขียว + ส้มหน้างาน · ลูกดิ่ง (มาสคอต) ห้อยลงมาทักทาย · ตัวอักษรใหญ่ · การ์ดลอยเลื่อนตามการเลื่อนหน้า
 import { conf } from '../config.js';
 import { esc, icon } from '../ui.js';
-import { coilSVG, motionOn } from '../motion.js';
+import { motionOn } from '../motion.js';
+import { mascot } from '../mascot.js';
 import { APP_VERSION } from '../defaults.js';
 
 const MARK = `<svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="10" y="2" width="12" height="28" rx="1.5" class="bm-staff"/><path class="bm-e" d="M10 5h6v1.6h-6zM10 8.2h4v1.6h-4zM10 11.4h6v1.6h-6zM16 14.6h6v1.6h-6zM18 17.8h4v1.6h-4zM16 21h6v1.6h-6zM10 24.2h6v1.6h-6z"/></svg>`;
 
 function heroBg() {
-  return `<div class="hero-bg" aria-hidden="true"><div class="hero-glow"></div>${coilSVG({ rings: 15, cls: 'coil-hero' })}<div class="hero-grid"></div></div>`;
+  const m = mascot({ pose: 'wave', size: 'lg', hang: true });
+  return `<div class="hero-bg" aria-hidden="true"><div class="hero-grid"></div>${m ? `<div class="hero-msc">${m}</div>` : ''}</div>`;
 }
 
 /** ฉากหลังแบบหน้าแนะนำ ใช้หลังหน้าต่างเข้าสู่ระบบ — คืนฟังก์ชันสำหรับเอาออก */
 export function introBackdrop() {
   const el = document.createElement('div');
   el.className = 'intro-backdrop';
-  el.innerHTML = `${heroBg()}<div class="ib-text"><span class="intro-eyebrow">${MARK}ติดตามโครงการ</span><h1 class="intro-h1">ทุกโครงการ<br><em>ในที่เดียว</em></h1></div>`;
+  el.innerHTML = `${heroBg()}<div class="ib-text"><span class="intro-eyebrow">${MARK}ติดตามโครงการ</span><h1 class="intro-h1">ทุกโครงการ<br>ในที่เดียว</h1></div>`;
   document.body.appendChild(el);
   requestAnimationFrame(() => el.classList.add('is-in'));
   return () => { el.classList.remove('is-in'); setTimeout(() => el.remove(), 350); };
@@ -46,7 +48,7 @@ export function showIntro({ onPick, tour = false } = {}) {
     <div class="intro-hero-in">
       <div class="intro-copy">
         <span class="intro-pill">${icon('shield')}สำหรับทีมควบคุมงานก่อสร้าง</span>
-        <h1 class="intro-h1">ทุกโครงการ<br><em>ในที่เดียว</em></h1>
+        <h1 class="intro-h1">ทุกโครงการ<br>ในที่เดียว</h1>
         <p class="intro-lead">เอกสาร ความคืบหน้าจาก BOQ เรื่องขออนุมัติ รายงานประจำวัน และสรุปผู้บริหาร — <span class="nw">ผู้ควบคุมงาน</span> <span class="nw">คณะกรรมการ</span> <span class="nw">ผู้รับจ้าง</span> และ<span class="nw">หัวหน้า</span>ใช้ข้อมูลชุดเดียวกัน</p>
       </div>
       ${tour ? '' : `<form class="intro-card" id="wc" novalidate>
@@ -65,18 +67,18 @@ export function showIntro({ onPick, tour = false } = {}) {
 
   <section class="intro-all" id="in-all">
     <h2 class="intro-giant" data-scale>รวมทุกงาน<br>ไว้ด้วยกัน</h2>
-    ${card('fc-prog', `<small>CN-69-014 · อาคารสำนักงาน</small><b class="num">41.1<i>%</i></b><span class="fc-bar"><i style="width:41%"></i><em style="left:46%"></em></span><small>แผน 45.7% · เฝ้าระวัง</small>`, -0.35)}
+    ${card('fc-prog', `<small>อาคารสำนักงาน CN-69-014</small><b class="num">41.1<i>%</i></b><span class="fc-bar"><i style="width:41%"></i><em style="left:46%"></em></span><small>แผน 45.7% เฝ้าระวัง</small>`, -0.35)}
     ${card('fc-ok', `${icon('check')}<span><b>ขออนุมัติวัสดุ #012</b><small>ประธานกรรมการอนุมัติแล้ว</small></span>`, 0.25)}
-    ${card('fc-day', `${icon('sun')}<span><b>รายงานประจำวัน</b><small>แจ่มใส · คนงาน 24 คน · เทคอนกรีตเสา</small></span>`, -0.15)}
+    ${card('fc-day', `${icon('sun')}<span><b>รายงานประจำวัน</b><small>แจ่มใส คนงาน 24 คน เทคอนกรีตเสา</small></span>`, -0.15)}
     ${card('fc-chat', `${icon('message')}<span><b>ห้องโครงการ</b><small>"พรุ่งนี้ 09:00 ประชุมหน้างานครับ"</small></span>`, 0.4)}
     ${card('fc-mail', `${icon('mail')}<span><b>รายงานประจำสัปดาห์</b><small>ส่งถึงคณะกรรมการ 5 คนแล้ว</small></span>`, -0.28)}
   </section>
 
   <section class="intro-steps" id="in-steps">
     ${[
-    ['amber', 'clipboard', 'บันทึก', 'ความคืบหน้าจาก BOQ รายสัปดาห์ · รายงานประจำวัน · รูปถ่ายหน้างาน'],
-    ['green', 'check', 'อนุมัติ', 'ผู้ควบคุมงาน → กรรมการตามลำดับ → ประธาน · โหวตเลือกวัสดุ · ทุกขั้นแจ้งทางอีเมล'],
-    ['blue', 'mail', 'รายงาน', 'รายวัน รายสัปดาห์ รายเดือน ส่งเข้าอีเมลอัตโนมัติ · สรุปผู้บริหารพร้อมนำเสนอ'],
+    ['amber', 'clipboard', 'บันทึก', 'ความคืบหน้าจาก BOQ รายสัปดาห์ รายงานประจำวัน และรูปถ่ายหน้างาน'],
+    ['green', 'check', 'อนุมัติ', 'ผู้ควบคุมงานส่งต่อกรรมการตามลำดับจนถึงประธาน โหวตเลือกวัสดุได้ และแจ้งทางอีเมลทุกขั้น'],
+    ['blue', 'mail', 'รายงาน', 'รายวัน รายสัปดาห์ รายเดือน ส่งเข้าอีเมลอัตโนมัติ พร้อมสรุปผู้บริหารสำหรับนำเสนอ'],
   ].map(([c, ic, w, d]) => `<div class="intro-step st-${c}"><span class="st-tile">${icon(ic)}</span><div><h3>${w}</h3><p>${d}</p></div></div>`).join('')}
   </section>
 

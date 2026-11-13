@@ -2,9 +2,11 @@
 // - ปุ่มไกด์มุมขวาล่าง → แผงบทเรียนตามบทบาท
 // - บทเรียนแบบเกม: ไฮไลต์ทีละจุด ผู้ใช้ "ลองทำ" เอง หรือกด "ทำให้ดู" / "ข้าม"
 // - ผู้ใช้ใหม่: หลังผ่านหน้าแนะนำเข้าหน้าใช้งาน จะถามว่าจะเริ่มบทเรียนหรือข้าม
+// - 1.0.9: มาสคอตอยู่บนปุ่มไกด์ ทักทายในแผง ชี้ไปยังจุดที่ไฮไลต์ และฉลองเมื่อจบบท
 import { store, conf, saveConf } from './store.js';
 import { icon, esc } from './ui.js';
 import { motionOn } from './motion.js';
+import { mascot, mascotOn, mascotName } from './mascot.js';
 import { LESSONS, lessonById, lessonCtx, recommended, stepsOf, rolesText, demoEmailFor } from './lessons.js';
 
 const R = globalThis.PTRules;
@@ -56,13 +58,21 @@ export function mountGuide() {
   fab.className = 'guide-fab';
   fab.setAttribute('aria-label', 'ไกด์สอนการใช้งาน');
   fab.setAttribute('aria-haspopup', 'dialog');
-  fab.innerHTML = `${icon('compass')}<span class="gf-txt">ไกด์</span><i class="gf-dot" hidden></i>`;
+  paintFab();
   fab.addEventListener('click', () => (panelEl ? closePanel() : openPanel()));
+  window.addEventListener('pt:mascot', () => { paintFab(); refreshFab(); });
   document.body.appendChild(fab);
   window.addEventListener('pt:conn', refreshFab);
   window.addEventListener('pt:data', refreshFab);
   window.addEventListener('pt:guide', (e) => (e.detail?.lesson ? startLesson(e.detail.lesson) : openPanel()));
   refreshFab();
+}
+
+function paintFab() {
+  if (!fab) return;
+  const m = mascot({ pose: 'idle', size: 'xs', cls: 'gf-msc' });
+  fab.classList.toggle('has-msc', !!m);
+  fab.innerHTML = `${m || icon('compass')}<span class="gf-txt">ไกด์</span><i class="gf-dot" hidden></i>`;
 }
 
 function refreshFab() {
@@ -103,7 +113,7 @@ export function openPanel() {
   panelEl.className = 'gp-wrap';
   panelEl.innerHTML = `<section class="gp" role="dialog" aria-modal="false" aria-labelledby="gp-h">
     <header class="gp-head">
-      <span class="gp-badge">${icon('compass')}</span>
+      ${mascot({ pose: 'wave', size: 'sm' }) || `<span class="gp-badge">${icon('compass')}</span>`}
       <div><h2 id="gp-h">ไกด์สอนการใช้งาน</h2><small>${roles.length ? `คุณคือ ${esc(roles.join(' · '))}` : 'เลือกบทเรียนที่ต้องการ'}</small></div>
       <button type="button" class="gp-x" data-close aria-label="ปิด">${icon('x')}</button>
     </header>
@@ -163,6 +173,10 @@ function switchAs(email) {
 // =====================================================================
 let offerTimer = 0;
 const autoAllowed = () => !navigator.webdriver || localStorage.getItem('pt.guide.auto') === '1';
+/** ผู้ใช้นี้กำลังจะได้รับคำชวนเรียน (ยังไม่เคยชวน) — หน้าหลักจะเลื่อนคำทักทายของมาสคอตไปครั้งถัดไป */
+export function offerPending() {
+  try { return autoAllowed() && !guideHidden() && !store.needLogin && !!conf.onboarded && !ustate().offered; } catch { return false; }
+}
 
 /** เรียกหลังวาดทุกหน้า — ชวนครั้งเดียวต่อผู้ใช้ เมื่อพร้อมใช้งานจริง */
 export function maybeOffer() {
@@ -188,9 +202,9 @@ function showOffer() {
   tour.card({
     center: true,
     kind: 'offer',
-    html: `<div class="tb-hero"><span class="tb-badge">${icon('compass')}</span></div>
+    html: `<div class="tb-hero">${mascot({ pose: 'wave', size: 'lg' }) || `<span class="tb-badge">${icon('compass')}</span>`}</div>
       <h3 id="tb-h">สวัสดี${name ? ` ${esc(name)}` : ''}</h3>
-      <p>อยากให้พาใช้งานทีละขั้นไหม? เหมือนบทสอนเล่นเกม — ไฮไลต์ให้ดูทีละจุด ลองกดเองได้ หรือข้ามได้ทุกเมื่อ</p>
+      <p>${mascotOn() ? `${esc(mascotName())}จะพาใช้งานทีละขั้น` : 'อยากให้พาใช้งานทีละขั้นไหม?'} เหมือนบทสอนเล่นเกม — ไฮไลต์ให้ดูทีละจุด ลองกดเองได้ หรือข้ามได้ทุกเมื่อ</p>
       <ol class="tb-path">${rec.map((l, i) => `<li><span class="gp-tile t-${l.tone}">${icon(l.icon)}</span><span><b>${esc(l.title)}</b><small>${stepsOf(l, c).length} ขั้นตอน${i === 0 ? ' · เริ่มที่บทนี้' : ''}</small></span></li>`).join('')}</ol>`,
     buttons: [
       { label: 'ข้ามไปก่อน', act: 'skip', cls: 'tb-ghost' },
@@ -346,6 +360,9 @@ function placeCard(T, r, vw, vh) {
   card.classList.add(`at-${side}`);
   card.style.left = `${x}px`;
   card.style.top = `${y}px`;
+  // มาสคอตชี้ไปทางเป้าหมาย
+  const m = card.querySelector('.tb-msc');
+  if (m && m.dataset.pose === 'point') m.classList.toggle('is-flip', r.x + r.w / 2 < x + 30);
   // ลูกศรชี้ไปที่เป้าหมาย
   const ax = side === 'bottom' || side === 'top' ? Math.min(Math.max(22, r.x + r.w / 2 - x), cw - 22) : null;
   const ay = side === 'left' || side === 'right' ? Math.min(Math.max(22, r.y + r.h / 2 - y), ch - 22) : null;
@@ -353,15 +370,16 @@ function placeCard(T, r, vw, vh) {
   card.style.setProperty('--ay', ay == null ? '50%' : `${ay}px`);
 }
 
-function renderCard(T, { center = false, kind = 'step', html, buttons = [], foot = '', on = {}, click = false, top = '' }) {
+function renderCard(T, { center = false, kind = 'step', html, buttons = [], foot = '', on = {}, click = false, top = '', msc = '' }) {
   const card = T.root.querySelector('.tr-card');
   T.center = center;
   T.on = on;
   T.kind = kind;
   T.root.classList.toggle('is-click', !!click);
   T.root.classList.toggle('is-offer', kind === 'offer' || kind === 'done');
-  card.className = `tr-card k-${kind}`;
-  card.innerHTML = `${top}<div class="tb-body">${html}</div>
+  const m = msc ? mascot({ pose: msc, size: 'sm', cls: 'tb-msc' }) : '';
+  card.className = `tr-card k-${kind}${m ? ' has-msc' : ''}`;
+  card.innerHTML = `${top}<div class="tb-body">${m ? `${m}<div class="tb-text">${html}</div>` : html}</div>
     ${buttons.length ? `<div class="tb-actions">${buttons.map((b) => `<button type="button" class="tb-btn ${b.cls || ''}" data-tb="${b.act}">${b.label}</button>`).join('')}</div>` : ''}
     ${foot ? `<p class="tb-foot">${foot}</p>` : ''}`;
   card.querySelectorAll('[data-tb]').forEach((b) => b.addEventListener('click', () => on[b.dataset.tb]?.()));
@@ -468,6 +486,7 @@ export async function startLesson(id, { chain = null } = {}) {
     T.card({
       center: !el,
       click,
+      msc: missing ? 'think' : !el ? (i === 0 ? 'wave' : 'idle') : i === 0 && !click ? 'wave' : 'point',
       top: `<div class="tb-top"><span class="tb-lesson t-${lesson.tone}">${icon(lesson.icon)}${esc(lesson.chip || lesson.role)}</span>${click ? `<span class="tb-try">${icon('hand')}ลองทำ</span>` : missing ? `<span class="tb-try tb-info">${icon('help')}คำอธิบาย</span>` : ''}<span class="tb-count num">${i + 1}/${steps.length}</span>
         <button type="button" class="tb-x" data-tb="skipAll" aria-label="ข้ามบทเรียน" title="ข้ามบทเรียน (Esc)">${icon('x')}</button></div>`,
       html: `<h3 id="tb-h">${esc(step.title)}</h3><p>${text}</p><div class="tb-dots" aria-hidden="true">${dots}</div>`,
@@ -517,7 +536,7 @@ export async function startLesson(id, { chain = null } = {}) {
     T.card({
       center: true,
       kind: 'done',
-      html: `<div class="tb-hero"><span class="tb-badge is-done">${icon('award')}</span>${confetti()}</div>
+      html: `<div class="tb-hero">${mascot({ pose: 'cheer', size: 'lg' }) || `<span class="tb-badge is-done">${icon('award')}</span>`}${confetti()}</div>
         <h3 id="tb-h">ผ่านบทเรียนแล้ว!</h3>
         <p><b>${esc(lesson.title)}</b></p>
         <div class="gp-prog tb-prog"><span>บทที่แนะนำสำหรับคุณ เรียนแล้ว <b>${done}</b> จาก ${rec.length}</span><i><b style="width:${rec.length ? Math.round((done / rec.length) * 100) : 100}%"></b></i></div>
@@ -538,7 +557,7 @@ export async function startLesson(id, { chain = null } = {}) {
 
 function confetti() {
   if (!motionOn()) return '';
-  const colors = ['#F2A900', '#172238', '#3DBB82', '#2F66C0', '#E5484D', '#FFC233'];
+  const colors = ['#E8590C', '#FFFFFF', '#2E7D4F', '#4C82D0', '#C2362F', '#F7843F'];
   return `<span class="tb-confetti" aria-hidden="true">${Array.from({ length: 18 }, (_, k) => {
     const a = (k / 18) * Math.PI * 2;
     const d = 70 + (k % 3) * 26;

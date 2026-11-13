@@ -475,6 +475,50 @@
     var d = new Date(v + 'T00:00:00Z');
     return !isNaN(d) && d.toISOString().slice(0, 10) === v;
   }
+  // ---------- 1.0.9 คีย์/รหัสที่ผู้ใช้ส่งมา: ห้ามชื่อพิเศษของ JavaScript (กัน prototype pollution / ทับฟังก์ชันของออบเจกต์) ----------
+  var RESERVED_KEYS = ['__proto__', 'constructor', 'prototype', 'toString', 'toLocaleString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf',
+    'propertyIsEnumerable', '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__'];
+  function safeKey(k) { return typeof k === 'string' && k.length > 0 && RESERVED_KEYS.indexOf(k) < 0; }
+  /** รหัสข้อมูลที่ผู้ใช้กำหนดเองได้: ขึ้นต้นด้วยตัวอักษร/ตัวเลข ตามด้วย a-z 0-9 _ - รวม min–60 ตัว */
+  function safeId(id, min) {
+    min = min || 4;
+    return typeof id === 'string' && id.length >= min && id.length <= 60 && /^[A-Za-z0-9][\w-]*$/.test(id) && safeKey(id);
+  }
+  function isPlainObj(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
+  /** ปริมาณงานที่บันทึกในแต่ละรายการ BOQ: { boqId: จำนวน } — คีย์ต้องเป็นรหัสที่ปลอดภัย (และอยู่ใน allow ถ้าระบุ) ค่าต้องเป็นตัวเลขจริง */
+  function cleanEntries(e, allow) {
+    var out = {};
+    if (!isPlainObj(e)) return out;
+    var ok = null;
+    if (allow) { ok = {}; allow.forEach(function (id) { ok['k' + id] = true; }); }
+    Object.keys(e).slice(0, 5000).forEach(function (k) {
+      if (!safeId(k, 1) || (ok && !ok['k' + k])) return;
+      var v = Number(e[k]);
+      if (!isFinite(v) || Math.abs(v) < 1e-12 || Math.abs(v) > 1e13) return;
+      out[k] = Math.round(v * 1e6) / 1e6;
+    });
+    return out;
+  }
+  /** บันทึกความคืบหน้า: วันที่ถูกต้องและไม่เกินพรุ่งนี้ (เวลาไทย) เปอร์เซ็นต์ 0–100 ข้อความยาวไม่เกินกำหนด */
+  function checkUpdate(u, nowMs) {
+    if (!isPlainObj(u)) throw fail('ข้อมูลบันทึกความคืบหน้าไม่ถูกต้อง', 'invalid');
+    if (!validIsoDate(u.date)) throw fail('วันที่ไม่ถูกต้อง', 'invalid');
+    var max = new Date((nowMs || Date.now()) + 7 * 3600e3 + 864e5).toISOString().slice(0, 10);
+    if (u.date > max) throw fail('บันทึกความคืบหน้าล่วงหน้าไม่ได้', 'invalid');
+    var o = {};
+    Object.keys(u).forEach(function (k) { if (safeKey(k)) o[k] = u[k]; });
+    o.note = cut(u.note, 5000);
+    o.issues = cut(u.issues, 5000);
+    if (u.manualPct === '' || u.manualPct == null) o.manualPct = '';
+    else {
+      var m = Number(u.manualPct);
+      if (!isFinite(m)) throw fail('เปอร์เซ็นต์ผลงานต้องเป็นตัวเลข', 'invalid');
+      o.manualPct = Math.min(100, Math.max(0, m));
+    }
+    var w = Number(u.week);
+    o.week = u.week === '' || u.week == null || !isFinite(w) ? '' : Math.max(0, Math.min(9999, Math.round(w)));
+    return o;
+  }
   function seatOf_(v) {
     if (v === '' || v == null || !isFinite(+v)) return '';
     var n = Math.round(+v);
@@ -504,6 +548,12 @@
   function checkProject(p) {
     p.name = String(p.name || '').trim().slice(0, 200);
     if (!p.name) throw fail('กรุณาระบุชื่อโครงการ', 'invalid');
+    // 1.0.9 จำกัดความยาวข้อความ และชนิดข้อมูลของรายการ
+    ['code', 'contractNo'].forEach(function (k) { if (p[k] != null) p[k] = cut(p[k], 60); });
+    ['type', 'contractor', 'manager', 'location', 'owner'].forEach(function (k) { if (p[k] != null) p[k] = cut(p[k], 200); });
+    if (p.description != null) p.description = cut(p.description, 5000);
+    if (p.tags != null) p.tags = (Array.isArray(p.tags) ? p.tags : []).map(function (t) { return cut(t, 40); }).filter(Boolean).slice(0, 20);
+    if (p.docCategories != null) p.docCategories = (Array.isArray(p.docCategories) ? p.docCategories : []).map(function (t) { return cut(t, 80); }).filter(Boolean).slice(0, 60);
     ['startDate', 'endDate'].forEach(function (k) { if (p[k] && !validIsoDate(p[k])) p[k] = ''; });
     if (p.startDate && p.endDate && p.endDate < p.startDate) throw fail('วันสิ้นสุดสัญญาต้องไม่ก่อนวันเริ่มสัญญา', 'invalid');
     if (p.contractValue !== '' && p.contractValue != null) {
@@ -516,7 +566,8 @@
   /** ค่ากลาง: จำนวนวัน/เปอร์เซ็นต์ต้องเป็นตัวเลขบวก */
   function checkSettings(s) {
     var o = {};
-    Object.keys(s || {}).forEach(function (k) { o[k] = s[k]; });
+    if (!isPlainObj(s)) s = {};
+    Object.keys(s).forEach(function (k) { if (safeKey(k)) o[k] = s[k]; });
     ['slaWarnDays', 'slaLateDays', 'staleDays'].forEach(function (k) {
       if (o[k] === '' || o[k] == null) return;
       var n = Math.round(Number(o[k]));
@@ -817,12 +868,12 @@
       return '<tr><td style="padding:4px 12px 4px 0;color:#737D90;white-space:nowrap;vertical-align:top">' + esc(r[0]) + '</td><td style="padding:4px 0;color:#172238">' + r[1] + '</td></tr>';
     }).join('');
     return '<div style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6;color:#172238;max-width:620px">' +
-      '<div style="border-left:4px solid #F2A900;padding:4px 0 4px 14px;margin-bottom:14px"><div style="font-size:12px;color:#737D90">ระบบติดตามโครงการ</div>' +
+      '<div style="border-left:4px solid #E8590C;padding:4px 0 4px 14px;margin-bottom:14px"><div style="font-size:12px;color:#737D90">ระบบติดตามโครงการ</div>' +
       '<div style="font-size:18px;font-weight:bold">' + esc(title) + '</div></div>' +
       (lead ? '<p style="margin:0 0 12px">' + lead + '</p>' : '') +
       '<table style="border-collapse:collapse;margin:0 0 12px">' + rowHtml + '</table>' +
       (body || '') +
-      (link ? '<p style="margin:18px 0"><a href="' + esc(link) + '" style="background:#172238;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px;display:inline-block">' + esc(linkLabel || 'เปิดในระบบ') + '</a></p>' : '') +
+      (link ? '<p style="margin:18px 0"><a href="' + esc(link) + '" style="background:#1D4F91;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px;display:inline-block">' + esc(linkLabel || 'เปิดในระบบ') + '</a></p>' : '') +
       '<p style="font-size:12px;color:#737D90;margin-top:20px">อีเมลนี้ส่งอัตโนมัติจากระบบติดตามโครงการ ปรับการรับอีเมลได้ที่เจ้าของโครงการ</p></div>';
   }
 
@@ -1573,6 +1624,7 @@
     recipients: recipients, subEmail: subEmail, mailPlan: mailPlan, progressEmail: progressEmail, inviteEmail: inviteEmail, reminderEmail: reminderEmail,
     thaiDateTime: thaiDateTime, esc: esc, addDaysIso: addDaysIso, daysBetween: daysBetween,
     validIsoDate: validIsoDate, cleanMembers: cleanMembers, checkProject: checkProject, checkSettings: checkSettings,
+    safeKey: safeKey, safeId: safeId, isPlainObj: isPlainObj, cleanEntries: cleanEntries, checkUpdate: checkUpdate,
     isDept: isDept, CHANNELS: CHANNELS, AUDIENCES: AUDIENCES, MEETING_STATUS: MEETING_STATUS, MAX_MSG: MAX_MSG,
     canReadChannel: canReadChannel, canPostChannel: canPostChannel, canSeeMeeting: canSeeMeeting, canCreateMeeting: canCreateMeeting,
     canEditMeeting: canEditMeeting, canToggleAction: canToggleAction, newMessage: newMessage, canDeleteMessage: canDeleteMessage,

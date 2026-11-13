@@ -22,7 +22,7 @@ export function renderUpdates(el, ctx, sub) {
 /** ความคืบหน้าหลังแต่ละการบันทึก */
 function progressTrail(p, items, ups) {
   const out = new Map();
-  const cum = {};
+  const cum = Object.create(null);
   let manual = null;
   for (const u of sortUpdates(ups)) {
     for (const k in u.entries || {}) cum[k] = (cum[k] || 0) + num(u.entries[k]);
@@ -40,7 +40,7 @@ function renderHistory(el, ctx) {
   const trail = progressTrail(p, items, ups);
   const needsBoq = !['manual', 'time'].includes(p.progressMethod) && !items.length;
   const photos = store.filesOf(p.id).filter((f) => f.updateId);
-  const photoCount = {};
+  const photoCount = Object.create(null);
   for (const f of photos) photoCount[f.updateId] = (photoCount[f.updateId] || 0) + 1;
   const canRec = store.can(p, 'recordProgress');
 
@@ -137,7 +137,7 @@ function renderEditor(el, ctx, id) {
         <h2>${existing ? 'แก้ไขบันทึกความคืบหน้า' : 'บันทึกความคืบหน้า'} <span id="u-week" class="muted"></span></h2>
         <p class="muted">${esc(METHODS[method].label)}</p>
       </div>
-      <label class="field field-inline"><span>วันที่</span><input type="date" name="date" value="${esc(draft.date)}" required></label>
+      <label class="field field-inline"><span>วันที่</span><input type="date" name="date" value="${esc(draft.date)}" max="${esc(store.thaiNow().date)}" required></label>
     </header>
 
     <div class="upd-live" id="u-live" aria-live="polite"></div>

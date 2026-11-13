@@ -53,7 +53,7 @@ var CONFIG = {
   MAIL_RESERVE: 15,
 };
 
-var VERSION = '1.0.8';
+var VERSION = '1.0.9';
 var LIBRARY_FOLDER = 'คลังแบบฟอร์มและระเบียบ';
 var DAILY_FILE_CATEGORY = 'รูปถ่ายความคืบหน้า';
 var SUB_FILE_CATEGORY = 'เอกสารแนบเรื่องขออนุมัติ';
@@ -119,12 +119,14 @@ function doPost(e) {
   } catch (err) {
     return json_({ ok: false, error: 'รูปแบบคำขอไม่ถูกต้อง' });
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json_({ ok: false, error: 'รูปแบบคำขอไม่ถูกต้อง' });
   var key = accessKey_();
   if (key && body.key !== key) {
     return json_({ ok: false, code: 'auth', error: 'รหัสเข้าใช้งานไม่ถูกต้อง — ตรวจสอบรหัสในหน้าตั้งค่า' });
   }
-  var fn = ACTIONS[body.action];
-  if (!fn) return json_({ ok: false, error: 'ไม่รู้จักคำสั่ง: ' + body.action });
+  // 1.0.9 รับเฉพาะชื่อคำสั่งที่มีอยู่จริง (ไม่ใช่ชื่อที่สืบทอดจาก Object เช่น constructor, toString)
+  var fn = typeof body.action === 'string' && Object.prototype.hasOwnProperty.call(ACTIONS, body.action) ? ACTIONS[body.action] : null;
+  if (typeof fn !== 'function') return json_({ ok: false, error: 'ไม่รู้จักคำสั่ง: ' + String(body.action).slice(0, 40) });
 
   var lock = null;
   try {
@@ -285,8 +287,8 @@ var ACTIONS = {
       fail_('บัญชีนี้ไม่ได้เป็นสมาชิกของโครงการใดแล้ว — ระบบออกจากระบบให้', 'login');
     }
     var projects = readTable_('Projects').filter(function (p) { return R.canView(p, me); });
-    var ids = {};
-    var byId = {};
+    var ids = Object.create(null);
+    var byId = Object.create(null);
     projects.forEach(function (p) { ids[p.id] = true; byId[p.id] = p; });
     var pick = function (t) { return readTable_(t).filter(function (r) { return ids[r.projectId]; }); };
     return {
@@ -331,7 +333,7 @@ var ACTIONS = {
       p.ownerEmail = me.email;
       p.ownerName = me.name;
       if (!me.isAdmin) { p.folderId = ''; p.folderUrl = ''; }
-      if (p.id && !/^[\w-]{4,60}$/.test(p.id)) p.id = '';
+      if (p.id && !R.safeId(p.id)) p.id = '';
     }
     if (owner) {
       p.ownerRole = R.OWNER_ACTS[p.ownerRole] ? p.ownerRole : 'supervisor';
@@ -390,12 +392,16 @@ var ACTIONS = {
     need_(p, ctx.me, 'editBoq', 'คุณไม่มีสิทธิ์แก้ไข BOQ และแผนงานของโครงการนี้');
     // รหัสรายการที่เป็นของโครงการอื่น ห้ามนำมาใช้ซ้ำ
     var foreign = {};
-    readTable_('BOQ').forEach(function (r) { if (r.projectId !== b.projectId) foreign[r.id] = true; });
-    var items = (b.items || []).map(function (it, i) {
+    readTable_('BOQ').forEach(function (r) { if (r.projectId !== b.projectId) foreign['k' + r.id] = true; });
+    if (b.items != null && !Array.isArray(b.items)) fail_('รายการ BOQ ไม่ถูกต้อง', 'invalid');
+    var src = (b.items || []).filter(function (it) { return R_().isPlainObj(it); });
+    if (src.length > 5000) fail_('รายการ BOQ มากเกินไป (สูงสุด 5,000 รายการ)', 'invalid');
+    var items = src.map(function (it, i) {
       var ps = num_(it.ps), pe = num_(it.pe);
       return {
-        id: it.id && !foreign[it.id] && /^[\w-]{1,60}$/.test(it.id) ? it.id : newId_('B'), projectId: b.projectId, group: it.group || '', no: it.no || '', desc: it.desc || '',
-        unit: it.unit || '', qty: num_(it.qty), mat: num_(it.mat), labor: num_(it.labor),
+        id: it.id && !foreign['k' + it.id] && R_().safeId(it.id, 1) ? it.id : newId_('B'), projectId: b.projectId,
+        group: str_(it.group, 200), no: str_(it.no, 40), desc: str_(it.desc, 2000),
+        unit: str_(it.unit, 40), qty: num_(it.qty), mat: num_(it.mat), labor: num_(it.labor),
         weight: it.weight === '' || it.weight == null ? '' : num_(it.weight), order: i + 1,
         ps: ps > 0 ? Math.round(ps) : '', pe: pe > 0 ? Math.round(pe) : '',
       };
@@ -416,10 +422,13 @@ var ACTIONS = {
     var now = nowIso_();
     var old = u.id ? findById_('Updates', u.id) : null;
     if (old && old.projectId !== p.id) forbid_();
+    // 1.0.9 ตรวจวันที่ เปอร์เซ็นต์ ความยาวข้อความ และปริมาณงานเฉพาะรายการ BOQ ของโครงการนี้
+    u = R.checkUpdate(u, Date.now());
+    var boqIds = readTable_('BOQ').filter(function (r) { return r.projectId === p.id; }).map(function (r) { return r.id; });
     var rec = {
-      id: u.id || newId_('U'), projectId: u.projectId, date: u.date, week: u.week === '' ? '' : num_(u.week),
-      entries: u.entries || {}, manualPct: u.manualPct === '' || u.manualPct == null ? '' : num_(u.manualPct),
-      note: u.note || '', issues: u.issues || '',
+      id: old ? old.id : (R.safeId(u.id) ? u.id : newId_('U')), projectId: p.id, date: u.date, week: u.week,
+      entries: R.cleanEntries(u.entries, boqIds), manualPct: u.manualPct,
+      note: u.note, issues: u.issues,
       createdBy: old ? old.createdBy : me.name, createdByEmail: old ? (old.createdByEmail || '') : me.email,
       createdAt: old ? old.createdAt : now, updatedAt: now,
     };
@@ -476,7 +485,7 @@ var ACTIONS = {
       try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) { /* โดเมนอาจไม่อนุญาต */ }
     }
     // รหัสไฟล์เดิมใช้ต่อได้เฉพาะตอนผู้ดูแลย้ายข้อมูลจากโหมดทดลอง (ให้เรื่องขออนุมัติอ้างถึงไฟล์ได้ถูกต้อง)
-    var id = b.fileId && me.isAdmin && /^[\w-]{4,60}$/.test(b.fileId) && !findById_('Files', b.fileId) ? b.fileId : newId_('F');
+    var id = b.fileId && me.isAdmin && R_().safeId(b.fileId) && !findById_('Files', b.fileId) ? b.fileId : newId_('F');
     var rec = {
       id: id, projectId: p.id, category: category, name: file.getName(), mime: file.getMimeType(),
       size: file.getSize(), driveId: file.getId(), url: file.getUrl(), note: b.note || '', updateId: b.updateId || '',
@@ -536,11 +545,11 @@ var ACTIONS = {
     var p = requireProject_(b.projectId);
     need_(p, ctx.me, 'uploadDocs', 'คุณไม่มีสิทธิ์จัดการคลังเอกสารของโครงการนี้');
     var root = projectFolder_(p);
-    var known = {};
+    var known = Object.create(null);
     readTable_('Files').forEach(function (f) { if (f.driveId) known[f.driveId] = true; });
     var added = [];
     // ชื่อโฟลเดอร์หมวดถูกแทน / ด้วย - ตอนสร้าง จึงจับคู่กลับเป็นชื่อหมวดเดิม
-    var catByFolder = {};
+    var catByFolder = Object.create(null);
     (p.docCategories || []).forEach(function (c) { catByFolder[String(c).replace(/[\\/]/g, '-')] = c; });
     var walk = function (folder, category, depth) {
       var files = folder.getFiles();
@@ -572,7 +581,7 @@ var ACTIONS = {
     var me = ctx.me;
     var p = requireProject_(b.projectId);
     var input = b.input || {};
-    var id = b.id && /^[\w-]{4,60}$/.test(b.id) && !findById_('Submissions', b.id) ? b.id : newId_('S');
+    var id = b.id && R_().safeId(b.id) && !findById_('Submissions', b.id) ? b.id : newId_('S');
     var files = ownFiles_(input.files, p.id, b.id || id);
     if (input.requiredId) {
       var req = findById_('Required', input.requiredId);
@@ -614,7 +623,7 @@ var ACTIONS = {
     var pid = m.channel === 'dept' ? '' : (meeting ? meeting.projectId : m.projectId);
     var p = pid ? requireProject_(pid) : null;
     var files = p ? ownFiles_(m.files, p.id, '') : [];
-    var id = m.id && /^[\w-]{4,60}$/.test(m.id) && !findById_('Messages', m.id) ? m.id : newId_('M');
+    var id = m.id && R_().safeId(m.id) && !findById_('Messages', m.id) ? m.id : newId_('M');
     var msg = R.newMessage({ id: id, channel: m.channel, text: m.text, files: files }, p, me, nowIso_(), meeting);
     appendRows_('Messages', [msg]);
     return msg;
@@ -789,28 +798,46 @@ var ACTIONS = {
   /** นำเข้าข้อมูลทั้งชุด (ย้ายจากโหมดทดลอง / กู้คืนไฟล์สำรอง) — ผู้ดูแลระบบเท่านั้น */
   importAll: function (b, ctx) {
     if (!ctx.me.isAdmin) forbid_('เฉพาะผู้ดูแลระบบเท่านั้นที่นำเข้าข้อมูลได้');
-    var d = b.data || {};
+    var R = R_();
+    var d = R.isPlainObj(b.data) ? b.data : {};
+    // 1.0.9 ไฟล์สำรองที่ถูกแก้: รับเฉพาะอาร์เรย์ของออบเจกต์ที่มีรหัสปลอดภัย
+    var list = function (k) {
+      if (d[k] == null) return [];
+      if (!Array.isArray(d[k])) fail_('ไฟล์สำรองไม่ถูกต้อง (' + k + ')', 'invalid');
+      return d[k].filter(function (r) { return R.isPlainObj(r) && R.safeId(r.id, 1); });
+    };
     var ids = {};
     var existing = {};
-    readTable_('Projects').forEach(function (p) { existing[p.id] = p; });
-    (d.projects || []).forEach(function (p) {
-      var old = existing[p.id];
+    readTable_('Projects').forEach(function (p) { existing['k' + p.id] = p; });
+    var known = function (pid) { return !!(ids['k' + pid] || existing['k' + pid]); };
+    list('projects').forEach(function (p) {
+      var old = existing['k' + p.id];
       var rec = Object.assign({}, p, { folderId: old ? old.folderId : '', folderUrl: old ? old.folderUrl : '' });
       if (!rec.ownerEmail && !old) { rec.ownerEmail = ctx.me.email; rec.ownerName = ctx.me.name; }
-      var saved = saveProject_(rec, p.createdBy || ctx.me.name);
-      ids[p.id] = saved.id;
+      try { rec.members = cleanMembers_(rec.members, rec.ownerEmail); R.checkProject(rec); } catch (e) { return; }
+      var saved = saveProject_(rec, str_(p.createdBy, 200) || ctx.me.name);
+      ids['k' + p.id] = saved.id;
     });
-    mergeById_('BOQ', d.boq || []);
-    mergeById_('Updates', d.updates || []);
-    mergeById_('Files', (d.files || []).filter(function (f) { return f.driveId || f.mime === 'link'; }));
-    mergeById_('Submissions', d.subs || []);
-    mergeById_('Required', d.reqs || []);
-    mergeById_('Messages', (d.msgs || []).filter(function (m) { return !m.projectId || ids[m.projectId] || existing[m.projectId]; }));
-    mergeById_('Meetings', (d.meetings || []).filter(function (m) { return !m.projectId || ids[m.projectId] || existing[m.projectId]; }));
-    mergeById_('Daily', (d.daily || []).filter(function (x) { return ids[x.projectId] || existing[x.projectId]; }));
-    mergeById_('Library', (d.library || []).filter(function (x) { return x.url || (x.file && x.file.driveId); }));
-    if (d.settings && Object.keys(d.settings).length) ACTIONS.saveSettings({ settings: Object.assign(readSettings_(), d.settings) }, ctx);
-    return { projectIds: ids };
+    var child = function (k) { return list(k).filter(function (x) { return known(x.projectId); }); };
+    mergeById_('BOQ', child('boq'));
+    mergeById_('Updates', child('updates').filter(function (u) { return R.validIsoDate(u.date); }).map(function (u) {
+      return Object.assign({}, u, { entries: R.cleanEntries(u.entries), note: str_(u.note, 5000), issues: str_(u.issues, 5000) });
+    }));
+    mergeById_('Files', child('files').filter(function (f) { return f.driveId || f.mime === 'link'; }));
+    mergeById_('Submissions', child('subs'));
+    mergeById_('Required', child('reqs'));
+    mergeById_('Messages', list('msgs').filter(function (m) { return !m.projectId || known(m.projectId); }));
+    mergeById_('Meetings', list('meetings').filter(function (m) { return !m.projectId || known(m.projectId); }));
+    mergeById_('Daily', child('daily'));
+    mergeById_('Library', list('library').filter(function (x) { return x.url || (x.file && x.file.driveId); }));
+    if (R.isPlainObj(d.settings) && Object.keys(d.settings).length) {
+      var merged = readSettings_();
+      Object.keys(d.settings).forEach(function (k) { if (R.safeKey(k)) merged[k] = d.settings[k]; });
+      ACTIONS.saveSettings({ settings: merged }, ctx);
+    }
+    var out = {};
+    Object.keys(ids).forEach(function (k) { out[k.slice(1)] = ids[k]; });
+    return { projectIds: out };
   },
 };
 
@@ -946,10 +973,10 @@ function cleanWorkflow_(wf) {
 /** หลังเจ้าของโครงการบันทึกสมาชิก: แชร์โฟลเดอร์ Drive และส่งอีเมลแจ้งการแต่งตั้ง */
 function afterMembersChanged_(old, saved, me, b, ctx) {
   var R = R_();
-  var before = {};
+  var before = Object.create(null);
   R.members(old || {}).forEach(function (m) { before[m.email] = m; });
   var after = R.members(saved);
-  var nowSet = {};
+  var nowSet = Object.create(null);
   after.forEach(function (m) { nowSet[m.email] = true; });
   var added = after.filter(function (m) { return m.role !== 'owner' && !before[m.email]; });
   var removed = Object.keys(before).filter(function (e) { return !nowSet[e] && before[e].role !== 'owner'; });
@@ -978,7 +1005,7 @@ function canEditFile_(rec, p, me) {
 /** รับเฉพาะรหัสไฟล์ที่อยู่ในโครงการนี้ และแนบกับเรื่องนี้ */
 function ownFiles_(ids, pid, subId) {
   if (!Array.isArray(ids) || !ids.length) return [];
-  var byId = {};
+  var byId = Object.create(null);
   readTable_('Files').forEach(function (f) { byId[f.id] = f; });
   return ids.filter(function (id) { var f = byId[id]; return f && f.projectId === pid && (!f.subId || f.subId === subId); });
 }
@@ -1010,11 +1037,11 @@ function mailQuota_() {
 /** ข้อความที่ผู้ใช้นี้อ่านได้ (ห้องละไม่เกิน 300 ข้อความล่าสุด) */
 function chatFor_(me, msgs, unused) {
   var R = R_();
-  var projects = {};
+  var projects = Object.create(null);
   readTable_('Projects').forEach(function (p) { projects[p.id] = p; });
-  var meetings = {};
+  var meetings = Object.create(null);
   readTable_('Meetings').forEach(function (m) { meetings[m.id] = m; });
-  var per = {};
+  var per = Object.create(null);
   var out = msgs.filter(function (m) {
     var p = m.projectId ? projects[m.projectId] : null;
     if (m.projectId && !p) return false;
@@ -1028,7 +1055,7 @@ function chatFor_(me, msgs, unused) {
 }
 function meetingsFor_(me) {
   var R = R_();
-  var projects = {};
+  var projects = Object.create(null);
   readTable_('Projects').forEach(function (p) { projects[p.id] = p; });
   return readTable_('Meetings').filter(function (m) {
     var p = m.projectId ? projects[m.projectId] : null;
@@ -1046,7 +1073,7 @@ function htmlToText_(html) {
   return String(html || '')
     .replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|tr|li|h\d)>/gi, '\n').replace(/<\/td>/gi, '  ')
     .replace(/<a [^>]*href="([^"]+)"[^>]*>([^<]*)<\/a>/gi, '$2: $1')
-    .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/<[^<>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
     .replace(/\n{3,}/g, '\n\n').trim();
 }
@@ -1125,7 +1152,7 @@ function planFor_(kind, o) {
   var R = R_();
   var settings = o.settings || readSettings_();
   var projects = readTable_('Projects').filter(function (p) { return !o.projectId || p.id === o.projectId; });
-  var ids = {};
+  var ids = Object.create(null);
   projects.forEach(function (p) { ids[p.id] = true; });
   var of = function (t) { return readTable_(t).filter(function (r) { return !r.projectId || ids[r.projectId]; }); };
   var c = { projects: projects, settings: settings, nowIso: nowIso_(), today: o.date, appUrl: o.appUrl || appUrl_(null, settings) };
@@ -1444,7 +1471,7 @@ function replaceWhere_(name, pred, newRows) {
 function mergeById_(name, incoming) {
   if (!incoming.length) return;
   var rows = readTable_(name);
-  var idx = {};
+  var idx = Object.create(null);
   rows.forEach(function (r, i) { idx[r.id] = i; });
   incoming.forEach(function (r) {
     var clean = {};
@@ -1456,7 +1483,7 @@ function mergeById_(name, incoming) {
 
 function readSettings_() {
   var o = {};
-  readTable_('Settings').forEach(function (r) { if (r.key) o[r.key] = r.value; });
+  readTable_('Settings').forEach(function (r) { if (r.key && R_().safeKey(r.key)) o[r.key] = r.value; });
   return o;
 }
 
@@ -1467,6 +1494,8 @@ function prop_(k) { return PropertiesService.getScriptProperties().getProperty(k
 function setProp_(k, v) { PropertiesService.getScriptProperties().setProperty(k, v); }
 function accessKey_() { return CONFIG.ACCESS_KEY || prop_('ACCESS_KEY') || ''; }
 function num_(v) { var n = parseFloat(String(v == null ? '' : v).replace(/,/g, '')); return isFinite(n) ? n : 0; }
+/** ข้อความจากผู้ใช้: ตัดช่องว่างหัวท้ายและจำกัดความยาว (ออบเจกต์/อาร์เรย์ = ค่าว่าง) */
+function str_(v, n) { if (v == null || typeof v === 'object') return ''; v = String(v).trim(); return v.length > n ? v.slice(0, n) : v; }
 function newId_(prefix) { return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 /** รับได้ทั้ง ID และลิงก์ Google Drive */
@@ -1701,7 +1730,7 @@ function sortUpdates(ups) {
 
 /** ปริมาณสะสมของแต่ละรายการ BOQ: { boqId: qty } */
 function cumulative(ups) {
-  const m = {};
+  const m = Object.create(null); // คีย์มาจากข้อมูลผู้ใช้ ห้ามสืบทอดจาก Object
   for (const u of ups) {
     const e = u.entries || {};
     for (const k in e) m[k] = (m[k] || 0) + num(e[k]);
@@ -1848,7 +1877,7 @@ function actualSeries(p, items, updates, today = todayISO()) {
   const ups = sortUpdates(updates).filter((u) => u.date);
   const out = [];
   if (p.startDate && (!ups.length || ups[0].date >= p.startDate)) out.push({ date: p.startDate, v: 0 });
-  const cum = {};
+  const cum = Object.create(null);
   let manual = null;
   ups.forEach((u, i) => {
     for (const k in u.entries || {}) cum[k] = (cum[k] || 0) + num(u.entries[k]);
@@ -2437,6 +2466,50 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     var d = new Date(v + 'T00:00:00Z');
     return !isNaN(d) && d.toISOString().slice(0, 10) === v;
   }
+  // ---------- 1.0.9 คีย์/รหัสที่ผู้ใช้ส่งมา: ห้ามชื่อพิเศษของ JavaScript (กัน prototype pollution / ทับฟังก์ชันของออบเจกต์) ----------
+  var RESERVED_KEYS = ['__proto__', 'constructor', 'prototype', 'toString', 'toLocaleString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf',
+    'propertyIsEnumerable', '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__'];
+  function safeKey(k) { return typeof k === 'string' && k.length > 0 && RESERVED_KEYS.indexOf(k) < 0; }
+  /** รหัสข้อมูลที่ผู้ใช้กำหนดเองได้: ขึ้นต้นด้วยตัวอักษร/ตัวเลข ตามด้วย a-z 0-9 _ - รวม min–60 ตัว */
+  function safeId(id, min) {
+    min = min || 4;
+    return typeof id === 'string' && id.length >= min && id.length <= 60 && /^[A-Za-z0-9][\w-]*$/.test(id) && safeKey(id);
+  }
+  function isPlainObj(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
+  /** ปริมาณงานที่บันทึกในแต่ละรายการ BOQ: { boqId: จำนวน } — คีย์ต้องเป็นรหัสที่ปลอดภัย (และอยู่ใน allow ถ้าระบุ) ค่าต้องเป็นตัวเลขจริง */
+  function cleanEntries(e, allow) {
+    var out = {};
+    if (!isPlainObj(e)) return out;
+    var ok = null;
+    if (allow) { ok = {}; allow.forEach(function (id) { ok['k' + id] = true; }); }
+    Object.keys(e).slice(0, 5000).forEach(function (k) {
+      if (!safeId(k, 1) || (ok && !ok['k' + k])) return;
+      var v = Number(e[k]);
+      if (!isFinite(v) || Math.abs(v) < 1e-12 || Math.abs(v) > 1e13) return;
+      out[k] = Math.round(v * 1e6) / 1e6;
+    });
+    return out;
+  }
+  /** บันทึกความคืบหน้า: วันที่ถูกต้องและไม่เกินพรุ่งนี้ (เวลาไทย) เปอร์เซ็นต์ 0–100 ข้อความยาวไม่เกินกำหนด */
+  function checkUpdate(u, nowMs) {
+    if (!isPlainObj(u)) throw fail('ข้อมูลบันทึกความคืบหน้าไม่ถูกต้อง', 'invalid');
+    if (!validIsoDate(u.date)) throw fail('วันที่ไม่ถูกต้อง', 'invalid');
+    var max = new Date((nowMs || Date.now()) + 7 * 3600e3 + 864e5).toISOString().slice(0, 10);
+    if (u.date > max) throw fail('บันทึกความคืบหน้าล่วงหน้าไม่ได้', 'invalid');
+    var o = {};
+    Object.keys(u).forEach(function (k) { if (safeKey(k)) o[k] = u[k]; });
+    o.note = cut(u.note, 5000);
+    o.issues = cut(u.issues, 5000);
+    if (u.manualPct === '' || u.manualPct == null) o.manualPct = '';
+    else {
+      var m = Number(u.manualPct);
+      if (!isFinite(m)) throw fail('เปอร์เซ็นต์ผลงานต้องเป็นตัวเลข', 'invalid');
+      o.manualPct = Math.min(100, Math.max(0, m));
+    }
+    var w = Number(u.week);
+    o.week = u.week === '' || u.week == null || !isFinite(w) ? '' : Math.max(0, Math.min(9999, Math.round(w)));
+    return o;
+  }
   function seatOf_(v) {
     if (v === '' || v == null || !isFinite(+v)) return '';
     var n = Math.round(+v);
@@ -2466,6 +2539,12 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
   function checkProject(p) {
     p.name = String(p.name || '').trim().slice(0, 200);
     if (!p.name) throw fail('กรุณาระบุชื่อโครงการ', 'invalid');
+    // 1.0.9 จำกัดความยาวข้อความ และชนิดข้อมูลของรายการ
+    ['code', 'contractNo'].forEach(function (k) { if (p[k] != null) p[k] = cut(p[k], 60); });
+    ['type', 'contractor', 'manager', 'location', 'owner'].forEach(function (k) { if (p[k] != null) p[k] = cut(p[k], 200); });
+    if (p.description != null) p.description = cut(p.description, 5000);
+    if (p.tags != null) p.tags = (Array.isArray(p.tags) ? p.tags : []).map(function (t) { return cut(t, 40); }).filter(Boolean).slice(0, 20);
+    if (p.docCategories != null) p.docCategories = (Array.isArray(p.docCategories) ? p.docCategories : []).map(function (t) { return cut(t, 80); }).filter(Boolean).slice(0, 60);
     ['startDate', 'endDate'].forEach(function (k) { if (p[k] && !validIsoDate(p[k])) p[k] = ''; });
     if (p.startDate && p.endDate && p.endDate < p.startDate) throw fail('วันสิ้นสุดสัญญาต้องไม่ก่อนวันเริ่มสัญญา', 'invalid');
     if (p.contractValue !== '' && p.contractValue != null) {
@@ -2478,7 +2557,8 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
   /** ค่ากลาง: จำนวนวัน/เปอร์เซ็นต์ต้องเป็นตัวเลขบวก */
   function checkSettings(s) {
     var o = {};
-    Object.keys(s || {}).forEach(function (k) { o[k] = s[k]; });
+    if (!isPlainObj(s)) s = {};
+    Object.keys(s).forEach(function (k) { if (safeKey(k)) o[k] = s[k]; });
     ['slaWarnDays', 'slaLateDays', 'staleDays'].forEach(function (k) {
       if (o[k] === '' || o[k] == null) return;
       var n = Math.round(Number(o[k]));
@@ -2779,12 +2859,12 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
       return '<tr><td style="padding:4px 12px 4px 0;color:#737D90;white-space:nowrap;vertical-align:top">' + esc(r[0]) + '</td><td style="padding:4px 0;color:#172238">' + r[1] + '</td></tr>';
     }).join('');
     return '<div style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6;color:#172238;max-width:620px">' +
-      '<div style="border-left:4px solid #F2A900;padding:4px 0 4px 14px;margin-bottom:14px"><div style="font-size:12px;color:#737D90">ระบบติดตามโครงการ</div>' +
+      '<div style="border-left:4px solid #E8590C;padding:4px 0 4px 14px;margin-bottom:14px"><div style="font-size:12px;color:#737D90">ระบบติดตามโครงการ</div>' +
       '<div style="font-size:18px;font-weight:bold">' + esc(title) + '</div></div>' +
       (lead ? '<p style="margin:0 0 12px">' + lead + '</p>' : '') +
       '<table style="border-collapse:collapse;margin:0 0 12px">' + rowHtml + '</table>' +
       (body || '') +
-      (link ? '<p style="margin:18px 0"><a href="' + esc(link) + '" style="background:#172238;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px;display:inline-block">' + esc(linkLabel || 'เปิดในระบบ') + '</a></p>' : '') +
+      (link ? '<p style="margin:18px 0"><a href="' + esc(link) + '" style="background:#1D4F91;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:6px;display:inline-block">' + esc(linkLabel || 'เปิดในระบบ') + '</a></p>' : '') +
       '<p style="font-size:12px;color:#737D90;margin-top:20px">อีเมลนี้ส่งอัตโนมัติจากระบบติดตามโครงการ ปรับการรับอีเมลได้ที่เจ้าของโครงการ</p></div>';
   }
 
@@ -3535,6 +3615,7 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     recipients: recipients, subEmail: subEmail, mailPlan: mailPlan, progressEmail: progressEmail, inviteEmail: inviteEmail, reminderEmail: reminderEmail,
     thaiDateTime: thaiDateTime, esc: esc, addDaysIso: addDaysIso, daysBetween: daysBetween,
     validIsoDate: validIsoDate, cleanMembers: cleanMembers, checkProject: checkProject, checkSettings: checkSettings,
+    safeKey: safeKey, safeId: safeId, isPlainObj: isPlainObj, cleanEntries: cleanEntries, checkUpdate: checkUpdate,
     isDept: isDept, CHANNELS: CHANNELS, AUDIENCES: AUDIENCES, MEETING_STATUS: MEETING_STATUS, MAX_MSG: MAX_MSG,
     canReadChannel: canReadChannel, canPostChannel: canPostChannel, canSeeMeeting: canSeeMeeting, canCreateMeeting: canCreateMeeting,
     canEditMeeting: canEditMeeting, canToggleAction: canToggleAction, newMessage: newMessage, canDeleteMessage: canDeleteMessage,

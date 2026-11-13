@@ -1,6 +1,6 @@
 // จุดเริ่มต้นของแอป: โครงหน้าจอ, เส้นทาง (hash router), การเชื่อมต่อ
 import { store, conf, saveConf, testConnection, backendFor, gasUrlProblem, spSiteProblem, msIdProblem } from './store.js';
-import { icon, esc, toast, runCleanups, guard, openModal, setBusy } from './ui.js';
+import { icon, esc, toast, runCleanups, guard, openModal, setBusy, emptyArt } from './ui.js';
 import { renderDashboard } from './views/dashboard.js';
 import { renderProjects } from './views/projects.js';
 import { renderProject } from './views/project.js';
@@ -15,6 +15,7 @@ import { renderLibrary } from './views/library.js';
 import { showIntro } from './views/intro.js';
 import { applyMotion, enterView, bindPointerFx, replayNext } from './motion.js';
 import { mountGuide, maybeOffer } from './guide.js';
+import { loadMascotPack } from './mascot.js';
 import { openLogin } from './views/login.js';
 import { loadDemoData } from './views/common.js';
 import { msAuth } from './backends/ms-auth.js';
@@ -125,12 +126,13 @@ function route() {
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('is-on', a.dataset.nav === nav));
     try { fn(m); enterView(view); maybeOffer(); } catch (e) {
       console.error(e);
-      view.innerHTML = `<section class="panel"><div class="empty"><div class="empty-ic">${icon('alert')}</div><h3>แสดงหน้านี้ไม่ได้</h3><p>${esc(e.message)}</p><a class="btn" href="#/">กลับหน้าหลัก</a></div></section>`;
+      view.innerHTML = `<section class="panel"><div class="empty">${emptyArt('alert')}<h3>แสดงหน้านี้ไม่ได้</h3><p>${esc(e.message)}</p><a class="btn" href="#/">กลับหน้าหลัก</a></div></section>`;
     }
     updateBadges();
     return;
   }
-  view.innerHTML = `<section class="panel"><div class="empty"><div class="empty-ic">${icon('search')}</div><h3>ไม่พบหน้าที่ต้องการ</h3><a class="btn" href="#/">กลับหน้าหลัก</a></div></section>`;
+  document.querySelectorAll('[data-nav]').forEach((x) => x.classList.remove('is-on'));
+  view.innerHTML = `<section class="panel"><div class="empty">${emptyArt('search')}<h3>ไม่พบหน้าที่ต้องการ</h3><p>ลิงก์อาจพิมพ์ไม่ครบ หรือหน้านี้ถูกย้ายไปแล้ว</p><a class="btn" href="#/">กลับหน้าหลัก</a></div></section>`;
 }
 
 window.addEventListener('hashchange', () => {
@@ -265,7 +267,7 @@ async function initWithLogin() {
   store.needLogin = false;
 }
 window.addEventListener('pt:login-cancel', () => {
-  view.innerHTML = `<section class="panel"><div class="empty"><div class="empty-ic">${icon('lock')}</div><h3>ยังไม่ได้เข้าสู่ระบบ</h3>
+  view.innerHTML = `<section class="panel"><div class="empty">${emptyArt('lock')}<h3>ยังไม่ได้เข้าสู่ระบบ</h3>
     <p>ข้อมูลโครงการของทีมเก็บใน Google Drive ต้องยืนยันอีเมลก่อนจึงจะเห็นโครงการที่คุณเป็นสมาชิก</p>
     <div class="empty-actions"><button class="btn btn-primary" data-act="login">${icon('mail')}เข้าสู่ระบบด้วยอีเมล</button><a class="btn" href="#/settings">ตั้งค่าการเชื่อมต่อ</a></div></div></section>`;
   view.querySelector('[data-act="login"]').addEventListener('click', () => window.dispatchEvent(new Event('pt:relogin')));
@@ -310,6 +312,7 @@ async function boot() {
   applyTheme();
   applyMotion();
   bindPointerFx();
+  loadMascotPack();
   matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', applyMotion);
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
   renderShell();

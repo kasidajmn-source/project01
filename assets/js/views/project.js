@@ -77,7 +77,7 @@ export function renderProject(el, id, tab = 'overview', sub = '') {
   <header class="proj-head">
     <div class="ph-main">
       <div class="ph-tags">${p.type ? `<span class="tag">${esc(p.type)}</span>` : ''}${chip(a.status)}${(p.tags || []).map((t) => `<span class="tag tag-ghost">${esc(t)}</span>`).join('')}
-        ${roleBadge ? `<a class="ph-role" href="#/p/${pid}/members" title="ดูสิทธิ์ของคุณ">คุณคือ ${roleBadge}</a>` : ''}</div>
+        ${roleBadge ? `<a class="ph-role" href="#/p/${pid}/members" title="ดูสิทธิ์ของคุณ">คุณคือ ${roleBadge}</a>` : ''}${p.code ? `<span class="ph-code">${esc(p.code)}</span>` : ''}</div>
       <h1>${esc(p.name)}</h1>
       <dl class="facts">
         <div><dt>ผู้รับจ้าง</dt><dd>${esc(p.contractor || '–')}</dd></div>

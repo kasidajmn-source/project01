@@ -545,8 +545,11 @@ export const store = {
 
   // ---------- บันทึกความคืบหน้า ----------
   /** opts.notify = แจ้งอีเมลหัวหน้า/ผู้ติดตามหลังบันทึก */
-  async saveUpdate(u, { notify = false } = {}) {
-    this._need(u.projectId, 'recordProgress', 'คุณไม่มีสิทธิ์บันทึกความคืบหน้าของโครงการนี้');
+  async saveUpdate(uIn, { notify = false } = {}) {
+    this._need(uIn.projectId, 'recordProgress', 'คุณไม่มีสิทธิ์บันทึกความคืบหน้าของโครงการนี้');
+    // 1.0.9 ตรวจแบบเดียวกับเซิร์ฟเวอร์: วันที่ เปอร์เซ็นต์ ความยาวข้อความ และปริมาณงานเฉพาะรายการ BOQ ของโครงการ
+    const u = R.checkUpdate(uIn);
+    u.entries = R.cleanEntries(uIn.entries, this.data.boq.filter((b) => b.projectId === uIn.projectId).map((b) => b.id));
     const me = this.me;
     let saved;
     if (this.cloud) {
@@ -1271,8 +1274,17 @@ export const store = {
   },
 
   async importBackup(json, { replace = false, onProgress } = {}) {
-    const d = json?.data || json;
-    if (!d || !Array.isArray(d.projects)) throw new Error('ไฟล์สำรองไม่ถูกต้อง');
+    const src = json?.data || json;
+    if (!src || !Array.isArray(src.projects)) throw new Error('ไฟล์สำรองไม่ถูกต้อง');
+    // 1.0.9 ไฟล์สำรองที่ถูกแก้: รับเฉพาะอาร์เรย์ของออบเจกต์ที่มีรหัสปลอดภัย และค่ากลางที่ผ่านการตรวจ
+    const d = {};
+    for (const t of TABLES) {
+      if (src[t] == null) continue;
+      if (!Array.isArray(src[t])) throw new Error(`ไฟล์สำรองไม่ถูกต้อง (${t})`);
+      d[t] = src[t].filter((r) => R.isPlainObj(r) && R.safeId(r.id, 1));
+    }
+    d.updates = (d.updates || []).filter((u) => R.validIsoDate(u.date)).map((u) => ({ ...u, entries: R.cleanEntries(u.entries) }));
+    d.settings = R.isPlainObj(src.settings) ? R.checkSettings(src.settings) : {};
     if (!this.legacy && !this.me.isAdmin) throw permError('เฉพาะผู้ดูแลระบบเท่านั้นที่นำเข้าข้อมูลได้');
     if (this.cloud) {
       // ไฟล์จากที่เก็บอื่นใช้ข้ามระบบไม่ได้ ส่งไปเฉพาะลิงก์

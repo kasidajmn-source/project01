@@ -113,7 +113,7 @@ export function sortUpdates(ups) {
 
 /** ปริมาณสะสมของแต่ละรายการ BOQ: { boqId: qty } */
 export function cumulative(ups) {
-  const m = {};
+  const m = Object.create(null); // คีย์มาจากข้อมูลผู้ใช้ ห้ามสืบทอดจาก Object
   for (const u of ups) {
     const e = u.entries || {};
     for (const k in e) m[k] = (m[k] || 0) + num(e[k]);
@@ -260,7 +260,7 @@ export function actualSeries(p, items, updates, today = todayISO()) {
   const ups = sortUpdates(updates).filter((u) => u.date);
   const out = [];
   if (p.startDate && (!ups.length || ups[0].date >= p.startDate)) out.push({ date: p.startDate, v: 0 });
-  const cum = {};
+  const cum = Object.create(null);
   let manual = null;
   ups.forEach((u, i) => {
     for (const k in u.entries || {}) cum[k] = (cum[k] || 0) + num(u.entries[k]);

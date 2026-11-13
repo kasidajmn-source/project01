@@ -193,7 +193,7 @@ Projects เพิ่ม `ownerEmail, ownerName, ownerRole, members[], rolePerms
 
 - `motion.js`: ระดับภาพเคลื่อนไหวใน `html[data-motion="full"|"off"]` จาก `conf.motion` (`auto`/`full`/`off`) — `auto` ปิดเมื่อ `prefers-reduced-motion` หรือเบราว์เซอร์อัตโนมัติ (`navigator.webdriver`) เพื่อให้การทดสอบอัตโนมัติคงที่
   · `enterView(view)` เรียกหลังวาดทุกหน้า: ใส่ `.rv` (ปรากฏเมื่อเลื่อนถึงด้วย IntersectionObserver, เรียงลำดับด้วย `--i`) และนับตัวเลขขึ้น (แก้เฉพาะ text node แล้วคืนข้อความเดิมเมื่อจบ) เฉพาะเมื่อเปลี่ยนหน้า — การวาดซ้ำจากข้อมูลอัปเดตไม่เล่นซ้ำ
-  · `bindPointerFx()` แสงตามเมาส์ (`--mx/--my`) และปุ่ม `.magnet` · `syncTabIndicator()` ตัวชี้แท็บบนมือถือ · `coilSVG()` ลายขดลวด (id ไล่สีไม่ซ้ำกัน)
+  · `bindPointerFx()` ปุ่ม `.magnet` ในหน้าแนะนำ · `syncTabIndicator()` ตัวชี้แท็บบนมือถือ (1.0.9 เลิกใช้แสงตามเมาส์และลายขดลวด)
 - `views/intro.js`: `showIntro({ onPick, tour })` หน้าแนะนำเต็มจอ (แทนหน้าต่างต้อนรับเดิม) · `introBackdrop()` ฉากหลังของหน้าต่างเข้าสู่ระบบ Google · เปิดซ้ำผ่านเหตุการณ์ `pt:intro`
 - CSS ทั้งหมดอยู่ท้าย `styles.css` (ส่วน 1.0.6) — ทุกเอฟเฟกต์ใช้ `transform`/`opacity` และถูกปิดด้วย `[data-motion="off"]` · ไม่มีไลบรารีเพิ่ม
 
@@ -205,6 +205,19 @@ Projects เพิ่ม `ownerEmail, ownerName, ownerRole, members[], rolePerms
   · สถานะใน `conf.guide = { hide, users: { [อีเมล]: { offered, done: [...] } } }` · เปิดจากที่อื่นด้วยเหตุการณ์ `pt:guide` (`detail.lesson`)
   · เบราว์เซอร์อัตโนมัติ (`navigator.webdriver`) ไม่ชวนเอง เว้นแต่ตั้ง `localStorage['pt.guide.auto'] = '1'` — ชุดทดสอบเดิมจึงไม่ถูกรบกวน
 - เพิ่มบทเรียน: เพิ่มรายการใน `LESSONS` และใส่ id ในลำดับของ `recommended()` — ทดสอบด้วย `test/e2e-107.js` (เดินทุกบทและรายงานขั้นที่หาเป้าหมายไม่พบ)
+### 1.0.9 — หน้าตาแบบงานวิศวกรรม + มาสคอต + ตรวจข้อมูลเข้มขึ้น
+
+- **โทเคนสี** อยู่ต้น `styles.css` (`:root` และ `[data-theme="dark"]`): `--actual` (ผลงานจริง/น้ำเงินพิมพ์เขียว) · `--accent`/`--accent-fill`/`--on-accent` (ส้มหน้างาน: เส้น/พื้นที่มีตัวอักษร) · `--on-bad`/`--on-ok` (ตัวอักษรบนพื้นสถานะ) · `--grid` (เส้นตารางพื้นหลัง) · `--font-head`/`--font-num` = Chakra Petch, `--font` = Anuphan
+  · `--amber` ยังคงไว้เป็นชื่อเดิมของ `--accent` เพื่อไม่ให้กระทบสไตล์เก่า · หัวโครงการ `.proj-head` เป็นตารางแบบกรอบชื่อแบบ · `.chip` เป็นตรายางกรอบสองเส้น (`box-shadow` inset)
+  · ชุดทดสอบ `test/a11y-109.js` ตรวจคอนทราสต์ WCAG AA ทุกข้อความที่มองเห็นใน 18 หน้า × 2 โหมด
+- `mascot.js`: `mascot({ pose, size, hang, flip, cls })` คืน HTML (คืนค่าว่างเมื่อผู้ใช้ปิด — ผู้เรียกต้องมีไอคอนแทน) · `setPose(el, pose)` · ท่า `idle wave point cheer think oops` กำหนดด้วยคลาส `is-<pose>` (ภาพนิ่งใช้ `transform`; ภาพเคลื่อนไหวอยู่ใต้ `[data-motion="full"]`)
+  · จุดที่ใช้: ปุ่ม/แผง/การ์ดบทเรียน (`guide.js` พารามิเตอร์ `msc` ของ `renderCard`) · `emptyArt()`/`emptyState()` ใน `ui.js` (lock/alert → oops, search → think) · `toast()` ok (ไม่เกินทุก 2 นาที `cheerAllowed()`) · `greeting()` ใน `views/dashboard.js` (วันละครั้งต่อผู้ใช้ เลื่อนไปครั้งถัดไปถ้ากำลังมีหน้าแนะนำ/บทเรียน/คำชวนเรียน) · หน้าแนะนำ
+  · ภาพของหน่วยงาน: `loadMascotPack()` อ่าน `assets/mascot/custom/mascot.json` → `parsePack()` รับเฉพาะชื่อไฟล์ `^[A-Za-z0-9][A-Za-z0-9_-]{0,59}\.(png|svg|webp|gif)$` ในโฟลเดอร์เดียวกัน แสดงด้วย `<img>` (SVG ใน `<img>` ไม่รันสคริปต์)
+  · สถานะใน `conf.mascot = { off, greet: { 'u:<อีเมล>': 'YYYY-MM-DD' } }`
+- `rules.js` (ใช้ร่วมกับ Code.gs): `safeKey()` `safeId()` (ห้ามชื่อพิเศษ เช่น `__proto__` `constructor`) · `cleanEntries()` · `checkUpdate()` · `checkSettings()` ข้ามคีย์พิเศษ · `checkProject()` จำกัดความยาวข้อความ
+- Code.gs: `doPost` รับเฉพาะ body ที่เป็นออบเจกต์และชื่อคำสั่งที่เป็นของ `ACTIONS` เอง · แผนที่ที่ใช้รหัสจากข้อมูลเป็นคีย์ใช้ `Object.create(null)` · `importAll` ตรวจชนิดข้อมูลทุกตาราง
+- ชุดทดสอบใหม่: `e2e-109` `sec-mascot-109` `a11y-109` `test-mascot-109.mjs` `fuzz-server-109` (คำขอผิดรูปแบบ ~1,500 แบบ) `redos-109` (นิพจน์ปกติทุกตัว) `perf-109` (300 โครงการ)
+
 ## แนวทางพัฒนาต่อ
 
 - เพิ่มฟิลด์ในโครงการ: เพิ่มชื่อคอลัมน์ใน `SCHEMA.Projects` (Code.gs) — ชีตเดิมจะได้คอลัมน์ใหม่อัตโนมัติ แล้วเพิ่มช่องกรอกใน `views/project-form.js`

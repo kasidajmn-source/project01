@@ -16,7 +16,7 @@ export function renderOverview(el, { p, a }) {
   const timePct = timeFraction(p, todayISO());
   const recent = [...ups].reverse().slice(0, 4);
   const issues = [...ups].reverse().filter((u) => u.issues).slice(0, 3);
-  const catCount = {};
+  const catCount = Object.create(null); // ชื่อหมวดมาจากผู้ใช้
   for (const f of files) catCount[f.category || 'อื่นๆ'] = (catCount[f.category || 'อื่นๆ'] || 0) + 1;
 
   el.innerHTML = `

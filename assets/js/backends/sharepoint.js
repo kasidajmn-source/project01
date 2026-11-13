@@ -34,13 +34,14 @@ export function spScopes(manage = false) {
 
 /** ชื่อไฟล์/โฟลเดอร์ที่ SharePoint รับได้ */
 export function safeName(n) {
-  return String(n || 'ไม่มีชื่อ')
+  // ตัดความยาวก่อน (กันนิพจน์ปกติทำงานช้ากับชื่อยาวผิดปกติ)
+  return String(n || 'ไม่มีชื่อ').slice(0, 400)
     .replace(/["*:<>?/\\|]/g, '-')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^[.~]+/, '')
-    .replace(/[. ]+$/, '')
-    .slice(0, 180) || 'ไม่มีชื่อ';
+    .slice(0, 180)
+    .replace(/[. ]{1,180}$/, '') || 'ไม่มีชื่อ';
 }
 
 const odataStr = (s) => String(s).replace(/'/g, "''");

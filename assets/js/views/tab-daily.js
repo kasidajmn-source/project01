@@ -8,6 +8,13 @@ import { libraryBox, bindLibraryBox } from './library.js';
 import { openReportDialog } from './reports.js';
 import { preview } from './tab-docs.js';
 
+/** ชื่อผู้บันทึกโดยตัดวงเล็บท้ายชื่อ เช่น "นายช่างวิไล (ผู้ควบคุมงาน)" → "นายช่างวิไล" (ไม่ใช้ regex เพื่อไม่ให้ช้ากับข้อความยาวผิดปกติ) */
+function shortName(n) {
+  const s = String(n || '').slice(0, 300);
+  const i = s.lastIndexOf('(');
+  return i > 0 && s.endsWith(')') ? s.slice(0, i).trimEnd() : s;
+}
+
 const R = globalThis.PTRules;
 const TRADES = ['โฟร์แมน', 'วิศวกร', 'ช่างไม้', 'ช่างเหล็ก', 'ช่างปูน', 'ช่างเชื่อม', 'ช่างไฟฟ้า', 'ช่างประปา', 'ช่างทาสี', 'กรรมกร'];
 const EQUIP = ['รถแบคโฮ', 'รถเครน', 'รถบรรทุก', 'รถโม่คอนกรีต', 'ปั๊มคอนกรีต', 'รถบดอัด', 'เครื่องตบดิน', 'เครื่องปั่นไฟ', 'นั่งร้าน (ชุด)'];
@@ -84,7 +91,7 @@ function renderList(el, ctx) {
       ${list.length ? `<div class="table-wrap"><table class="hist dy-table">
         <thead><tr><th>วันที่</th><th>สภาพอากาศ</th><th class="r">คนงาน</th><th>งานที่ดำเนินการ</th><th>หยุดงาน</th><th></th></tr></thead>
         <tbody>${list.slice(0, 120).map((d) => `<tr>
-          <td class="nowrap"><a class="link" href="#/p/${pid}/daily/${d.date}"><b>${fmt.date(d.date)}</b></a><small class="dy-by" title="${esc(d.createdBy || '')}">${esc(String(d.createdBy || '').replace(/\s*\(.*\)$/, ''))}</small></td>
+          <td class="nowrap"><a class="link" href="#/p/${pid}/daily/${d.date}"><b>${fmt.date(d.date)}</b></a><small class="dy-by" title="${esc(d.createdBy || '')}">${esc(shortName(d.createdBy))}</small></td>
           <td class="nowrap" data-l="อากาศ">${esc(weatherText(d))}</td>
           <td class="r num" data-l="คนงาน">${R.manpowerTotal(d)}</td>
           <td class="c-note">${esc(String(d.work || '').slice(0, 140))}${(d.files || []).length ? ` <span class="muted small">${icon('image')}${d.files.length}</span>` : ''}</td>

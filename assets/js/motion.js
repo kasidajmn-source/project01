@@ -1,5 +1,5 @@
 // ภาพเคลื่อนไหวของหน้าเว็บ (1.0.6) — เปลี่ยนหน้าแบบนุ่มนวล การ์ดค่อยๆ ปรากฏเมื่อเลื่อนถึง ตัวเลขนับขึ้น แถบผลงานวิ่ง
-// แสงตามเมาส์บนการ์ด และตัวชี้เมนูมือถือที่เลื่อนตาม — ปิดอัตโนมัติเมื่อผู้ใช้ตั้ง "ลดการเคลื่อนไหว" ในเครื่อง
+// และตัวชี้เมนูมือถือที่เลื่อนตาม — ปิดอัตโนมัติเมื่อผู้ใช้ตั้ง "ลดการเคลื่อนไหว" ในเครื่อง
 import { conf } from './config.js';
 
 const root = document.documentElement;
@@ -75,7 +75,7 @@ function observer() {
       el.querySelectorAll(COUNT).forEach(countUp);
       if (el.matches(COUNT)) countUp(el);
     }
-  }, { rootMargin: '0px 0px -6% 0px', threshold: 0.06 });
+  }, { rootMargin: '0px', threshold: 0 });
   return io;
 }
 
@@ -107,26 +107,19 @@ export function enterView(view) {
   });
   // ตัวเลขที่ไม่อยู่ในกลุ่มที่ค่อยๆ ปรากฏ
   view.querySelectorAll(COUNT).forEach((el) => { if (!el.closest('.rv')) countUp(el); });
-  // กันค้าง: อะไรที่ยังไม่ปรากฏหลัง 2.5 วินาทีและอยู่ในจอ ให้แสดงเลย
+  // กันค้าง: อะไรที่ยังไม่ปรากฏหลัง 1.2 วินาทีและอยู่ในจอ ให้แสดงเลย
   setTimeout(() => view.querySelectorAll('.rv:not(.rv-in)').forEach((el) => {
     const r = el.getBoundingClientRect();
     if (r.top < innerHeight && r.bottom > 0) el.classList.add('rv-in');
-  }), 2500);
+  }), 1200);
 }
 
-/** แสงตามเมาส์บนการ์ด (ใช้ตัวแปร --mx --my ใน CSS) และปุ่มหลักขยับเข้าหาเมาส์เล็กน้อย */
+/** ปุ่มหลักในหน้าแนะนำขยับเข้าหาเมาส์เล็กน้อย (1.0.9: เลิกใช้แสงตามเมาส์บนการ์ด) */
 export function bindPointerFx() {
   if (bindPointerFx.done) return;
   bindPointerFx.done = true;
-  const SPOT = '.prow, .portfolio, .lib-form, .mw-list a, .opt-btn, .intro-card, .rk-card, .dy-day, .panel.spot';
   document.addEventListener('pointermove', (e) => {
     if (!motionOn() || e.pointerType !== 'mouse') return;
-    const el = e.target.closest?.(SPOT);
-    if (el) {
-      const r = el.getBoundingClientRect();
-      el.style.setProperty('--mx', `${e.clientX - r.left}px`);
-      el.style.setProperty('--my', `${e.clientY - r.top}px`);
-    }
     const mag = e.target.closest?.('.magnet');
     document.querySelectorAll('.magnet.is-pulled').forEach((b) => { if (b !== mag) { b.classList.remove('is-pulled'); b.style.transform = ''; } });
     if (mag) {
@@ -153,17 +146,3 @@ export function syncTabIndicator() {
 }
 window.addEventListener('resize', () => syncTabIndicator(), { passive: true });
 
-/** ภาพตกแต่ง: ขดวงแหวน (แรงบันดาลใจจากคอยล์ 3 มิติ) สีเหลืองเซฟตี้บนน้ำเงินพิมพ์เขียว */
-let coilN = 0;
-export function coilSVG({ rings = 16, cls = '' } = {}) {
-  const gid = `coil-g${++coilN}`;
-  const r = [];
-  for (let i = 0; i < rings; i++) {
-    const y = 40 + i * 22;
-    const rx = 190 - Math.abs(i - rings / 2) * 3.2;
-    r.push(`<ellipse class="coil-r" style="--k:${i}" stroke="url(#${gid})" cx="250" cy="${y}" rx="${rx.toFixed(1)}" ry="46"/>`);
-  }
-  return `<svg class="coil ${cls}" viewBox="0 0 500 ${80 + rings * 22}" aria-hidden="true" focusable="false">
-    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFD35A"/><stop offset=".55" stop-color="#F2A900"/><stop offset="1" stop-color="#B86E00"/></linearGradient></defs>
-    <g class="coil-g">${r.join('')}</g></svg>`;
-}
