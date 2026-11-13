@@ -159,7 +159,7 @@ function formWeekly({ p, to }) {
   const closed = subs.filter((s) => s.status !== 'pending' && inWeek(s.closedAt));
   const rowOf = (iso) => {
     const x = dys.find((y) => y.date === iso);
-    const w = x ? [x.weather?.am, x.weather?.pm].filter(Boolean).map((k) => R.WEATHER[k]).join('/') : '';
+    const w = x ? [x.weather?.am, x.weather?.pm].map((k) => R.WEATHER[k]).filter(Boolean).join('/') : '';
     return `<tr><td class="nowrap">${e(d(iso))}</td><td>${e(w)}</td><td class="r">${x ? R.manpowerTotal(x) : ''}</td><td>${e(x ? String(x.work || '').slice(0, 160) : '')}</td><td>${x?.stoppage?.stopped ? e(`${x.stoppage.hours ? `${x.stoppage.hours} ชม. ` : ''}${x.stoppage.reason || ''}`) : ''}</td></tr>`;
   };
   return `${head('weekly', p)}
@@ -237,26 +237,29 @@ function formInstruction({ p, daily: dy }) {
 const BUILD = { sub: formSub, daily: formDaily, weekly: formWeekly, meeting: formMeeting, inspect: formInspect, instruction: formInstruction };
 
 /** HTML ของแบบฟอร์ม (ใช้ทดสอบและพิมพ์) */
-export function formHtml(kind, ctx = {}) {
+export function formHtml(kind, ctx = {}, { inline = false } = {}) {
   const f = FORMS[kind];
   if (!f) throw new Error(`ไม่รู้จักแบบฟอร์ม ${kind}`);
   const body = BUILD[kind](ctx);
   const title = `${f.code} ${f.title}${ctx.p ? ` — ${ctx.p.code || ctx.p.name}` : ''}`;
   return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><title>${e(title)}</title><style>${CSS}</style></head>
-  <body><div class="bar"><button onclick="window.print()">พิมพ์ / บันทึกเป็น PDF</button><button class="ghost" onclick="window.close()">ปิด</button><span>${e(f.code)} · ${ctx.p ? 'กรอกข้อมูลจากระบบแล้ว ตรวจทานก่อนพิมพ์' : 'แบบเปล่าสำหรับกรอกด้วยมือ'}</span></div>
+  <body><div class="bar"><button data-pt="print"${inline ? ' onclick="window.print()"' : ''}>พิมพ์ / บันทึกเป็น PDF</button><button class="ghost" data-pt="close"${inline ? ' onclick="window.close()"' : ''}>ปิด</button><span>${e(f.code)} · ${ctx.p ? 'กรอกข้อมูลจากระบบแล้ว ตรวจทานก่อนพิมพ์' : 'แบบเปล่าสำหรับกรอกด้วยมือ'}</span></div>
   <div class="sheet">${body}</div></body></html>`;
 }
 
 /** เปิดแบบฟอร์มในแท็บใหม่ (ถ้าเบราว์เซอร์กันหน้าต่างใหม่ จะดาวน์โหลดเป็นไฟล์ .html แทน) */
 export function openForm(kind, ctx = {}) {
-  const html = formHtml(kind, ctx);
   const w = window.open('', '_blank');
   if (!w) {
-    download(`${FORMS[kind].code}${ctx.p ? `-${ctx.p.code || 'project'}` : ''}.html`, html, 'text/html;charset=utf-8');
+    // ไฟล์ที่ดาวน์โหลดเปิดแยกจากเว็บ จึงใช้ปุ่มแบบ inline ได้
+    download(`${FORMS[kind].code}${ctx.p ? `-${ctx.p.code || 'project'}` : ''}.html`, formHtml(kind, ctx, { inline: true }), 'text/html;charset=utf-8');
     return null;
   }
   w.document.open();
-  w.document.write(html);
+  w.document.write(formHtml(kind, ctx));
   w.document.close();
+  // หน้าต่างใหม่ใช้นโยบายความปลอดภัยเดียวกับเว็บ (ไม่รันสคริปต์ inline) — ผูกปุ่มจากหน้านี้แทน
+  w.document.querySelector('[data-pt="print"]')?.addEventListener('click', () => w.print());
+  w.document.querySelector('[data-pt="close"]')?.addEventListener('click', () => w.close());
   return w;
 }

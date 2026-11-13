@@ -1,7 +1,7 @@
 // แท็บ BOQ: ดู / แก้ไข / นำเข้า / ส่งออก
 import { store } from '../store.js';
 import { amount, unitPrice, ratio, boqTotal, num, PRICE_BASIS, METHODS } from '../calc.js';
-import { esc, fmt, icon, emptyState, toast, confirmBox, promptBox, setBusy, guard, uid } from '../ui.js';
+import { esc, fmt, icon, emptyState, toast, confirmBox, promptBox, setBusy, guard, uid, menu } from '../ui.js';
 import { openBoqImport } from './boq-import.js';
 import { renderPlan } from './tab-plan.js';
 import { exportWorkbook, parseDelimited } from '../excel.js';
@@ -71,9 +71,13 @@ function renderView(el, ctx) {
   <div class="toolbar">
     <div class="tb-info"><b>${items.length}</b> รายการ <span class="sep"></span> ยอดรวม <b class="num">${fmt.money(total)}</b> บาท <small>(${esc(PRICE_BASIS[basis])})</small></div>
     <div class="tb-actions">
-      <button class="btn" data-act="export">${icon('download')}ส่งออก Excel</button>
-      ${canEdit ? `<button class="btn" data-act="import">${icon('upload')}นำเข้า</button>
-      <button class="btn btn-primary" data-act="edit">${icon('edit')}แก้ไข BOQ</button>` : ''}
+      ${canEdit ? `${menu({ title: 'นำเข้า / ส่งออก', items: [
+        { act: 'import', icon: 'upload', label: 'นำเข้าจาก Excel / CSV' },
+        { act: 'paste', icon: 'paste', label: 'วางจาก Excel' },
+        { sep: true },
+        { act: 'export', icon: 'download', label: 'ส่งออก Excel' },
+      ] })}
+      <button class="btn btn-primary" data-act="edit">${icon('edit')}แก้ไข BOQ</button>` : `<button class="btn" data-act="export">${icon('download')}ส่งออก Excel</button>`}
     </div>
   </div>
   <section class="panel panel-flush">

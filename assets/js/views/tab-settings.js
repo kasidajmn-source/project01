@@ -1,7 +1,7 @@
 // แท็บตั้งค่าโครงการ: ข้อมูลทั่วไป วิธีคำนวณ แผนงาน หมวดเอกสาร โฟลเดอร์เก็บไฟล์
 import { store } from '../store.js';
 import { METHODS, PRICE_BASIS, PLAN_MODES, planSeries, num, hasPlan } from '../calc.js';
-import { esc, icon, toast, confirmBox, setBusy, guard, emptyState } from '../ui.js';
+import { esc, icon, toast, confirmBox, setBusy, guard, emptyState, safeUrl } from '../ui.js';
 import { projectFieldsHTML, bindDateSync, readProjectFields, validateProject, rememberType } from './project-form.js';
 import { mountSCurve } from '../charts.js';
 
@@ -62,7 +62,7 @@ export function renderProjectSettings(el, ctx) {
     <section class="panel">
       <header class="panel-head"><h2>โฟลเดอร์เก็บไฟล์ (${esc(store.fileHost)})</h2></header>
       ${store.cloud ? `
-        ${p.folderUrl ? `<p><a class="link" href="${esc(p.folderUrl)}" target="_blank" rel="noopener">${icon('folder')}เปิดโฟลเดอร์ของโครงการใน ${esc(store.fileHost)}</a></p>` : ''}
+        ${safeUrl(p.folderUrl) ? `<p><a class="link" href="${esc(safeUrl(p.folderUrl))}" target="_blank" rel="noopener noreferrer">${icon('folder')}เปิดโฟลเดอร์ของโครงการใน ${esc(store.fileHost)}</a></p>` : ''}
         ${store.mode === 'gas' && !store.me.isAdmin ? `<p class="hint">${icon('lock')}การเปลี่ยนไปใช้โฟลเดอร์อื่นทำได้เฉพาะผู้ดูแลระบบ</p>` : `
         <label class="field"><span>เปลี่ยนไปใช้โฟลเดอร์อื่น (วางลิงก์โฟลเดอร์${store.backend.id === 'gas' ? ' หรือ ID' : ''} ใน ${esc(store.fileHost)})</span>
           <input name="folderId" value="" placeholder="${store.backend.id === 'gas' ? 'https://drive.google.com/drive/folders/…' : 'https://องค์กร.sharepoint.com/:f:/s/ไซต์/…'}"></label>

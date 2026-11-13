@@ -469,6 +469,70 @@
   // ---------- โหวตเลือกรูปแบบ/สี (คณะกรรมการตัดสิน เมื่อแบบไม่ได้กำหนดไว้) ----------
   var VOTE_STATUS = { open: 'กำลังโหวต', closed: 'ได้ข้อยุติแล้ว' };
   /** ตรวจและจัดรูปข้อมูลโหวต: { question, options:[{label, detail, fileId}] } */
+  // ---------- 1.0.8 ตรวจข้อมูลโครงการ/สมาชิก (ใช้ร่วมกันทั้งหน้าเว็บและ Apps Script) ----------
+  function validIsoDate(v) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v || ''))) return false;
+    var d = new Date(v + 'T00:00:00Z');
+    return !isNaN(d) && d.toISOString().slice(0, 10) === v;
+  }
+  function seatOf_(v) {
+    if (v === '' || v == null || !isFinite(+v)) return '';
+    var n = Math.round(+v);
+    return n >= 0 && n <= MAX_SEAT ? n : '';
+  }
+  /** สมาชิก: อีเมลต้องถูกต้อง ไม่ซ้ำ ไม่ใช่เจ้าของ ลำดับกรรมการไม่ซ้ำ */
+  function cleanMembers(list, ownerEmail) {
+    var seen = {}, seats = {}, out = [];
+    (Array.isArray(list) ? list : []).forEach(function (m) {
+      var e = norm(m && m.email);
+      if (!e) return;
+      if (!validEmail(e)) throw fail('อีเมล "' + e + '" ไม่ถูกต้อง', 'invalid');
+      if (seen[e] || e === norm(ownerEmail)) return;
+      seen[e] = true;
+      var role = MEMBER_ROLES.indexOf(m.role) >= 0 ? m.role : 'viewer';
+      var rec = { email: e, name: String(m.name || '').trim().slice(0, 120), role: role, notify: NOTIFY[m.notify] ? m.notify : DEFAULT_NOTIFY[role] };
+      if (role === 'committee') {
+        var st = seatOf_(m.seat);
+        if (st !== '' && seats[st]) throw fail('ลำดับกรรมการ "' + seatLabel(st) + '" ซ้ำกัน', 'invalid');
+        if (st !== '') { seats[st] = true; rec.seat = st; }
+      }
+      out.push(rec);
+    });
+    return out;
+  }
+  /** ข้อมูลหลักของโครงการ: ชื่อ วันที่ มูลค่า (แก้ไขรายการเดิมในที่) */
+  function checkProject(p) {
+    p.name = String(p.name || '').trim().slice(0, 200);
+    if (!p.name) throw fail('กรุณาระบุชื่อโครงการ', 'invalid');
+    ['startDate', 'endDate'].forEach(function (k) { if (p[k] && !validIsoDate(p[k])) p[k] = ''; });
+    if (p.startDate && p.endDate && p.endDate < p.startDate) throw fail('วันสิ้นสุดสัญญาต้องไม่ก่อนวันเริ่มสัญญา', 'invalid');
+    if (p.contractValue !== '' && p.contractValue != null) {
+      var v = Number(String(p.contractValue).replace(/,/g, ''));
+      if (!isFinite(v) || v < 0) throw fail('มูลค่าสัญญาต้องเป็นตัวเลขที่ไม่ติดลบ', 'invalid');
+      p.contractValue = v;
+    }
+    return p;
+  }
+  /** ค่ากลาง: จำนวนวัน/เปอร์เซ็นต์ต้องเป็นตัวเลขบวก */
+  function checkSettings(s) {
+    var o = {};
+    Object.keys(s || {}).forEach(function (k) { o[k] = s[k]; });
+    ['slaWarnDays', 'slaLateDays', 'staleDays'].forEach(function (k) {
+      if (o[k] === '' || o[k] == null) return;
+      var n = Math.round(Number(o[k]));
+      if (!isFinite(n) || n < 1) throw fail('จำนวนวันต้องเป็นตัวเลขตั้งแต่ 1 ขึ้นไป', 'invalid');
+      o[k] = n;
+    });
+    ['watchThreshold', 'behindThreshold'].forEach(function (k) {
+      if (o[k] === '' || o[k] == null) return;
+      var n = Number(o[k]);
+      if (!isFinite(n) || n < 0) throw fail('เกณฑ์เปอร์เซ็นต์ต้องเป็นตัวเลขที่ไม่ติดลบ', 'invalid');
+      o[k] = n;
+    });
+    if (o.slaWarnDays && o.slaLateDays && o.slaLateDays < o.slaWarnDays) throw fail('จำนวนวันของสีแดงต้องไม่น้อยกว่าสีเหลือง', 'invalid');
+    return o;
+  }
+
   function cleanVote(v, allowedFiles, actor, nowIso) {
     v = v || {};
     var seen = {}, opts = [];
@@ -1102,7 +1166,10 @@
   function cleanDaily(input, p, actor, nowIso, existing) {
     if (!can(p, actor, 'recordProgress')) throw fail('คุณไม่มีสิทธิ์บันทึกรายงานประจำวันของโครงการนี้', 'forbidden');
     input = input || {};
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.date || ''))) throw fail('กรุณาระบุวันที่', 'invalid');
+    if (!validIsoDate(input.date)) throw fail('กรุณาระบุวันที่ให้ถูกต้อง', 'invalid');
+    // บันทึกล่วงหน้าไม่ได้ (เผื่อเขตเวลา 1 วัน)
+    var todayTh = new Date(Date.parse(nowIso || new Date().toISOString()) + 7 * 3600e3).toISOString().slice(0, 10);
+    if (input.date > addDaysIso(todayTh, 1)) throw fail('บันทึกรายงานประจำวันล่วงหน้าไม่ได้', 'invalid');
     var w = input.weather || {};
     var st = input.stoppage || {};
     var d = {
@@ -1505,6 +1572,7 @@
     reqDueText: reqDueText, reqDueDate: reqDueDate, reqStatus: reqStatus,
     recipients: recipients, subEmail: subEmail, mailPlan: mailPlan, progressEmail: progressEmail, inviteEmail: inviteEmail, reminderEmail: reminderEmail,
     thaiDateTime: thaiDateTime, esc: esc, addDaysIso: addDaysIso, daysBetween: daysBetween,
+    validIsoDate: validIsoDate, cleanMembers: cleanMembers, checkProject: checkProject, checkSettings: checkSettings,
     isDept: isDept, CHANNELS: CHANNELS, AUDIENCES: AUDIENCES, MEETING_STATUS: MEETING_STATUS, MAX_MSG: MAX_MSG,
     canReadChannel: canReadChannel, canPostChannel: canPostChannel, canSeeMeeting: canSeeMeeting, canCreateMeeting: canCreateMeeting,
     canEditMeeting: canEditMeeting, canToggleAction: canToggleAction, newMessage: newMessage, canDeleteMessage: canDeleteMessage,

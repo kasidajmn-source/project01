@@ -55,7 +55,7 @@ export function libraryBox({ use, category = '', workType = '', forms = [], titl
   if (!items.length && !forms.length) return '';
   return `<section class="panel lib-box" data-libbox>
     <h3 class="lib-box-h">${icon('book')}${esc(title)}</h3>
-    ${forms.length ? `<div class="lib-forms-mini">${forms.map(([k, label], i) => `<button class="btn btn-sm" data-form="${i}" title="${esc(FORMS[k].title)}">${icon('print')}${esc(label || FORMS[k].title)} <small class="muted">${FORMS[k].code}</small></button>`).join('')}</div>` : ''}
+    ${forms.length ? `<div class="lib-forms-mini">${forms.map(([k, label], i) => `<button type="button" class="lf-row" data-form="${i}" title="พิมพ์ ${esc(FORMS[k].title)}">${icon('print')}<span>${esc(label || FORMS[k].title)}</span> <small class="muted">${FORMS[k].code}</small></button>`).join('')}</div>` : ''}
     ${items.length ? `<ul class="flist lib-list compact">${items.map((it) => libItemHTML(it, { compact: true })).join('')}</ul>` : ''}
     <a class="link small" href="#/library">${icon('chevR')}ดูคลังแบบฟอร์มและระเบียบทั้งหมด</a>
   </section>`;
@@ -87,11 +87,11 @@ export function renderLibrary(el) {
       <label class="field field-inline lib-proj"><span>กรอกข้อมูลจากโครงการ</span><select id="lb-p"><option value="">— แบบเปล่า —</option>${projects.map((p) => `<option value="${esc(p.id)}">${esc(p.code ? `${p.code} ${p.name}` : p.name)}</option>`).join('')}</select></label>
     </div>
     <div class="lib-forms">${Object.entries(FORMS).map(([k, f]) => `
-      <article class="lib-form">
-        <header><span class="lib-code">${f.code}</span><b>${esc(f.title)}</b></header>
-        <p>${esc(f.use)}</p>
-        <footer><small class="muted">ใช้ที่: ${esc(f.where)}</small><button class="btn btn-sm" data-print="${k}">${icon('print')}พิมพ์</button></footer>
-      </article>`).join('')}</div>
+      <button type="button" class="lib-form" data-print="${k}" title="พิมพ์ ${esc(f.code)} ${esc(f.title)}">
+        <span class="lf-head"><span class="lib-code">${f.code}</span><b>${esc(f.title)}</b></span>
+        <span class="lf-use">${esc(f.use)}</span>
+        <span class="lf-foot"><small class="muted">ใช้ที่: ${esc(f.where)}</small><span class="lf-go">${icon('print')}พิมพ์</span></span>
+      </button>`).join('')}</div>
     <p class="hint">แบบฟอร์มเหล่านี้เปิดได้จากจุดที่ใช้งานด้วย เช่น หน้าเรื่องขออนุมัติ (พิมพ์พร้อมผลการพิจารณา) รายงานประจำวัน และหน้าการประชุม</p>
   </section>
   <section class="panel">

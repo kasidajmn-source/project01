@@ -1,6 +1,6 @@
 // ความเคลื่อนไหวทุกโครงการ: สร้างจากข้อมูลที่มีอยู่ (เรื่องขออนุมัติ ความคืบหน้า เอกสาร ประชุม ห้องสนทนา)
 import { store } from '../store.js';
-import { esc, icon, fmt, emptyState } from '../ui.js';
+import { esc, icon, fmt, emptyState, safeUrl } from '../ui.js';
 import { pageHead } from './common.js';
 
 const R = globalThis.PTRules;
@@ -19,7 +19,7 @@ export function renderActivity(el) {
     const day = dayOf(x.at);
     const head = day !== lastDay ? `<li class="ac-day">${esc(fmt.date(day))}</li>` : '';
     lastDay = day;
-    return `${head}<li class="ac-item ${x.tone ? `ac-${x.tone}` : ''}"><a href="${esc(x.href)}">
+    return `${head}<li class="ac-item ${x.tone ? `ac-${x.tone}` : ''}"><a href="${esc(safeUrl(x.href) || '#/')}">
       <span class="ac-ic">${icon(x.icon)}</span>
       <span class="ac-body"><span>${x.p ? `<span class="tag">${esc(x.p.code || x.p.name)}</span> ` : '<span class="tag">แผนก</span> '}<b>${esc(x.who || '')}</b> ${esc(x.text)}</span>
         ${x.extra ? `<small class="${x.type === 'update' ? 'ac-issue' : 'muted'}">${x.type === 'update' ? `${icon('alert')}ปัญหา: ` : ''}${esc(x.extra)}</small>` : ''}</span>

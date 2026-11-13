@@ -53,7 +53,7 @@ var CONFIG = {
   MAIL_RESERVE: 15,
 };
 
-var VERSION = '1.0.5';
+var VERSION = '1.0.8';
 var LIBRARY_FOLDER = 'คลังแบบฟอร์มและระเบียบ';
 var DAILY_FILE_CATEGORY = 'รูปถ่ายความคืบหน้า';
 var SUB_FILE_CATEGORY = 'เอกสารแนบเรื่องขออนุมัติ';
@@ -138,7 +138,7 @@ function doPost(e) {
       if (!sess) return json_({ ok: false, code: 'login', error: 'กรุณาเข้าสู่ระบบด้วยอีเมลของคุณ' });
       ctx.settings = readSettings_();
       ctx.me = userCtx_(sess.email, sess.name, ctx.settings);
-      rememberAppUrl_(body.appUrl);
+      rememberAppUrl_(body.appUrl, ctx.me);
     }
     var data = fn(body, ctx);
     return json_({ ok: true, data: data });
@@ -181,14 +181,19 @@ var ACTIONS = {
       fail_('อีเมลนี้ยังไม่ได้รับสิทธิ์เข้าใช้ระบบ — ให้เจ้าของโครงการเพิ่มอีเมลของคุณเป็นสมาชิกก่อน', 'not_member');
     }
     var cache = CacheService.getScriptCache();
+    otpLocked_(cache, email);
     var rlKey = 'otprl_' + hash_(email).slice(0, 32);
     var count = +(cache.get(rlKey) || 0);
     if (count >= 5) fail_('ขอรหัสบ่อยเกินไป กรุณารอประมาณ 1 ชั่วโมงแล้วลองใหม่', 'rate');
+    var k6 = 'otp6h_' + hash_(email).slice(0, 32);
+    var count6 = +(cache.get(k6) || 0);
+    if (count6 >= 10) fail_('ขอรหัสครบ 10 ครั้งใน 6 ชั่วโมงแล้ว กรุณาลองใหม่ภายหลัง', 'rate');
     var all = +(cache.get('otprl_all') || 0);
     if (all >= 120) fail_('ระบบได้รับคำขอรหัสจำนวนมาก กรุณาลองใหม่ภายหลัง', 'rate');
     var code = otpCode_();
     cache.put('otp_' + hash_(email).slice(0, 32), JSON.stringify({ h: hash_(email + '|' + code), tries: 0 }), 600);
     cache.put(rlKey, String(count + 1), 3600);
+    cache.put(k6, String(count6 + 1), 21600);
     cache.put('otprl_all', String(all + 1), 3600);
     MailApp.sendEmail({
       to: email,
@@ -208,11 +213,13 @@ var ACTIONS = {
     var email = R.norm(b.email);
     var code = String(b.code || '').replace(/\D/g, '');
     var cache = CacheService.getScriptCache();
+    otpLocked_(cache, email);
     var ck = 'otp_' + hash_(email).slice(0, 32);
     var raw = cache.get(ck);
     if (!raw) fail_('รหัสหมดอายุหรือยังไม่ได้ขอรหัส — กด "ส่งรหัสอีกครั้ง"', 'otp_expired');
     var o = JSON.parse(raw);
     if (o.h !== hash_(email + '|' + code)) {
+      otpFailed_(cache, email);
       o.tries = (o.tries || 0) + 1;
       if (o.tries >= 5) { cache.remove(ck); fail_('ใส่รหัสผิดหลายครั้ง — กด "ส่งรหัสอีกครั้ง" เพื่อขอรหัสใหม่', 'otp_expired'); }
       cache.put(ck, JSON.stringify(o), 600);
@@ -236,6 +243,23 @@ var ACTIONS = {
     return { ok: true };
   },
 
+  /** ออกจากระบบทุกเครื่องของตัวเอง (เช่น ลืมออกจากระบบบนเครื่องสาธารณะ) */
+  logoutAll: function (b, ctx) {
+    return { removed: revokeSessions_(ctx.me.email) };
+  },
+
+  /** ผู้ดูแลระบบ: บังคับออกจากระบบทุกเครื่องของอีเมลหนึ่ง (เช่น ผู้รับจ้างที่พ้นสัญญา) */
+  revokeSessions: function (b, ctx) {
+    if (!ctx.me.isAdmin) forbid_('เฉพาะผู้ดูแลระบบ');
+    var email = R_().norm(b.email);
+    if (!R_().validEmail(email)) fail_('อีเมลไม่ถูกต้อง');
+    var n = revokeSessions_(email);
+    // ปลดล็อกการขอรหัสด้วย (ถ้าถูกระงับเพราะใส่รหัสผิด)
+    var h = hash_(email).slice(0, 32);
+    CacheService.getScriptCache().removeAll(['otplock_' + h, 'otpbad_' + h, 'otprl_' + h, 'otp6h_' + h]);
+    return { removed: n };
+  },
+
   /** เปลี่ยนชื่อที่แสดงของผู้ใช้ */
   updateMe: function (b, ctx) {
     var name = String(b.name || '').trim();
@@ -255,6 +279,11 @@ var ACTIONS = {
   getAll: function (b, ctx) {
     var R = R_();
     var me = ctx.me;
+    // ผู้ที่ไม่มีสิทธิ์เข้าระบบแล้ว (เช่น ถูกถอดออกจากทุกโครงการ) → ออกจากระบบ
+    if (!loginAllowed_(me.email, ctx.settings)) {
+      if (b.token) PropertiesService.getScriptProperties().deleteProperty('sess_' + hash_(b.token));
+      fail_('บัญชีนี้ไม่ได้เป็นสมาชิกของโครงการใดแล้ว — ระบบออกจากระบบให้', 'login');
+    }
     var projects = readTable_('Projects').filter(function (p) { return R.canView(p, me); });
     var ids = {};
     var byId = {};
@@ -271,7 +300,7 @@ var ACTIONS = {
       meetings: meetingsFor_(me),
       daily: readTable_('Daily').filter(function (d) { var p = byId[d.projectId]; return p && R.canSeeDaily(p, me); }),
       library: readTable_('Library').filter(function (it) { return R.canSeeLibrary(it, me, projects); }),
-      settings: ctx.settings,
+      settings: publicSettings_(ctx.settings, me),
       meta: {
         rootFolderUrl: me.isAdmin ? safeRootUrl_() : '', maxUploadMB: CONFIG.MAX_UPLOAD_MB, version: VERSION,
         me: me, auth: 'otp', mailQuota: me.isAdmin ? mailQuota_() : null, sendEmail: CONFIG.SEND_EMAIL,
@@ -313,6 +342,7 @@ var ACTIONS = {
       p.slaWarnDays = p.slaWarnDays === '' || p.slaWarnDays == null ? '' : Math.max(1, num_(p.slaWarnDays));
       p.slaLateDays = p.slaLateDays === '' || p.slaLateDays == null ? '' : Math.max(1, num_(p.slaLateDays));
     }
+    R.checkProject(p);
     var saved = saveProject_(p, me.name);
     var mail = null;
     if (owner) mail = afterMembersChanged_(old, saved, me, b, ctx);
@@ -750,7 +780,7 @@ var ACTIONS = {
   // ---------- ตั้งค่ากลาง (ผู้ดูแลระบบ) ----------
   saveSettings: function (b, ctx) {
     if (!ctx.me.isAdmin) forbid_('เฉพาะผู้ดูแลระบบเท่านั้นที่เปลี่ยนการตั้งค่ากลางได้');
-    var s = b.settings || {};
+    var s = R_().checkSettings(b.settings || {});
     var rows = Object.keys(s).map(function (k) { return { key: k, value: s[k] }; });
     replaceWhere_('Settings', function () { return true; }, rows);
     return readSettings_();
@@ -878,29 +908,8 @@ function nameFromProjects_(email) {
 // สมาชิก สิทธิ์ และขั้นตอนพิจารณา
 // =============================================================
 function cleanMembers_(list, ownerEmail) {
-  var R = R_();
-  var seen = {};
-  var seats = {};
-  var out = [];
-  (Array.isArray(list) ? list : []).forEach(function (m) {
-    var e = R.norm(m && m.email);
-    if (!e) return;
-    if (!R.validEmail(e)) fail_('อีเมล "' + e + '" ไม่ถูกต้อง');
-    if (seen[e] || e === R.norm(ownerEmail)) return;
-    seen[e] = true;
-    var role = R.MEMBER_ROLES.indexOf(m.role) >= 0 ? m.role : 'viewer';
-    var rec = { email: e, name: String(m.name || '').trim().slice(0, 120), role: role, notify: R.NOTIFY[m.notify] ? m.notify : R.DEFAULT_NOTIFY[role] };
-    if (role === 'committee') {
-      var st = seat_(m.seat);
-      if (st !== '' && seats[st]) fail_('ลำดับกรรมการ "' + R.seatLabel(st) + '" ซ้ำกัน');
-      if (st !== '') { seats[st] = true; rec.seat = st; }
-    }
-    out.push(rec);
-  });
-  return out;
+  return R_().cleanMembers(list, ownerEmail);
 }
-
-/** ลำดับกรรมการ: 0 = ประธานกรรมการ, 1..9 = กรรมการลำดับที่ n — ค่าอื่นคืน '' */
 function seat_(v) {
   if (v === '' || v == null || !isFinite(+v)) return '';
   var n = Math.round(+v);
@@ -977,14 +986,21 @@ function ownFiles_(ids, pid, subId) {
 // =============================================================
 // อีเมล
 // =============================================================
+/**
+ * ลิงก์หน้าเว็บที่ใส่ในอีเมล — 1.0.8: ไม่ใช้ค่าที่ส่งมากับคำขอ (กันผู้ใช้ส่งลิงก์ปลอมให้ไปอยู่ในอีเมลถึงคนอื่น)
+ * ลำดับ: CONFIG.APP_URL → ค่ากลางที่ผู้ดูแลตั้ง → ลิงก์ที่ผู้ดูแลระบบเปิดใช้ล่าสุด
+ */
 function appUrl_(b, settings) {
-  return CONFIG.APP_URL || (settings && settings.appUrl) || (b && b.appUrl) || prop_('LAST_APP_URL') || '';
+  return CONFIG.APP_URL || (settings && safeAppUrl_(settings.appUrl)) || prop_('LAST_APP_URL') || '';
 }
-
-function rememberAppUrl_(u) {
-  if (!u || !/^https?:\/\//.test(u) || CONFIG.APP_URL) return;
-  u = String(u).split('#')[0].slice(0, 300);
-  if (prop_('LAST_APP_URL') !== u) setProp_('LAST_APP_URL', u);
+function safeAppUrl_(u) {
+  u = String(u || '').split('#')[0].trim().slice(0, 300);
+  return /^https:\/\/[^\s"'<>]+$/.test(u) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/[^\s"'<>]*$/.test(u) ? u : '';
+}
+function rememberAppUrl_(u, me) {
+  if (CONFIG.APP_URL || !me || !me.isAdmin) return;
+  u = safeAppUrl_(u);
+  if (u && prop_('LAST_APP_URL') !== u) setProp_('LAST_APP_URL', u);
 }
 
 function mailQuota_() {
@@ -1509,6 +1525,57 @@ function resetAccessKey() {
 }
 
 /** ให้ทุกคนออกจากระบบ (เช่น เมื่อเครื่องสูญหาย) */
+// ---------- 1.0.8 ความปลอดภัยการเข้าสู่ระบบ ----------
+var OTP_FAIL_LIMIT = 10; // ใส่รหัสผิดรวมกี่ครั้งใน 6 ชั่วโมง จึงระงับอีเมลนั้น
+function otpLocked_(cache, email) {
+  if (cache.get('otplock_' + hash_(email).slice(0, 32))) {
+    fail_('อีเมลนี้ถูกระงับการเข้าสู่ระบบชั่วคราว 6 ชั่วโมง เพราะใส่รหัสผิดหลายครั้ง — ติดต่อผู้ดูแลระบบหากไม่ใช่คุณ', 'locked');
+  }
+}
+function otpFailed_(cache, email) {
+  var h = hash_(email).slice(0, 32);
+  var n = +(cache.get('otpbad_' + h) || 0) + 1;
+  cache.put('otpbad_' + h, String(n), 21600);
+  if (n < OTP_FAIL_LIMIT) return;
+  cache.put('otplock_' + h, '1', 21600);
+  cache.remove('otp_' + h);
+  // แจ้งผู้ดูแลระบบ (ครั้งเดียวต่อการระงับ)
+  try {
+    var settings = readSettings_();
+    var admins = R_().parseList(CONFIG.ADMIN_EMAILS).concat(R_().parseList(settings.admins), [scriptOwner_()])
+      .filter(function (x, i, a) { return x && x.charAt(0) !== '@' && R_().validEmail(x) && a.indexOf(x) === i; });
+    if (admins.length && MailApp.getRemainingDailyQuota() > 5) {
+      MailApp.sendEmail({
+        to: admins.join(','), name: CONFIG.MAIL_SENDER_NAME,
+        subject: '[แจ้งเตือนความปลอดภัย] ระงับการเข้าสู่ระบบของ ' + email,
+        htmlBody: '<div style="font-family:Tahoma,Arial,sans-serif;font-size:14px;line-height:1.6;color:#172238">' +
+          '<p>มีการใส่รหัสเข้าสู่ระบบผิด ' + OTP_FAIL_LIMIT + ' ครั้งภายใน 6 ชั่วโมงสำหรับอีเมล <b>' + R_().esc(email) + '</b></p>' +
+          '<p>ระบบระงับการเข้าสู่ระบบของอีเมลนี้ 6 ชั่วโมงโดยอัตโนมัติ หากเป็นผู้ใช้จริงที่ลืมรหัส ผู้ดูแลปลดล็อกได้ที่ หน้าตั้งค่า › ผู้ใช้และสิทธิ์ของระบบ › บังคับออกจากระบบ/ปลดล็อก</p>' +
+          '<p style="color:#737D90">เวลา ' + R_().esc(nowIso_()) + '</p></div>',
+      });
+    }
+  } catch (e) { console.error(e); }
+}
+function revokeSessions_(email) {
+  email = R_().norm(email);
+  var props = PropertiesService.getScriptProperties();
+  var all = props.getProperties();
+  var n = 0;
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf('sess_') !== 0) return;
+    try { if (R_().norm(JSON.parse(all[k]).email) === email) { props.deleteProperty(k); n++; } } catch (e) { /* ignore */ }
+  });
+  return n;
+}
+/** ค่ากลางที่ส่งให้หน้าเว็บ: ผู้ใช้ทั่วไป (เช่น ผู้รับจ้าง) ไม่ต้องเห็นรายชื่ออีเมลผู้ดูแล/ผู้บริหาร/สมาชิกแผนก */
+var PRIVATE_SETTINGS = ['admins', 'executives', 'projectCreators', 'deptMembers', 'reportMonthlyTo'];
+function publicSettings_(settings, me) {
+  if (me.isAdmin || me.isExec || me.isDept) return settings;
+  var o = {};
+  Object.keys(settings || {}).forEach(function (k) { if (PRIVATE_SETTINGS.indexOf(k) < 0) o[k] = settings[k]; });
+  return o;
+}
+
 function logoutEveryone() {
   var props = PropertiesService.getScriptProperties();
   var all = props.getProperties();
@@ -2364,6 +2431,70 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
   // ---------- โหวตเลือกรูปแบบ/สี (คณะกรรมการตัดสิน เมื่อแบบไม่ได้กำหนดไว้) ----------
   var VOTE_STATUS = { open: 'กำลังโหวต', closed: 'ได้ข้อยุติแล้ว' };
   /** ตรวจและจัดรูปข้อมูลโหวต: { question, options:[{label, detail, fileId}] } */
+  // ---------- 1.0.8 ตรวจข้อมูลโครงการ/สมาชิก (ใช้ร่วมกันทั้งหน้าเว็บและ Apps Script) ----------
+  function validIsoDate(v) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v || ''))) return false;
+    var d = new Date(v + 'T00:00:00Z');
+    return !isNaN(d) && d.toISOString().slice(0, 10) === v;
+  }
+  function seatOf_(v) {
+    if (v === '' || v == null || !isFinite(+v)) return '';
+    var n = Math.round(+v);
+    return n >= 0 && n <= MAX_SEAT ? n : '';
+  }
+  /** สมาชิก: อีเมลต้องถูกต้อง ไม่ซ้ำ ไม่ใช่เจ้าของ ลำดับกรรมการไม่ซ้ำ */
+  function cleanMembers(list, ownerEmail) {
+    var seen = {}, seats = {}, out = [];
+    (Array.isArray(list) ? list : []).forEach(function (m) {
+      var e = norm(m && m.email);
+      if (!e) return;
+      if (!validEmail(e)) throw fail('อีเมล "' + e + '" ไม่ถูกต้อง', 'invalid');
+      if (seen[e] || e === norm(ownerEmail)) return;
+      seen[e] = true;
+      var role = MEMBER_ROLES.indexOf(m.role) >= 0 ? m.role : 'viewer';
+      var rec = { email: e, name: String(m.name || '').trim().slice(0, 120), role: role, notify: NOTIFY[m.notify] ? m.notify : DEFAULT_NOTIFY[role] };
+      if (role === 'committee') {
+        var st = seatOf_(m.seat);
+        if (st !== '' && seats[st]) throw fail('ลำดับกรรมการ "' + seatLabel(st) + '" ซ้ำกัน', 'invalid');
+        if (st !== '') { seats[st] = true; rec.seat = st; }
+      }
+      out.push(rec);
+    });
+    return out;
+  }
+  /** ข้อมูลหลักของโครงการ: ชื่อ วันที่ มูลค่า (แก้ไขรายการเดิมในที่) */
+  function checkProject(p) {
+    p.name = String(p.name || '').trim().slice(0, 200);
+    if (!p.name) throw fail('กรุณาระบุชื่อโครงการ', 'invalid');
+    ['startDate', 'endDate'].forEach(function (k) { if (p[k] && !validIsoDate(p[k])) p[k] = ''; });
+    if (p.startDate && p.endDate && p.endDate < p.startDate) throw fail('วันสิ้นสุดสัญญาต้องไม่ก่อนวันเริ่มสัญญา', 'invalid');
+    if (p.contractValue !== '' && p.contractValue != null) {
+      var v = Number(String(p.contractValue).replace(/,/g, ''));
+      if (!isFinite(v) || v < 0) throw fail('มูลค่าสัญญาต้องเป็นตัวเลขที่ไม่ติดลบ', 'invalid');
+      p.contractValue = v;
+    }
+    return p;
+  }
+  /** ค่ากลาง: จำนวนวัน/เปอร์เซ็นต์ต้องเป็นตัวเลขบวก */
+  function checkSettings(s) {
+    var o = {};
+    Object.keys(s || {}).forEach(function (k) { o[k] = s[k]; });
+    ['slaWarnDays', 'slaLateDays', 'staleDays'].forEach(function (k) {
+      if (o[k] === '' || o[k] == null) return;
+      var n = Math.round(Number(o[k]));
+      if (!isFinite(n) || n < 1) throw fail('จำนวนวันต้องเป็นตัวเลขตั้งแต่ 1 ขึ้นไป', 'invalid');
+      o[k] = n;
+    });
+    ['watchThreshold', 'behindThreshold'].forEach(function (k) {
+      if (o[k] === '' || o[k] == null) return;
+      var n = Number(o[k]);
+      if (!isFinite(n) || n < 0) throw fail('เกณฑ์เปอร์เซ็นต์ต้องเป็นตัวเลขที่ไม่ติดลบ', 'invalid');
+      o[k] = n;
+    });
+    if (o.slaWarnDays && o.slaLateDays && o.slaLateDays < o.slaWarnDays) throw fail('จำนวนวันของสีแดงต้องไม่น้อยกว่าสีเหลือง', 'invalid');
+    return o;
+  }
+
   function cleanVote(v, allowedFiles, actor, nowIso) {
     v = v || {};
     var seen = {}, opts = [];
@@ -2997,7 +3128,10 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
   function cleanDaily(input, p, actor, nowIso, existing) {
     if (!can(p, actor, 'recordProgress')) throw fail('คุณไม่มีสิทธิ์บันทึกรายงานประจำวันของโครงการนี้', 'forbidden');
     input = input || {};
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.date || ''))) throw fail('กรุณาระบุวันที่', 'invalid');
+    if (!validIsoDate(input.date)) throw fail('กรุณาระบุวันที่ให้ถูกต้อง', 'invalid');
+    // บันทึกล่วงหน้าไม่ได้ (เผื่อเขตเวลา 1 วัน)
+    var todayTh = new Date(Date.parse(nowIso || new Date().toISOString()) + 7 * 3600e3).toISOString().slice(0, 10);
+    if (input.date > addDaysIso(todayTh, 1)) throw fail('บันทึกรายงานประจำวันล่วงหน้าไม่ได้', 'invalid');
     var w = input.weather || {};
     var st = input.stoppage || {};
     var d = {
@@ -3400,6 +3534,7 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     reqDueText: reqDueText, reqDueDate: reqDueDate, reqStatus: reqStatus,
     recipients: recipients, subEmail: subEmail, mailPlan: mailPlan, progressEmail: progressEmail, inviteEmail: inviteEmail, reminderEmail: reminderEmail,
     thaiDateTime: thaiDateTime, esc: esc, addDaysIso: addDaysIso, daysBetween: daysBetween,
+    validIsoDate: validIsoDate, cleanMembers: cleanMembers, checkProject: checkProject, checkSettings: checkSettings,
     isDept: isDept, CHANNELS: CHANNELS, AUDIENCES: AUDIENCES, MEETING_STATUS: MEETING_STATUS, MAX_MSG: MAX_MSG,
     canReadChannel: canReadChannel, canPostChannel: canPostChannel, canSeeMeeting: canSeeMeeting, canCreateMeeting: canCreateMeeting,
     canEditMeeting: canEditMeeting, canToggleAction: canToggleAction, newMessage: newMessage, canDeleteMessage: canDeleteMessage,

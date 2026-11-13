@@ -63,6 +63,15 @@ export const gasBackend = {
     conf.token = '';
     saveConf();
   },
+  /** 1.0.8: ออกจากระบบทุกเครื่องของตัวเอง */
+  async logoutAll() {
+    const r = await api('logoutAll', {}, { timeout: 20000 });
+    conf.token = '';
+    saveConf();
+    return r;
+  },
+  /** 1.0.8: ผู้ดูแลระบบบังคับออกจากระบบ/ปลดล็อกอีเมลหนึ่ง */
+  revokeSessions: (email) => api('revokeSessions', { email }),
 
   async getAll() {
     const d = await api('getAll');

@@ -255,7 +255,7 @@ function renderDetail(el, ctx, id) {
 
       <section class="panel">
         <header class="panel-head"><h2>ประวัติการดำเนินการ</h2></header>
-        <ol class="hist-tl">${[...sub.history].reverse().map((h) => `<li class="ht-${h.action}">
+        <ol class="hist-tl">${[...sub.history].reverse().map((h) => `<li class="ht-${String(h.action || "").replace(/[^a-z-]/gi, "")}">
           <span class="ht-ic">${icon(ACT_ICON[h.action] || 'message')}</span>
           <div><p><b>${esc(h.byName || personName(p, h.by))}</b> <small>${esc(R.ROLES[R.roleOf(p, h.by)]?.label || '')}</small> ${esc(R.ACTIONS[h.action] || h.action)}${h.rev > 1 && h.action === 'resubmit' ? ` (ครั้งที่ ${h.rev})` : ''}${['approve', 'reject'].includes(h.action) && sub.steps[h.step] ? ` <span class="muted">ขั้น${esc(sub.steps[h.step].label)}</span>` : ''}</p>
             <small class="muted">${esc(R.thaiDateTime(h.at))}</small>
@@ -469,7 +469,13 @@ function renderNew(el, ctx) {
   form.addEventListener('input', () => { guard.dirty = true; });
   const flow = () => {
     const wf = R.workflowFor(p, form.elements.category.value);
-    const fake = R.createSubmission(p, { id: 'x', category: wf.name, title: 'x' }, me, nowIso(), []).sub;
+    let fake;
+    try { fake = R.createSubmission(p, { id: 'x', category: wf.name, title: 'x' }, me, nowIso(), []).sub; } catch (e) {
+      // หมวดที่ยังไม่มีขั้นตอนพิจารณา (ข้อมูลเก่า) — แจ้งให้เจ้าของโครงการแก้ แทนที่หน้าจะเปิดไม่ได้
+      el.querySelector('#nf-flow').innerHTML = `<p class="notice notice-warn">${icon('alert')}<span>${esc(e.message)} — ให้เจ้าของโครงการเพิ่มขั้นพิจารณาที่แท็บสมาชิกและสิทธิ์ หรือเลือกหมวดอื่น</span></p>`;
+      el.querySelector('#nf-notify').innerHTML = '';
+      return;
+    }
     el.querySelector('#nf-flow').innerHTML = `<div class="flow">${fake.steps.map((s, i) => {
       const who = R.approversFor(p, s, me.email).map((e) => personName(p, e));
       return `${i ? `<span class="flow-arrow">${icon('chevR')}</span>` : ''}<span class="flow-step"><b>${i + 1}. ${esc(s.label)}</b><small>ภายใน ${esc(s.days)} วัน${who.length ? ` · ${esc(who.join(', '))}` : ''}</small></span>`;

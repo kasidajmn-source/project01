@@ -1,6 +1,6 @@
 // แท็บสมาชิกและสิทธิ์: เจ้าของโครงการแต่งตั้งสมาชิก กำหนดสิทธิ์ของแต่ละบทบาท และขั้นตอนพิจารณาเรื่องขออนุมัติ
 import { store } from '../store.js';
-import { esc, icon, toast, confirmBox, promptBox, setBusy, guard, emptyState } from '../ui.js';
+import { esc, icon, toast, confirmBox, promptBox, setBusy, guard, emptyState, menu } from '../ui.js';
 import { roleChip, mailNote } from './common.js';
 
 const R = globalThis.PTRules;
@@ -61,7 +61,7 @@ export function renderMembers(el, ctx) {
     </section>
 
     <section class="panel mem-owner">
-      <header class="panel-head"><h2>เจ้าของโครงการ</h2>${canTransfer && !ownerless ? `<button class="btn btn-sm" data-act="transfer">${icon('share')}โอนความเป็นเจ้าของ</button>` : ''}</header>
+      <header class="panel-head"><h2>เจ้าของโครงการ</h2>${canTransfer && !ownerless ? menu({ btnCls: 'btn-sm btn-ghost', items: [{ act: 'transfer', icon: 'share', label: 'โอนความเป็นเจ้าของ', sub: 'ให้สมาชิกคนอื่นเป็นเจ้าของโครงการ' }] }) : ''}</header>
       ${ownerless ? `
         <div class="notice notice-warn">${icon('alert')}<div><b>โครงการนี้ยังไม่มีเจ้าของ</b><span>สร้างก่อนเวอร์ชัน 1.0.1 — ผู้ดูแลระบบทำหน้าที่แทนจนกว่าจะกำหนดเจ้าของ</span></div>
           ${canTransfer && me.email ? `<button class="btn btn-sm" data-act="claim">รับเป็นเจ้าของ</button>` : ''}</div>
@@ -97,7 +97,7 @@ export function renderMembers(el, ctx) {
   </section>
 
   <section class="panel">
-    <header class="panel-head"><h2>สิทธิ์ของแต่ละบทบาท</h2>${canEdit ? '<button class="btn btn-sm btn-ghost" data-act="reset-perms">คืนค่าเริ่มต้น</button>' : ''}</header>
+    <header class="panel-head"><h2>สิทธิ์ของแต่ละบทบาท</h2>${canEdit ? menu({ btnCls: 'btn-sm btn-ghost', items: [{ act: 'reset-perms', icon: 'undo', label: 'คืนค่าสิทธิ์เริ่มต้น' }] }) : ''}</header>
     <div class="table-wrap">
       <table class="perm-matrix">
         <thead><tr><th>บทบาท</th>${R.PERM_KEYS.map((k) => `<th><span>${esc(R.PERMS[k])}</span></th>`).join('')}</tr></thead>
@@ -112,10 +112,9 @@ export function renderMembers(el, ctx) {
   </section>
 
   <section class="panel">
-    <header class="panel-head"><h2>หมวดเรื่องและขั้นตอนพิจารณา</h2>${canEdit ? '<button class="btn btn-sm btn-ghost" data-act="reset-wf">คืนค่าเริ่มต้น</button>' : ''}</header>
+    <header class="panel-head"><h2>หมวดเรื่องและขั้นตอนพิจารณา</h2>${canEdit ? menu({ btnCls: 'btn-sm btn-ghost', items: [{ act: 'add-wf', icon: 'plus', label: 'เพิ่มหมวดเรื่อง' }, { act: 'reset-wf', icon: 'undo', label: 'คืนค่าหมวดและขั้นตอนเริ่มต้น' }] }) : ''}</header>
     <p class="hint">${icon('clock')}เรื่องที่ส่งเข้ามาจะผ่านผู้พิจารณาตามลำดับขั้น — ขั้นผู้ควบคุมงาน: <b>คนใดคนหนึ่ง</b>พิจารณาได้ · ขั้นคณะกรรมการ: <b>ทุกคนเรียงตามลำดับ</b> กรรมการลำดับ 1 → 2 → 3 … แล้วจึง<b>ประธานกรรมการ</b> (กำหนดลำดับในตารางสมาชิก) ถ้าบทบาทนั้นยังไม่มีสมาชิก ระบบจะส่งให้เจ้าของโครงการพิจารณาแทน</p>
     <div class="wf-list" id="wf"></div>
-    ${canEdit ? `<div class="row-actions"><button class="btn btn-sm" data-act="add-wf">${icon('plus')}เพิ่มหมวดเรื่อง</button></div>` : ''}
     <div class="sla-row">
       <span>${icon('alert')}สีของเรื่องที่ค้างพิจารณา</span>
       <label class="field field-inline"><span><i class="dot dot-warn"></i>สีเหลืองเมื่อค้างเกิน</span><input type="number" min="1" data-sla="slaWarnDays" value="${esc(d.slaWarnDays)}" placeholder="${esc(store.settings.slaWarnDays)}" ${dis}><span>วัน</span></label>
@@ -237,7 +236,9 @@ export function renderMembers(el, ctx) {
       const name = await promptBox({ title: 'เพิ่มหมวดเรื่อง', label: 'ชื่อหมวด', placeholder: 'เช่น ขออนุมัติเข้าทำงานนอกเวลา' });
       if (!name) return;
       if (d.workflow.some((c) => c.name === name.trim())) { toast('มีหมวดนี้อยู่แล้ว', 'bad'); return; }
-      d.workflow.splice(Math.max(0, d.workflow.length - 1), 0, { name: name.trim(), steps: [{ role: 'supervisor', days: 7, label: '' }] });
+      const at = Math.max(0, d.workflow.length - 1);
+      d.workflow.splice(at, 0, { name: name.trim(), steps: [{ role: 'supervisor', days: 7, label: '' }] });
+      wfOpen.clear(); wfOpen.add(at);
       dirty(); drawWf();
     });
     el.querySelectorAll('[data-sla]').forEach((inp) => inp.addEventListener('input', () => { d[inp.dataset.sla] = inp.value === '' ? '' : Math.max(1, Math.round(+inp.value || 0)); dirty(); }));
@@ -263,9 +264,17 @@ export function renderMembers(el, ctx) {
     if (!list.length) return '<small class="is-bad">ยังไม่มีผู้พิจารณา</small>';
     return `<small class="${direct ? 'muted' : 'warn-ink'}">${direct ? '' : 'ยังไม่มีสมาชิกบทบาทนี้ — '}ผู้พิจารณา: ${esc(names.join(', '))}</small>`;
   }
+  // แต่ละหมวดพับไว้เป็นบรรทัดสรุป กดเพื่อเปิดแก้ไข (ลดปุ่ม/ช่องกรอกบนหน้าจอ)
+  const wfOpen = new Set();
   function drawWf() {
     const box = el.querySelector('#wf');
-    box.innerHTML = d.workflow.map((c, ci) => `<div class="wf-cat">
+    // จำว่าหมวดไหนเปิดอยู่ (อ่านจากหน้าจอจริงก่อนวาดใหม่)
+    box.querySelectorAll('details[data-wfi]').forEach((dt) => { if (dt.open) wfOpen.add(+dt.dataset.wfi); else wfOpen.delete(+dt.dataset.wfi); });
+    box.innerHTML = d.workflow.map((c, ci) => `<details class="wf-cat" data-wfi="${ci}" ${wfOpen.has(ci) ? 'open' : ''}>
+      <summary class="wf-sum"><b>${esc(c.name || '(ยังไม่ตั้งชื่อ)')}</b>
+        <span class="wf-chain">${c.steps.map((x) => `${esc(R.stepLabel(x))} ${esc(x.days)} วัน`).join(' <i>→</i> ')}</span>
+        ${icon('chevD', 'wf-chev')}</summary>
+      <div class="wf-body">
       <div class="wf-name">${canEdit ? `<input data-wn="${ci}" value="${esc(c.name)}" aria-label="ชื่อหมวด">` : `<b>${esc(c.name)}</b>`}
         ${canEdit && d.workflow.length > 1 ? `<button class="icon-btn danger" data-wrm="${ci}" title="ลบหมวด" aria-label="ลบหมวด">${icon('trash')}</button>` : ''}</div>
       <ol class="wf-steps">${c.steps.map((s, si) => `<li>
@@ -278,8 +287,9 @@ export function renderMembers(el, ctx) {
             : `<b>${esc(R.stepLabel(s))}</b> <span class="muted">${s.role === 'committee' && R.stepMode(s) === 'seq' ? `เรียงตามลำดับ คนละ ${esc(s.days)} วัน` : s.role === 'committee' ? `คนใดคนหนึ่ง ภายใน ${esc(s.days)} วัน` : `ภายใน ${esc(s.days)} วัน`}</span>`}
           ${approverNote(s.role, s)}
         </div></li>`).join('')}
-        ${canEdit && c.steps.length < 4 ? `<li class="wf-add"><button class="btn btn-sm btn-ghost" data-wsadd="${ci}">${icon('plus')}เพิ่มขั้นพิจารณา</button></li>` : ''}
-      </ol></div>`).join('');
+        ${canEdit && c.steps.length < 4 ? `<li class="wf-add"><button type="button" class="link-btn" data-wsadd="${ci}">${icon('plus')}เพิ่มขั้นที่ ${c.steps.length + 1}</button></li>` : ''}
+      </ol></div></details>`).join('');
+    box.querySelectorAll('details[data-wfi]').forEach((dt) => dt.addEventListener('toggle', () => { if (dt.open) wfOpen.add(+dt.dataset.wfi); else wfOpen.delete(+dt.dataset.wfi); }));
     if (!canEdit) return;
     box.querySelectorAll('[data-wn]').forEach((inp) => inp.addEventListener('input', () => { d.workflow[+inp.dataset.wn].name = inp.value.trim(); dirty(); }));
     box.querySelectorAll('[data-ws]').forEach((inp) => inp.addEventListener('change', () => {
@@ -293,7 +303,7 @@ export function renderMembers(el, ctx) {
       const c = d.workflow[+b.dataset.wrm];
       const used = store.subsOf(p.id).filter((s) => s.category === c.name).length;
       if (!(await confirmBox({ title: 'ลบหมวดเรื่อง', message: `ลบหมวด "${esc(c.name)}"?${used ? ` มีเรื่องเดิม ${used} เรื่องในหมวดนี้ เรื่องเดิมยังอยู่และใช้ขั้นตอนเดิม` : ''}`, ok: 'ลบหมวด', danger: true }))) return;
-      d.workflow.splice(+b.dataset.wrm, 1); dirty(); drawWf();
+      d.workflow.splice(+b.dataset.wrm, 1); wfOpen.clear(); dirty(); drawWf();
     }));
   }
   drawWf();

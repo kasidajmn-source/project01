@@ -1,6 +1,6 @@
 // ประชุม: นัดประชุม (แผนก / โครงการ / ภายใน กฟผ.) เชิญทางอีเมล เพิ่มลงปฏิทิน วาระ บันทึกการประชุม งานที่มอบหมาย และห้องความเห็น
 import { store } from '../store.js';
-import { esc, icon, toast, confirmBox, setBusy, openModal, emptyState, download, fmt } from '../ui.js';
+import { esc, icon, toast, confirmBox, setBusy, openModal, emptyState, download, fmt, menu, safeUrl } from '../ui.js';
 import { pageHead, personName, mailNote } from './common.js';
 import { mountRoom, richText } from './room.js';
 import { openForm } from '../forms.js';
@@ -10,8 +10,9 @@ const R = globalThis.PTRules;
 const nowLocal = () => new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 16); // เวลาไทย YYYY-MM-DDTHH:mm
 
 // ---------- ปฏิทิน ----------
-const toUtc = (local, addMin = 0) => new Date(Date.parse(`${local}:00+07:00`) + addMin * 60000);
-const icsTime = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+// วันเวลาที่ผิดรูปแบบ (ข้อมูลเก่า/แก้ไขเอง) ใช้เวลาปัจจุบันแทน ไม่ให้หน้าประชุมเปิดไม่ได้
+const toUtc = (local, addMin = 0) => { const t = Date.parse(`${local}:00+07:00`); return new Date((Number.isFinite(t) ? t : Date.now()) + addMin * 60000); };
+const icsTime = (d) => (Number.isFinite(+d) ? d : new Date()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 const icsEsc = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/[,;]/g, (c) => `\\${c}`);
 function details(m) {
   return [m.link ? `ประชุมออนไลน์: ${m.link}` : '', m.agenda ? `วาระ:\n${m.agenda}` : '', `${location.href.split('#')[0]}#/meetings/${m.id}`].filter(Boolean).join('\n\n');
@@ -195,16 +196,20 @@ function renderDetail(el, id) {
           <div><dt>ผู้นัดประชุม</dt><dd>${esc(m.createdByName || m.createdBy)}</dd></div>
         </dl>
         <div class="row-actions">
-          ${m.link && m.status !== 'cancelled' ? `<a class="btn btn-primary" href="${esc(m.link)}" target="_blank" rel="noopener">${icon('external')}เข้าร่วมประชุมออนไลน์</a>` : ''}
-          <button class="btn" data-act="ics">${icon('calendar')}เพิ่มลงปฏิทิน (.ics)</button>
-          <button class="btn" data-act="f04" title="พิมพ์บันทึกการประชุมตามแบบมาตรฐาน">${icon('print')}พิมพ์ PT-F04</button>
-          <a class="btn btn-ghost" href="${esc(links.google)}" target="_blank" rel="noopener">Google Calendar</a>
-          <a class="btn btn-ghost" href="${esc(links.outlook)}" target="_blank" rel="noopener">Outlook</a>
+          ${safeUrl(m.link) && m.status !== 'cancelled' ? `<a class="btn btn-primary" href="${esc(safeUrl(m.link))}" target="_blank" rel="noopener noreferrer">${icon('external')}เข้าร่วมประชุมออนไลน์</a>` : ''}
+          ${menu({ label: 'เพิ่มลงปฏิทิน', icon: 'calendar', items: [
+            { act: 'ics', icon: 'download', label: 'ไฟล์ปฏิทิน (.ics)', sub: 'Outlook / Apple / ปฏิทินในมือถือ' },
+            { href: links.google, icon: 'external', label: 'Google Calendar', attrs: 'target="_blank" rel="noopener noreferrer"' },
+            { href: links.outlook, icon: 'external', label: 'Outlook บนเว็บ', attrs: 'target="_blank" rel="noopener noreferrer"' },
+          ] })}
+          ${menu({ items: [
+            { act: 'f04', icon: 'print', label: 'พิมพ์บันทึกการประชุม PT-F04' },
+            canEdit && { sep: true },
+            canEdit && { act: 'edit', icon: 'edit', label: 'แก้ไขนัด' },
+            canEdit && m.status === 'scheduled' && { act: 'done', icon: 'check', label: 'บันทึกว่าประชุมแล้ว' },
+            canEdit && m.status === 'scheduled' && { act: 'cancel', icon: 'x', label: 'ยกเลิกการประชุม', danger: true },
+          ] })}
         </div>
-        ${canEdit ? `<div class="row-actions">
-          <button class="btn btn-sm" data-act="edit">${icon('edit')}แก้ไขนัด</button>
-          ${m.status === 'scheduled' ? `<button class="btn btn-sm" data-act="done">${icon('check')}ประชุมแล้ว</button><button class="btn btn-sm btn-ghost btn-danger-text" data-act="cancel">${icon('x')}ยกเลิกการประชุม</button>` : ''}
-        </div>` : ''}
       </section>
       <section class="panel">
         <header class="panel-head"><h2>วาระการประชุม</h2></header>

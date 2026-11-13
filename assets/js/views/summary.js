@@ -1,7 +1,7 @@
 // สรุปผู้บริหาร: ภาพรวมทุกโครงการสำหรับรายงานแผนก (ส่งออก Excel / พิมพ์ PDF / โหมดนำเสนอ)
 import { store } from '../store.js';
 import { portfolio, STATUS, STATUS_ORDER, todayISO, groupBreakdown, METHODS } from '../calc.js';
-import { esc, fmt, icon, gauge, chip, emptyState, moneyHTML, daysText, toast } from '../ui.js';
+import { esc, fmt, icon, gauge, chip, emptyState, moneyHTML, daysText, toast, menu } from '../ui.js';
 import { deltaHTML, pageHead } from './common.js';
 import { exportWorkbook } from '../excel.js';
 import { startPresentation } from './present.js';
@@ -41,9 +41,12 @@ export function renderSummary(el) {
 
   el.innerHTML = `
   ${pageHead('สรุปผู้บริหาร', `ภาพรวมโครงการสำหรับรายงานแผนก${S.orgName ? ` <span class="sep"></span>${esc(S.orgName)}` : ''}`, `
-    ${!store.legacy && store.canSendReport('monthly') ? `<button class="btn" data-act="monthly" title="สรุปความคืบหน้าเดือนที่แล้วของทุกโครงการ ส่งให้ผู้บริหาร/สมาชิกแผนก">${icon('mail')}ส่งรายงานประจำเดือน</button>` : ''}
-    <button class="btn" data-act="xlsx">${icon('table')}ส่งออก Excel</button>
-    <button class="btn" data-act="print">${icon('print')}พิมพ์ / PDF</button>
+    ${menu({ label: 'ส่งออก', icon: 'download', items: [
+      { act: 'xlsx', icon: 'table', label: 'ส่งออก Excel', sub: 'ตารางสรุปทุกโครงการ' },
+      { act: 'print', icon: 'print', label: 'พิมพ์ / บันทึก PDF' },
+      !store.legacy && store.canSendReport('monthly') && { sep: true },
+      !store.legacy && store.canSendReport('monthly') && { act: 'monthly', icon: 'mail', label: 'ส่งรายงานประจำเดือน', sub: 'สรุปเดือนที่แล้ว ส่งให้ผู้บริหาร/สมาชิกแผนก' },
+    ] })}
     <button class="btn btn-primary" data-act="present">${icon('present')}โหมดนำเสนอ</button>`)}
   <div class="toolbar no-print">
     <select data-f="scope" aria-label="ขอบเขต">

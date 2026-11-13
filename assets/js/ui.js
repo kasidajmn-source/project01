@@ -81,6 +81,7 @@ const ICONS = {
   award: '<circle cx="12" cy="9" r="6"/><path d="m8.5 14-1.5 7 5-2.5 5 2.5-1.5-7"/><path d="m9.8 9 1.5 1.5 3-3"/>',
   play: '<path d="M7 4.5v15l12-7.5z"/>',
   star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
+  more: '<circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/>',
 };
 
 export function icon(name, cls = '') {
@@ -135,6 +136,102 @@ export const fmt = {
     return `${(n / 1048576).toFixed(1)} MB`;
   },
 };
+
+/** ลิงก์ที่ปลอดภัยสำหรับใส่ใน href/เปิดหน้าต่าง: http(s) หรือเส้นทางภายใน (#/) เท่านั้น — อย่างอื่น (เช่น javascript:) คืนค่าว่าง */
+export function safeUrl(u, { blob = false } = {}) {
+  const s = String(u ?? '').trim();
+  if (/^https?:\/\/[^\s]+$/i.test(s) || /^#\//.test(s)) return s;
+  if (blob && /^blob:/i.test(s)) return s;
+  return '';
+}
+
+// ---------- เมนูรวมคำสั่ง (1.0.8) ----------
+// รวมคำสั่งรองไว้ในปุ่มเดียว — ไอเท็มเป็น <button data-act> เดิม จึงผูก event แบบเดิมได้
+// items: [{ act, label, icon, sub, href, danger, attrs } | { sep: true } | null]
+let menuSeq = 0;
+export function menu({ label = '', icon: ic = 'more', items, cls = '', btnCls = '', title = 'คำสั่งเพิ่มเติม' }) {
+  const list = (items || []).filter(Boolean);
+  while (list.length && list[0].sep) list.shift();
+  while (list.length && list[list.length - 1].sep) list.pop();
+  if (!list.length) return '';
+  const id = `mn${++menuSeq}`;
+  const item = (x) => {
+    if (x.sep) return '<hr class="mn-sep">';
+    const inner = `${x.icon ? icon(x.icon) : ''}<span>${x.label}${x.sub ? `<small>${x.sub}</small>` : ''}</span>`;
+    const c = `mn-item${x.danger ? ' is-danger' : ''}`;
+    return x.href
+      ? (safeUrl(x.href) ? `<a role="menuitem" class="${c}" href="${esc(safeUrl(x.href))}" ${x.attrs || ''}>${inner}</a>` : '')
+      : `<button type="button" role="menuitem" class="${c}" ${x.act ? `data-act="${esc(x.act)}"` : ''} ${x.attrs || ''}>${inner}</button>`;
+  };
+  return `<div class="mn ${cls}"><button type="button" class="btn mn-btn ${label ? '' : 'btn-icon'} ${btnCls}" aria-haspopup="menu" aria-expanded="false" aria-controls="${id}"${label ? '' : ` aria-label="${esc(title)}" title="${esc(title)}"`}>${icon(ic)}${label ? `<span>${label}</span>${icon('chevD', 'mn-caret')}` : ''}</button><div class="mn-pop" role="menu" id="${id}" hidden>${list.map(item).join('')}</div></div>`;
+}
+function closeMenus(except = null) {
+  document.querySelectorAll('.mn-pop:not([hidden])').forEach((pop) => {
+    if (pop === except) return;
+    pop.hidden = true;
+    const btn = pop._btn;
+    btn?.setAttribute('aria-expanded', 'false');
+    // คืนเมนูกลับไว้ข้างปุ่ม (ถ้าหน้ายังอยู่) — ไม่อย่างนั้นทิ้งไป
+    if (btn?.isConnected) btn.after(pop); else pop.remove();
+  });
+}
+function placeMenu(btn, pop) {
+  const b = btn.getBoundingClientRect();
+  pop.style.minWidth = `${Math.max(200, b.width)}px`;
+  const w = pop.offsetWidth, h = pop.offsetHeight;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = b.right - w;
+  if (left < 8) left = Math.min(b.left, vw - w - 8);
+  let top = b.bottom + 6;
+  if (top + h > vh - 8 && b.top - h - 6 > 8) top = b.top - h - 6;
+  pop.style.left = `${Math.max(8, left)}px`;
+  pop.style.top = `${Math.max(8, Math.min(top, vh - h - 8))}px`;
+}
+if (typeof document !== 'undefined' && !window.__ptMenu) {
+  window.__ptMenu = true;
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('.mn-btn');
+    if (btn) {
+      const pop = btn._pop || btn.nextElementSibling;
+      btn._pop = pop;
+      pop._btn = btn;
+      const open = pop.hidden;
+      closeMenus(pop);
+      if (!open) { closeMenus(); return; }
+      // ย้ายไปไว้ที่ body ขณะเปิด ไม่ให้ถูกตัดโดยกล่องที่ซ่อนส่วนเกินหรือมี transform
+      document.body.appendChild(pop);
+      pop.hidden = false;
+      btn.setAttribute('aria-expanded', 'true');
+      placeMenu(btn, pop);
+      pop.querySelector('.mn-item:not(:disabled)')?.focus({ preventScroll: true });
+      return;
+    }
+    // กดคำสั่งในเมนู → ปิดเมนูหลังทำคำสั่ง · กดนอกเมนู → ปิด
+    if (e.target.closest?.('.mn-item')) setTimeout(() => closeMenus(), 0);
+    else if (!e.target.closest?.('.mn-pop')) closeMenus();
+  });
+  document.addEventListener('keydown', (e) => {
+    const pop = e.target.closest?.('.mn-pop') || e.target.closest?.('.mn-btn')?._pop;
+    if (!pop || pop.hidden) return;
+    const items = [...pop.querySelectorAll('.mn-item')];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); const btn = pop._btn; closeMenus(); btn?.focus(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
+    else if (e.key === 'Tab') closeMenus();
+  }, true);
+  window.addEventListener('resize', () => closeMenus());
+  // เลื่อนหน้าขณะเมนูเปิด: เมนูเลื่อนตามปุ่ม และปิดเมื่อปุ่มเลื่อนพ้นจอ
+  document.addEventListener('scroll', (e) => {
+    if (e.target.closest?.('.mn-pop')) return;
+    document.querySelectorAll('.mn-pop:not([hidden])').forEach((pop) => {
+      const btn = pop._btn;
+      const r = btn?.isConnected ? btn.getBoundingClientRect() : null;
+      if (!r || r.bottom < 0 || r.top > window.innerHeight) closeMenus(); else placeMenu(btn, pop);
+    });
+  }, true);
+  window.addEventListener('hashchange', () => closeMenus());
+}
 
 // ---------- toast ----------
 export function toast(msg, tone = 'ok', ms = 3200) {

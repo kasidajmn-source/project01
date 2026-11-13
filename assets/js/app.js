@@ -1,5 +1,5 @@
 // จุดเริ่มต้นของแอป: โครงหน้าจอ, เส้นทาง (hash router), การเชื่อมต่อ
-import { store, conf, saveConf, testConnection, backendFor } from './store.js';
+import { store, conf, saveConf, testConnection, backendFor, gasUrlProblem, spSiteProblem, msIdProblem } from './store.js';
 import { icon, esc, toast, runCleanups, guard, openModal, setBusy } from './ui.js';
 import { renderDashboard } from './views/dashboard.js';
 import { renderProjects } from './views/projects.js';
@@ -164,11 +164,30 @@ async function handleConnect() {
   history.replaceState(null, '', `${location.pathname}#/`);
   current = '#/';
   if (!isSp && !url) { route(); return; }
+  // ตรวจลิงก์เชิญก่อน: ปลายทางต้องเป็น Google Apps Script / SharePoint / Microsoft จริงเท่านั้น
+  const problem = isOd
+    ? msIdProblem(q.get('t') || 'organizations', 'รหัสองค์กร (tenant) ') || msIdProblem(q.get('c'), 'Client ID ') || (/^[A-Za-z0-9!_.-]{2,200}$/.test(q.get('d') || '') && /^[A-Za-z0-9!_.-]{2,200}$/.test(q.get('i') || '') ? '' : 'รหัสโฟลเดอร์ OneDrive ไม่ถูกต้อง')
+    : isSp
+      ? spSiteProblem(q.get('s')) || msIdProblem(q.get('t'), 'รหัสองค์กร (tenant) ') || msIdProblem(q.get('c'), 'Client ID ')
+      : gasUrlProblem(url);
+  if (problem) {
+    const bad = openModal({
+      title: 'ลิงก์เชิญไม่ถูกต้อง',
+      body: `<p class="notice notice-warn">${icon('alert')}<span><b>ไม่เชื่อมต่อ</b> — ${esc(problem)}</span></p>
+        <p>ลิงก์อาจพิมพ์ผิด ถูกตัดทอน หรือถูกแก้ไขให้ชี้ไปยังเซิร์ฟเวอร์อื่น ขอลิงก์ใหม่จากผู้ดูแลระบบของทีมโดยตรง และอย่ากรอกรหัสเข้าสู่ระบบในหน้าที่ไม่แน่ใจ</p>`,
+      footer: '<button class="btn btn-primary" data-close>ตกลง</button>',
+    });
+    bad.el.querySelector('[data-close]')?.addEventListener('click', () => route());
+    route();
+    return;
+  }
+  const dest = isOd ? 'OneDrive (Microsoft 365)' : isSp ? (() => { try { return new URL(q.get('s')).host; } catch { return ''; } })() : (() => { try { return new URL(url).host; } catch { return ''; } })();
   const where = isOd ? `OneDrive (โฟลเดอร์ ${q.get('n') || 'ที่แชร์ให้คุณ'})` : isSp ? 'SharePoint (Microsoft 365)' : 'Google Drive';
   const m = openModal({
     title: 'เชื่อมต่อฐานข้อมูลของทีม',
     dismissable: false,
-    body: `<p>ลิงก์นี้จะเชื่อมต่อแอปบนเครื่องนี้กับข้อมูลโครงการของทีมใน ${where}</p>
+    body: `<p>ลิงก์นี้จะเชื่อมต่อแอปบนเครื่องนี้กับข้อมูลโครงการของทีมใน ${esc(where)}</p>
+      ${dest ? `<p class="hint">${icon('shield')}ปลายทาง: <b>${esc(dest)}</b> — ตรวจว่าได้รับลิงก์จากผู้ดูแลระบบของทีมจริง</p>` : ''}
       ${isOd ? '<p class="hint">กด "เชื่อมต่อ" แล้วลงชื่อเข้าใช้ด้วยบัญชี Microsoft ที่ได้รับแชร์โฟลเดอร์ — ใช้อีเมลเดียวกับที่เจ้าของโครงการแต่งตั้งไว้</p>'
         : isSp ? '<p class="hint">กด "เชื่อมต่อ" แล้วลงชื่อเข้าใช้ด้วยบัญชีองค์กรในหน้าต่างของ Microsoft — คุณต้องเป็นสมาชิกของไซต์ SharePoint นั้น</p>' : ''}
       <label class="field"><span>ชื่อของคุณ (แสดงในบันทึกที่คุณสร้าง)</span><input id="cn-name" value="${esc(conf.user)}" placeholder="เช่น นายช่างสมชาย" autofocus></label>`,

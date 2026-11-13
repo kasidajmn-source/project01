@@ -5,7 +5,7 @@ import { openReportDialog, REPORT_KINDS, lastSentText, mailBlocker } from './rep
 import { msAuth, redirectUri } from '../backends/ms-auth.js';
 import { spScopes, SP_LISTS } from '../backends/sharepoint.js';
 import { odScopes } from '../backends/onedrive.js';
-import { esc, icon, toast, confirmBox, setBusy, fmt, download, openModal } from '../ui.js';
+import { esc, icon, toast, confirmBox, promptBox, setBusy, fmt, download, openModal, menu, safeUrl } from '../ui.js';
 import { pageHead, loadDemoData } from './common.js';
 import { APP_VERSION } from '../defaults.js';
 import { openLogin } from './login.js';
@@ -183,8 +183,8 @@ export function renderSettings(el) {
 
       ${store.cloud ? `
         <div class="cloud-info">
-          ${store.meta.siteUrl ? `<a class="btn" href="${esc(store.meta.siteUrl)}" target="_blank" rel="noopener">${icon('external')}เปิดไซต์ SharePoint</a>` : ''}
-          ${store.meta.rootFolderUrl ? `<a class="btn" href="${esc(store.meta.rootFolderUrl)}" target="_blank" rel="noopener">${icon('folder')}เปิดโฟลเดอร์หลักใน ${esc(store.fileHost)}</a>` : ''}
+          ${safeUrl(store.meta.siteUrl) ? `<a class="btn" href="${esc(safeUrl(store.meta.siteUrl))}" target="_blank" rel="noopener noreferrer">${icon('external')}เปิดไซต์ SharePoint</a>` : ''}
+          ${safeUrl(store.meta.rootFolderUrl) ? `<a class="btn" href="${esc(safeUrl(store.meta.rootFolderUrl))}" target="_blank" rel="noopener noreferrer">${icon('folder')}เปิดโฟลเดอร์หลักใน ${esc(store.fileHost)}</a>` : ''}
           <button type="button" class="btn" data-act="refresh">${icon('refresh')}ดึงข้อมูลล่าสุด</button>
           <button type="button" class="btn" data-act="invite">${icon('share')}ลิงก์เชิญทีม</button>
           ${store.mode === 'onedrive' && me.isAdmin ? `<button type="button" class="btn" data-act="od-share">${icon('users')}ให้สิทธิ์เข้าถึงโฟลเดอร์</button>` : ''}
@@ -211,9 +211,9 @@ export function renderSettings(el) {
       <div class="field"><span>ประเภทโครงการ</span>${listEditor('types', types)}</div>
       <div class="field"><span>หมวดเอกสารเริ่มต้นของโครงการใหม่</span>${listEditor('cats', cats)}</div>
       <div class="form-grid form-grid-3">
-        <label class="field"><span>เฝ้าระวังเมื่อตามหลังแผนเกิน (%)</span><input id="th-watch" type="number" step="0.5" min="0" value="${S.watchThreshold}"></label>
-        <label class="field"><span>ล่าช้าเมื่อตามหลังแผนเกิน (%)</span><input id="th-behind" type="number" step="0.5" min="0" value="${S.behindThreshold}"></label>
-        <label class="field"><span>เตือนเมื่อไม่ได้บันทึกเกิน (วัน)</span><input id="th-stale" type="number" min="1" value="${S.staleDays}"></label>
+        <label class="field"><span>เฝ้าระวังเมื่อตามหลังแผนเกิน (%)</span><input id="th-watch" type="number" step="0.5" min="0" value="${esc(S.watchThreshold)}"></label>
+        <label class="field"><span>ล่าช้าเมื่อตามหลังแผนเกิน (%)</span><input id="th-behind" type="number" step="0.5" min="0" value="${esc(S.behindThreshold)}"></label>
+        <label class="field"><span>เตือนเมื่อไม่ได้บันทึกเกิน (วัน)</span><input id="th-stale" type="number" min="1" value="${esc(S.staleDays)}"></label>
       </div>
       ${me.isAdmin ? `<div class="save-row"><button type="button" class="btn btn-primary" data-act="save-org">${icon('check')}บันทึกค่ากลาง</button></div>` : ''}
     </section>
@@ -223,9 +223,13 @@ export function renderSettings(el) {
       <p class="muted">ไฟล์สำรอง (.json) เก็บข้อมูลโครงการ BOQ บันทึกความคืบหน้า และรายชื่อไฟล์ ${store.cloud ? `ตัวไฟล์เอกสารยังอยู่ใน ${esc(store.fileHost)}` : 'ไม่รวมตัวไฟล์ที่อัปโหลดในโหมดทดลอง'}</p>
       <div class="row-actions">
         <button type="button" class="btn" data-act="backup">${icon('download')}ดาวน์โหลดไฟล์สำรอง</button>
-        ${me.isAdmin ? `<label class="btn">${icon('upload')}นำเข้าไฟล์สำรอง<input type="file" accept=".json,application/json" hidden id="restore"></label>` : ''}
-        ${!store.cloud ? `<button type="button" class="btn" data-act="demo">เพิ่มข้อมูลตัวอย่าง</button>
-        <button type="button" class="btn btn-danger" data-act="clear">${icon('trash')}ล้างข้อมูลในเครื่องนี้</button>` : ''}
+        ${me.isAdmin ? '<input type="file" accept=".json,application/json" hidden id="restore">' : ''}
+        ${menu({ items: [
+          me.isAdmin && { act: 'restore', icon: 'upload', label: 'นำเข้าไฟล์สำรอง', sub: 'แทนที่ข้อมูลด้วยไฟล์ .json ที่ดาวน์โหลดไว้' },
+          !store.cloud && { act: 'demo', icon: 'grid', label: 'เพิ่มข้อมูลตัวอย่าง', sub: 'โครงการตัวอย่าง 4 โครงการ สำหรับทดลองใช้' },
+          !store.cloud && { sep: true },
+          !store.cloud && { act: 'clear', icon: 'trash', label: 'ล้างข้อมูลในเครื่องนี้', danger: true },
+        ] })}
       </div>
     </section>
   </div>`;
@@ -568,6 +572,7 @@ export function renderSettings(el) {
   });
 
   // ---------- สำรองข้อมูล ----------
+  el.querySelector('[data-act="restore"]')?.addEventListener('click', () => el.querySelector('#restore')?.click());
   el.querySelector('[data-act="backup"]').addEventListener('click', () => {
     download(`project-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(store.exportBackup(), null, 1), 'application/json');
   });
@@ -610,7 +615,7 @@ function accountSection(me) {
     }
   }
   const emailField = mode === 'gas'
-    ? `<div class="field"><span>อีเมลที่เข้าสู่ระบบ</span><div class="acc-line">${icon('mail')}<span><b>${esc(me.email || '–')}</b>${store.legacy ? '<small>(ระบบหลังบ้านเวอร์ชันเก่า ยังไม่ต้องเข้าสู่ระบบ)</small>' : ''}</span>${conf.token ? `<button type="button" class="btn btn-ghost btn-sm" data-act="logout">${icon('logout')}ออกจากระบบ</button>` : ''}</div></div>`
+    ? `<div class="field"><span>อีเมลที่เข้าสู่ระบบ</span><div class="acc-line">${icon('mail')}<span><b>${esc(me.email || '–')}</b>${store.legacy ? '<small>(ระบบหลังบ้านเวอร์ชันเก่า ยังไม่ต้องเข้าสู่ระบบ)</small>' : ''}</span>${conf.token ? `<button type="button" class="btn btn-ghost btn-sm" data-act="logout">${icon('logout')}ออกจากระบบ</button>${store.serverOutdated('1.0.8') ? '' : menu({ btnCls: 'btn-sm btn-ghost', title: 'ตัวเลือกการเข้าสู่ระบบ', items: [{ act: 'logout-all', icon: 'shield', label: 'ออกจากระบบทุกเครื่อง', sub: 'เช่น ลืมออกจากระบบบนเครื่องสาธารณะ หรือมือถือหาย' }] })}` : ''}</div></div>`
     : mode === 'sharepoint' || mode === 'onedrive'
       ? `<div class="field"><span>บัญชี Microsoft</span><div class="acc-line">${icon('user')}<span><b>${esc(me.email || 'ยังไม่ได้ลงชื่อเข้าใช้')}</b></span></div></div>`
       : `<label class="field"><span>อีเมลของคุณ <small class="muted">(ใช้ระบุบทบาทในโครงการ)</small></span><input id="me-email" type="email" value="${esc(conf.email)}" placeholder="name@egat.co.th"></label>`;
@@ -637,7 +642,7 @@ function accountSection(me) {
             <option value="show" ${guideHidden() ? '' : 'selected'}>แสดงปุ่มไกด์มุมขวาล่าง</option>
             <option value="hide" ${guideHidden() ? 'selected' : ''}>ซ่อนปุ่มไกด์ (เปิดบทเรียนจากหน้าคู่มือ)</option>
           </select>
-          <button type="button" class="btn btn-sm" data-act="guide-reset" title="ล้างสถานะ “เรียนแล้ว” ของบทเรียนทั้งหมดบนเครื่องนี้">${icon('refresh')}เริ่มบทเรียนใหม่</button>
+          <button type="button" class="link-btn" data-act="guide-reset" title="ล้างสถานะ “เรียนแล้ว” ของบทเรียนทั้งหมดบนเครื่องนี้">${icon('refresh')}เริ่มบทเรียนใหม่</button>
         </div></div>
     </div>
     ${mode === 'local' ? `
@@ -685,6 +690,15 @@ function bindAccount(el) {
     toast(conf.actAs ? `ทดลองในนาม ${store.me.name || conf.actAs}` : 'กลับเป็นตัวเองแล้ว', 'info');
     location.hash = '#/';
   });
+  el.querySelector('[data-act="logout-all"]')?.addEventListener('click', async () => {
+    if (!(await confirmBox({ title: 'ออกจากระบบทุกเครื่อง', message: 'ออกจากระบบบัญชีนี้บนทุกเครื่อง (รวมเครื่องนี้)? ทุกเครื่องต้องยืนยันอีเมลใหม่', ok: 'ออกจากระบบทุกเครื่อง', danger: true }))) return;
+    try {
+      const r = await store.backend.logoutAll();
+      toast(`ออกจากระบบแล้ว ${r.removed || 0} เครื่อง`, 'ok', 5000);
+    } catch (e) { toast(e.message, 'bad', 6000); }
+    store.forget();
+    window.dispatchEvent(new Event('pt:relogin'));
+  });
   el.querySelector('[data-act="logout"]')?.addEventListener('click', async () => {
     if (!(await confirmBox({ title: 'ออกจากระบบ', message: 'ออกจากระบบบนเครื่องนี้? ต้องยืนยันอีเมลอีกครั้งเมื่อกลับมาใช้งาน', ok: 'ออกจากระบบ' }))) return;
     await store.backend.logout();
@@ -702,8 +716,13 @@ function systemSection(me, S) {
   const dis = me.isAdmin ? '' : 'disabled';
   const mode = store.mode;
   const noAdmins = mode === 'sharepoint' && !R.parseList(S.admins).length;
-  return `<section class="panel">
-    <header class="panel-head"><h2>ผู้ใช้และสิทธิ์ของระบบ</h2><span class="muted">${me.isAdmin ? 'ผู้ดูแลระบบแก้ไขได้' : 'ดูได้อย่างเดียว — แก้ไขได้เฉพาะผู้ดูแลระบบ'}</span></header>
+  const gasAdmin = mode === 'gas' && me.isAdmin;
+  const openLogin = gasAdmin && !R.parseList(S.projectCreators).length;
+  const myDomain = (String(me.email || '').split('@')[1] || '').toLowerCase();
+  const orgDomain = myDomain && !/^(gmail|hotmail|outlook|yahoo|live|icloud)\./.test(myDomain) ? `@${myDomain}` : '';
+  return `<section class="panel" id="sys-users">
+    ${gasAdmin && store.serverOutdated('1.0.8') ? `<p class="notice notice-warn">${icon('shield')}<span><b>มีการปรับปรุงความปลอดภัยของ Code.gs (1.0.8)</b> — ระงับอีเมลที่ใส่รหัสผิดหลายครั้งและแจ้งผู้ดูแล · ลิงก์ในอีเมลใช้เฉพาะลิงก์ที่ผู้ดูแลตั้ง · ออกจากระบบทุกเครื่อง · ซ่อนรายชื่ออีเมลภายในจากผู้รับจ้าง — วาง Code.gs ใหม่ แล้ว "จัดการการทำให้ใช้งานได้ › แก้ไข › เวอร์ชันใหม่"</span></p>` : ''}
+    <header class="panel-head"><h2>ผู้ใช้และสิทธิ์ของระบบ</h2>${gasAdmin && !store.serverOutdated('1.0.8') ? menu({ btnCls: 'btn-sm btn-ghost', title: 'เครื่องมือความปลอดภัย', items: [{ act: 'revoke', icon: 'shield', label: 'บังคับออกจากระบบ / ปลดล็อกอีเมล', sub: 'ออกจากระบบทุกเครื่องของอีเมลนั้น และปลดการระงับจากการใส่รหัสผิด' }] }) : ''}<span class="muted">${me.isAdmin ? 'ผู้ดูแลระบบแก้ไขได้' : 'ดูได้อย่างเดียว — แก้ไขได้เฉพาะผู้ดูแลระบบ'}</span></header>
     ${noAdmins ? `<div class="notice notice-warn">${icon('alert')}<div><b>ยังไม่ได้กำหนดผู้ดูแลระบบ</b><span>ตอนนี้ทุกคนที่เข้าไซต์ได้มีสิทธิ์ผู้ดูแลระบบ ใส่อีเมลของคุณในช่องผู้ดูแลระบบเพื่อจำกัดสิทธิ์</span></div></div>` : ''}
     <div class="form-grid">
       <label class="field"><span>ผู้ดูแลระบบ <small class="muted">ดูและแก้ได้ทุกโครงการ เปลี่ยนค่ากลางได้</small></span>
@@ -717,6 +736,7 @@ function systemSection(me, S) {
         ${me.isAdmin ? `<div class="row-actions"><button type="button" class="btn btn-sm btn-ghost" data-act="dept-fill">${icon('users')}เพิ่มเจ้าของโครงการและผู้ควบคุมงานทุกโครงการ</button></div>` : ''}</div>
       <label class="field span-2"><span>ผู้ที่สร้างโครงการได้ <small class="muted">อีเมล หรือโดเมนขึ้นต้นด้วย @ เช่น @egat.co.th — เว้นว่าง = ทุกคนที่เข้าระบบได้</small></span>
         <input id="sy-creators" ${dis} value="${esc(listText(S.projectCreators))}" placeholder="@egat.co.th">
+        ${openLogin ? `<span class="notice notice-warn sy-open">${icon('alert')}<span><b>ยังเปิดกว้าง:</b> ทุกคนที่มีลิงก์เชิญเข้าสู่ระบบและสร้างโครงการได้ (รวมผู้รับจ้างภายนอก) — แนะนำให้ระบุโดเมนของหน่วยงาน${orgDomain ? ` <button type="button" class="link-btn" data-act="creators-domain" data-v="${esc(orgDomain)}">ใช้ ${esc(orgDomain)}</button>` : ''}</span></span>` : ''}
         ${mode === 'gas' ? '<small class="hint">ถ้ากำหนดไว้ ผู้ที่เข้าสู่ระบบได้คือ ผู้ที่สร้างโครงการได้ ผู้บริหาร และสมาชิกของโครงการใดโครงการหนึ่งเท่านั้น</small>' : ''}</label>
     </div>
     <h3 class="sub-h">ระยะเวลาพิจารณาเรื่องขออนุมัติ (ค่าเริ่มต้นของทุกโครงการ)</h3>
@@ -741,6 +761,21 @@ function bindSystem(el) {
     for (const p of store.data.projects) for (const m of R.members(p)) if (m.role === 'owner' || m.role === 'supervisor') set.add(m.email);
     box.value = [...set].join(', ');
     toast(`รายชื่อสมาชิกแผนก ${set.size} คน — ตรวจสอบแล้วกด "บันทึกผู้ใช้และสิทธิ์"`, 'info', 6000);
+  });
+  el.querySelector('[data-act="creators-domain"]')?.addEventListener('click', (e) => {
+    const inp = el.querySelector('#sy-creators');
+    inp.value = e.currentTarget.dataset.v;
+    inp.focus();
+    toast('ใส่โดเมนแล้ว — กด "บันทึกผู้ใช้และสิทธิ์" เพื่อใช้งาน', 'info');
+  });
+  el.querySelector('[data-act="revoke"]')?.addEventListener('click', async () => {
+    const email = await promptBox({ title: 'บังคับออกจากระบบ / ปลดล็อกอีเมล', label: 'อีเมลของผู้ใช้', placeholder: 'name@example.com' });
+    if (!email) return;
+    if (!R.validEmail(email)) { toast('อีเมลไม่ถูกต้อง', 'bad'); return; }
+    try {
+      const r = await store.backend.revokeSessions(email.trim());
+      toast(`ออกจากระบบ ${r.removed || 0} เครื่อง และปลดล็อกการเข้าสู่ระบบของ ${email.trim()} แล้ว`, 'ok', 6000);
+    } catch (ex) { toast(ex.message, 'bad', 6000); }
   });
   el.querySelector('[data-act="save-sys"]')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget;
@@ -797,7 +832,7 @@ function jobsSection(me, S) {
     <td><label class="check"><input type="checkbox" data-job-on="${k}" ${on ? 'checked' : ''}><b>${esc(REPORT_KINDS[k].label)}</b></label></td>
     <td>${when}</td><td class="small">${who}</td>
     <td class="small muted nowrap">${esc(lastSentText(k))}</td>
-    <td class="nowrap"><button type="button" class="btn btn-sm" data-job-preview="${k}">${icon('eye')}ดูตัวอย่าง/ส่ง</button></td></tr>`;
+    <td class="nowrap"><button type="button" class="link-btn" data-job-preview="${k}">${icon('eye')}ดูตัวอย่าง/ส่ง</button></td></tr>`;
   return `<section class="panel" id="s-jobs">
     <header class="panel-head"><h2>${icon('mail')}อีเมลอัตโนมัติ — เตือนงานค้างและรายงาน</h2><span class="muted">เวลาประเทศไทย</span></header>
     ${status}

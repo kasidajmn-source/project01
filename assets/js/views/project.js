@@ -65,10 +65,11 @@ export function renderProject(el, id, tab = 'overview', sub = '') {
   const roleBadge = role
     ? roleChip(role, role === 'owner' && R.ownerActsAs(p) !== 'none' ? `ทำหน้าที่${R.OWNER_ACTS[R.ownerActsAs(p)]}` : '')
     : store.me.isAdmin ? '<span class="role role-admin">ผู้ดูแลระบบ</span>' : store.me.isExec ? '<span class="role role-head">ผู้บริหาร</span>' : '';
+  // ปุ่มหลักตามบทบาท — ไม่แสดงซ้ำในแท็บที่มีปุ่มเดียวกันอยู่แล้ว
   const mainBtn = store.can(p, 'recordProgress')
-    ? `<a class="btn btn-primary btn-block" href="#/p/${pid}/updates/new">${icon('plus')}บันทึกความคืบหน้า</a>`
+    ? (tab === 'updates' ? '' : `<a class="btn btn-primary btn-block" href="#/p/${pid}/updates/new">${icon('plus')}บันทึกความคืบหน้า</a>`)
     : store.can(p, 'submit') && !store.legacy
-      ? `<a class="btn btn-primary btn-block" href="#/p/${pid}/subs/new">${icon('send')}ส่งเรื่องขออนุมัติ / แจ้งปัญหา</a>`
+      ? (tab === 'subs' ? '' : `<a class="btn btn-primary btn-block" href="#/p/${pid}/subs/new">${icon('send')}ส่งเรื่องขออนุมัติ / แจ้งปัญหา</a>`)
       : '';
 
   el.innerHTML = `

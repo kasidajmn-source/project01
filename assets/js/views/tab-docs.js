@@ -2,6 +2,7 @@
 import { store } from '../store.js';
 import {
   esc, fmt, icon, emptyState, toast, confirmBox, promptBox, openModal, setBusy, fileKind, fileBadge, debounce, onCleanup,
+  menu, safeUrl,
 } from '../ui.js';
 
 const st = { pid: null, q: '', view: 'list' };
@@ -34,10 +35,12 @@ export function renderDocs(el, ctx, sub) {
           <button data-view="grid" class="${st.view === 'grid' ? 'is-on' : ''}" title="แบบภาพ" aria-label="แบบภาพ">${icon('image')}</button>
         </div>
         <div class="tb-actions">
-          ${store.cloud && p.folderUrl ? `<a class="btn" href="${esc(p.folderUrl)}" target="_blank" rel="noopener">${icon('external')}เปิดใน ${host}</a>` : ''}
-          ${store.cloud && p.folderUrl && canUpload ? `<button class="btn" data-act="scan" title="เพิ่มไฟล์ที่วางไว้ในโฟลเดอร์ ${host} โดยตรงเข้าระบบ">${icon('refresh')}ดึงไฟล์จาก ${host}</button>` : ''}
-          ${canUpload ? `<button class="btn" data-act="link">${icon('link')}เพิ่มลิงก์</button>
-          <button class="btn btn-primary" data-act="upload">${icon('upload')}อัปโหลดไฟล์</button>
+          ${menu({ items: [
+            canUpload && { act: 'link', icon: 'link', label: 'เพิ่มลิงก์', sub: 'เช่น ลิงก์ไฟล์ขนาดใหญ่ หรือโฟลเดอร์ภายนอก' },
+            store.cloud && p.folderUrl && canUpload && { act: 'scan', icon: 'refresh', label: `ดึงไฟล์จาก ${host}`, sub: `เพิ่มไฟล์ที่วางไว้ในโฟลเดอร์ ${host} โดยตรงเข้าระบบ` },
+            store.cloud && p.folderUrl && { href: p.folderUrl, icon: 'external', label: `เปิดโฟลเดอร์ใน ${host}`, attrs: 'target="_blank" rel="noopener noreferrer"' },
+          ] })}
+          ${canUpload ? `<button class="btn btn-primary" data-act="upload">${icon('upload')}อัปโหลดไฟล์</button>
           <input type="file" multiple hidden id="d-file">` : `<span class="muted small-note">${icon('eye')}ดูได้อย่างเดียว</span>`}
         </div>
       </div>
@@ -260,7 +263,8 @@ function editDialog(ctx, f, cats) {
 async function downloadFile(f) {
   const u = await store.fileUrls(f);
   if (!u) { toast('ไม่พบไฟล์ในเครื่องนี้', 'bad'); return; }
-  if (f.mime === 'link') { window.open(u.open, '_blank', 'noopener'); return; }
+  if (f.mime === 'link') { if (safeUrl(u.open)) window.open(safeUrl(u.open), '_blank', 'noopener'); else toast('ลิงก์นี้ไม่ปลอดภัย — เปิดได้เฉพาะลิงก์ http(s)', 'bad'); return; }
+  if (!safeUrl(u.download, { blob: true })) { toast('ลิงก์ไฟล์ไม่ถูกต้อง', 'bad'); return; }
   const a = document.createElement('a');
   a.href = u.download;
   if (u.local) a.download = f.name; else { a.target = '_blank'; a.rel = 'noopener'; }
@@ -271,7 +275,7 @@ async function downloadFile(f) {
 export async function preview(f) {
   const u = await store.fileUrls(f);
   if (!u) { toast('ไม่พบไฟล์ในเครื่องนี้', 'bad'); return; }
-  if (f.mime === 'link') { window.open(u.open, '_blank', 'noopener'); return; }
+  if (f.mime === 'link') { if (safeUrl(u.open)) window.open(safeUrl(u.open), '_blank', 'noopener'); else toast('ลิงก์นี้ไม่ปลอดภัย — เปิดได้เฉพาะลิงก์ http(s)', 'bad'); return; }
   const { kind } = fileKind(f);
   let body;
   if (u.local) {
@@ -280,12 +284,12 @@ export async function preview(f) {
     else if (kind === 'video') body = `<video class="pv-img" src="${u.preview}" controls></video>`;
     else body = emptyState({ ic: 'file', title: 'ดูตัวอย่างไฟล์ประเภทนี้ในเบราว์เซอร์ไม่ได้', text: 'ดาวน์โหลดเพื่อเปิดด้วยโปรแกรมในเครื่อง หรือเชื่อมต่อ Google Drive / SharePoint เพื่อดูตัวอย่าง Word/Excel ได้ทันที' });
   } else {
-    body = `<iframe class="pv-frame" src="${esc(u.preview)}" title="${esc(f.name)}" allow="autoplay"></iframe>`;
+    body = safeUrl(u.preview) ? `<iframe class="pv-frame" src="${esc(safeUrl(u.preview))}" title="${esc(f.name)}" allow="autoplay" referrerpolicy="no-referrer"></iframe>` : emptyState({ ic: 'alert', title: 'เปิดตัวอย่างไฟล์นี้ไม่ได้' });
   }
   const m = openModal({
     title: f.name, size: 'xl',
     body: `<div class="pv">${body}</div>${f.note ? `<p class="hint">${esc(f.note)}</p>` : ''}`,
-    footer: `${u.open ? `<a class="btn" href="${esc(u.open)}" target="_blank" rel="noopener">${icon('external')}เปิดใน ${store.fileHost}</a>` : ''}
+    footer: `${safeUrl(u.open) ? `<a class="btn" href="${esc(safeUrl(u.open))}" target="_blank" rel="noopener noreferrer">${icon('external')}เปิดใน ${store.fileHost}</a>` : ''}
       <button class="btn btn-primary" data-dl>${icon('download')}ดาวน์โหลด</button>`,
     onClose: () => { if (u.local) setTimeout(() => URL.revokeObjectURL(u.preview), 500); },
   });

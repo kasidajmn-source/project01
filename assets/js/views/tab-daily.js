@@ -1,7 +1,7 @@
 // แท็บรายงานประจำวัน (1.0.5): ผู้ควบคุมงานบันทึกสภาพการปฏิบัติงานรายวัน (ระเบียบกระทรวงการคลังฯ ข้อ 178)
 // และส่งรายงานประจำวัน/ประจำสัปดาห์ทางอีเมล พิมพ์แบบฟอร์มมาตรฐาน PT-F02/F03/F05/F06
 import { store } from '../store.js';
-import { esc, fmt, icon, emptyState, toast, confirmBox, setBusy, guard } from '../ui.js';
+import { esc, fmt, icon, emptyState, toast, confirmBox, setBusy, guard, menu } from '../ui.js';
 import { mailNote, personName } from './common.js';
 import { openForm } from '../forms.js';
 import { libraryBox, bindLibraryBox } from './library.js';
@@ -15,7 +15,7 @@ const ed = { key: '', photos: [] };
 window.addEventListener('pt:discard', () => { ed.key = ''; });
 
 const today = () => store.thaiNow().date;
-const weatherText = (d) => [d.weather?.am && `เช้า${R.WEATHER[d.weather.am]}`, d.weather?.pm && `บ่าย${R.WEATHER[d.weather.pm]}`].filter(Boolean).join(' · ') || '–';
+const weatherText = (d) => [R.WEATHER[d.weather?.am] && `เช้า${R.WEATHER[d.weather.am]}`, R.WEATHER[d.weather?.pm] && `บ่าย${R.WEATHER[d.weather.pm]}`].filter(Boolean).join(' · ') || '–';
 
 export function renderDaily(el, ctx, sub = '') {
   const { p } = ctx;
@@ -64,7 +64,10 @@ function renderList(el, ctx) {
   <div class="toolbar">
     <div class="tb-info"><b>${list.length}</b> วัน <span class="sep"></span> 30 วันล่าสุดบันทึก ${last30} วัน</div>
     <div class="tb-actions">
-      ${canSend ? `<button class="btn" data-mail="daily">${icon('mail')}ส่งรายงานวันนี้</button><button class="btn" data-mail="weekly">${icon('mail')}ส่งรายงานประจำสัปดาห์</button>` : ''}
+      ${canSend ? menu({ label: 'ส่งอีเมล', icon: 'mail', items: [
+        { icon: 'calendar', label: 'รายงานประจำวัน (วันนี้)', attrs: 'data-mail="daily"' },
+        { icon: 'list', label: 'รายงานประจำสัปดาห์', sub: 'ถึงคณะกรรมการตรวจรับ เจ้าของ และผู้ควบคุมงาน', attrs: 'data-mail="weekly"' },
+      ] }) : ''}
       ${canRec ? `<a class="btn btn-primary" href="#/p/${pid}/daily/${t}${store.dailyAt(p.id, t) ? '' : '/edit'}">${icon(store.dailyAt(p.id, t) ? 'eye' : 'plus')}${store.dailyAt(p.id, t) ? 'รายงานวันนี้' : 'บันทึกรายงานวันนี้'}</a>` : ''}
     </div>
   </div>
@@ -116,9 +119,13 @@ function renderView(el, ctx, d) {
     <div class="tb-actions">
       ${prevD ? `<a class="btn btn-sm" href="#/p/${pid}/daily/${prevD.date}" title="วันก่อนหน้า">${icon('chevL')}${fmt.date(prevD.date)}</a>` : ''}
       ${nextD ? `<a class="btn btn-sm" href="#/p/${pid}/daily/${nextD.date}" title="วันถัดไป">${fmt.date(nextD.date)}${icon('chevR')}</a>` : ''}
-      <button class="btn" data-act="print">${icon('print')}พิมพ์ (PT-F02)</button>
-      ${d.instructions ? `<button class="btn" data-act="instr">${icon('print')}ใบสั่งการ</button>` : ''}
-      ${store.canSendReport('daily', p.id) ? `<button class="btn" data-act="mail">${icon('mail')}ส่งทางอีเมล</button>` : ''}
+      ${menu({ items: [
+        { act: 'print', icon: 'print', label: 'พิมพ์รายงานประจำวัน PT-F02' },
+        d.instructions && { act: 'instr', icon: 'print', label: 'พิมพ์ใบสั่งการ PT-F06' },
+        store.canSendReport('daily', p.id) && { act: 'mail', icon: 'mail', label: 'ส่งรายงานนี้ทางอีเมล' },
+        canRec && { sep: true },
+        canRec && { act: 'del', icon: 'trash', label: 'ลบรายงานนี้', danger: true },
+      ] })}
       ${canRec ? `<a class="btn btn-primary" href="#/p/${pid}/daily/${d.date}/edit">${icon('edit')}แก้ไข</a>` : ''}
     </div>
   </div>
@@ -135,7 +142,7 @@ function renderView(el, ctx, d) {
     ${[['งานที่ดำเนินการ', d.work], ['วัสดุเข้าหน่วยงาน', d.materials], ['ความปลอดภัย/อุบัติเหตุ', d.safety], ['ข้อสั่งการ/ข้อแนะนำต่อผู้รับจ้าง', d.instructions]]
     .filter(([, v]) => v).map(([k, v]) => `<h3 class="dy-h">${esc(k)}</h3><div class="dy-text">${esc(v)}</div>`).join('')}
     ${files.length ? `<h3 class="dy-h">รูปถ่าย (${files.length})</h3><div class="thumbs dy-thumbs">${files.map((f) => `<button class="fthumb" data-f="${esc(f.id)}" title="${esc(f.name)}"><img alt="" data-thumb="${esc(f.id)}"></button>`).join('')}</div>` : ''}
-    ${canRec ? `<footer class="dy-foot"><button class="btn btn-ghost danger" data-act="del">${icon('trash')}ลบรายงานนี้</button></footer>` : ''}
+
   </section>`;
   el.querySelector('[data-act="print"]').addEventListener('click', () => openForm('daily', { p, daily: d }));
   el.querySelector('[data-act="instr"]')?.addEventListener('click', () => openForm('instruction', { p, daily: d }));

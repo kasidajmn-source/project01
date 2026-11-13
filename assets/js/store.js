@@ -43,7 +43,25 @@ function voteWithFiles(vote, fileIds) {
 }
 export function backendFor(mode = conf.mode) { return BACKENDS[mode] || null; }
 
-export async function testConnection(url, key) { return gasBackend.test({ url, key }); }
+/** 1.0.8: ตรวจปลายทางก่อนเชื่อมต่อ (กันลิงก์เชิญปลอมที่ชี้ไปเซิร์ฟเวอร์อื่นเพื่อหลอกเอารหัสเข้าสู่ระบบ) — คืนข้อความปัญหา หรือ '' ถ้าใช้ได้ */
+const devHost = () => typeof location !== 'undefined' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+export function gasUrlProblem(url) {
+  const u = String(url || '').trim();
+  if (/^https:\/\/script\.google\.com\/(a\/macros\/[^/\s]+|macros)\/s\/[A-Za-z0-9_-]{10,}\/(exec|dev)$/.test(u)) return '';
+  if (devHost() && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/[^\s]*$/.test(u)) return '';
+  return 'URL ต้องเป็นเว็บแอป Google Apps Script รูปแบบ https://script.google.com/macros/s/…/exec';
+}
+export function spSiteProblem(site) {
+  const u = String(site || '').trim();
+  if (/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.sharepoint\.(com|us|de|cn)(\/[^\s]*)?$/i.test(u)) return '';
+  return 'ที่อยู่ไซต์ต้องเป็น https://<ชื่อองค์กร>.sharepoint.com/sites/…';
+}
+export const msIdProblem = (v, what) => (/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|organizations|common|consumers|[a-z0-9-]+(\.[a-z0-9-]+)+)$/i.test(String(v || '').trim()) ? '' : `${what}ไม่ถูกต้อง`);
+export async function testConnection(url, key) {
+  const bad = gasUrlProblem(url);
+  if (bad) throw new Error(bad);
+  return gasBackend.test({ url, key });
+}
 
 const TABLES = ['projects', 'boq', 'updates', 'files', 'subs', 'reqs', 'msgs', 'meetings', 'daily', 'library'];
 const emptyData = () => ({ projects: [], boq: [], updates: [], files: [], subs: [], reqs: [], msgs: [], meetings: [], daily: [], library: [], settings: {} });
@@ -413,7 +431,11 @@ export const store = {
       for (const k of OWNER_ONLY_FIELDS) {
         if (old[k] === undefined) delete rec[k]; else rec[k] = old[k];
       }
+    } else if (Array.isArray(rec.members)) {
+      // 1.0.8: อีเมลต้องถูกต้อง ไม่ซ้ำ ลำดับกรรมการไม่ซ้ำ (กฎเดียวกับเซิร์ฟเวอร์)
+      rec.members = R.cleanMembers(rec.members, rec.ownerEmail || old?.ownerEmail);
     }
+    R.checkProject(rec);
     let saved;
     if (this.cloud) {
       saved = detachMail(await this.backend.saveProject(rec, { invite, by: me.name }));
@@ -666,7 +688,10 @@ export const store = {
       const blob = await idb.get(rec.id);
       if (!blob) return null;
       const url = URL.createObjectURL(blob);
-      return { preview: url, download: url, blob, local: true };
+      // ตัวอย่าง PDF แสดงใน iframe: บังคับชนิดเป็น PDF เสมอ กันไฟล์ HTML ที่ตั้งชื่อเป็น .pdf ทำงานในหน้าเว็บนี้
+      const isPdf = /pdf/i.test(rec.mime || '') || /\.pdf$/i.test(rec.name || '');
+      const preview = isPdf && blob.type !== 'application/pdf' ? URL.createObjectURL(new Blob([blob], { type: 'application/pdf' })) : url;
+      return { preview, download: url, blob, local: true };
     }
     if (this.cloud && (rec.driveId || rec.mime !== 'link')) return this.backend.fileUrls(rec);
     // ลิงก์ที่ไม่ใช่ http(s) (เช่น javascript:) ไม่เปิดให้
@@ -1230,7 +1255,7 @@ export const store = {
   // ---------- ตั้งค่า ----------
   async saveSettings(s) {
     if (!this.legacy && !this.me.isAdmin) throw permError('เฉพาะผู้ดูแลระบบเท่านั้นที่เปลี่ยนการตั้งค่ากลางได้');
-    const merged = { ...this.data.settings, ...s };
+    const merged = R.checkSettings({ ...this.data.settings, ...s });
     if (this.cloud) await this.backend.saveSettings(merged);
     this.data.settings = merged;
     if (this.direct) { this.msConf.mail = !!merged.spMail; saveConf(); }

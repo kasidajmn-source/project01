@@ -1858,3 +1858,70 @@ body:has(.rm-compose) .gp-wrap { bottom: 158px; }
 [data-motion="off"] .gp-wrap, [data-motion="off"] .tour, [data-motion="off"] .guide-fab { transition: none; }
 [data-theme="dark"] .tr-card, [data-theme="dark"] .tr-card::before { background: #1E2C48; }
 [data-theme="dark"] .tr-card { box-shadow: 0 26px 60px -18px rgba(0, 0, 0, .75), 0 0 0 1px rgba(255, 255, 255, .12); }
+
+/* =====================================================================
+   1.0.8 เมนูรวมคำสั่ง (ลดจำนวนปุ่มบนหน้าจอ)
+   ===================================================================== */
+.mn { position: relative; display: inline-flex; }
+.btn-icon { width: 40px; padding: 0; justify-content: center; }
+.btn-icon.btn-sm { width: 32px; }
+.mn-btn .mn-caret { width: 14px; height: 14px; margin-left: -2px; opacity: .7; transition: transform .2s; }
+.mn-btn[aria-expanded="true"] { background: var(--surface-2); border-color: var(--ink-3); }
+.mn-btn[aria-expanded="true"] .mn-caret { transform: rotate(180deg); }
+.mn-pop {
+  position: fixed; z-index: 48; display: grid; gap: 1px; padding: 6px; min-width: 200px; max-width: min(340px, calc(100vw - 16px)); max-height: 70vh; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 18px 44px -14px rgba(15, 24, 40, .38);
+}
+.mn-pop[hidden] { display: none; }
+.mn-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border: 0; border-radius: 9px; background: transparent; color: var(--ink); font: inherit; font-size: 14px; text-align: left; text-decoration: none; cursor: pointer; white-space: nowrap; }
+.mn-item > span { display: grid; min-width: 0; }
+.mn-item small { color: var(--ink-3); font-size: 12px; white-space: normal; line-height: 1.4; }
+.mn-item .ic { width: 18px; height: 18px; color: var(--ink-3); flex: none; }
+.mn-item:hover, .mn-item:focus-visible { background: var(--surface-2); outline: none; }
+.mn-item:focus-visible { box-shadow: inset 0 0 0 2px var(--amber); }
+.mn-item.is-danger, .mn-item.is-danger .ic { color: var(--bad); }
+.mn-item.is-danger:hover { background: var(--bad-soft); }
+.mn-item:disabled { opacity: .5; cursor: default; }
+.mn-sep { border: 0; border-top: 1px solid var(--line); margin: 4px 6px; }
+[data-motion="full"] .mn-pop:not([hidden]) { animation: mn-in .16s var(--ease-out); }
+@keyframes mn-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
+@media print { .mn { display: none !important; } }
+/* การ์ดแบบฟอร์ม: ทั้งการ์ดกดพิมพ์ได้ (แทนปุ่มพิมพ์แยก) */
+button.lib-form { font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%; }
+button.lib-form:hover { border-color: var(--amber); }
+button.lib-form:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
+.lf-head { display: flex; flex-direction: column; gap: 2px; }
+.lf-use { font-size: 13px; color: var(--ink-2); flex: 1; }
+.lf-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.lf-go { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: var(--info, #2F66C0); white-space: nowrap; }
+.lf-go .ic { width: 16px; height: 16px; }
+.lib-forms-mini { display: grid; gap: 2px; margin: 0 -6px 8px; }
+.lf-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.lf-row > span { flex: 1; min-width: 0; }
+.lf-row .ic { width: 16px; height: 16px; color: var(--ink-3); flex: none; }
+.lf-row:hover, .lf-row:focus-visible { background: var(--surface-2); outline: none; }
+.lf-row:focus-visible { box-shadow: inset 0 0 0 2px var(--amber); }
+/* หมวดเรื่อง/ขั้นตอนพิจารณา: พับเป็นบรรทัดสรุป */
+details.wf-cat { padding: 0; }
+.wf-sum { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; padding: 11px 14px; cursor: pointer; list-style: none; }
+.wf-sum::-webkit-details-marker { display: none; }
+.wf-sum b { font-size: 14.5px; }
+.wf-chain { flex: 1; min-width: 0; font-size: 13px; color: var(--ink-2); }
+.wf-chain i { font-style: normal; color: var(--ink-3); margin: 0 2px; }
+.wf-chev { width: 18px; height: 18px; color: var(--ink-3); transition: transform .2s; margin-left: auto; }
+details.wf-cat[open] .wf-chev { transform: rotate(180deg); }
+details.wf-cat[open] .wf-sum { border-bottom: 1px solid var(--line); }
+.wf-sum:hover { background: var(--surface-2); border-radius: var(--r); }
+details.wf-cat[open] .wf-sum:hover { border-radius: var(--r) var(--r) 0 0; }
+.wf-body { padding: 10px 12px 12px; }
+.link-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border: 0; background: transparent; color: var(--info, #2F66C0); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 6px; }
+.link-btn .ic { width: 15px; height: 15px; }
+.link-btn:hover { background: var(--surface-2); }
+.panel-head .mn-btn.btn-sm { height: 30px; }
+.wf-list:has(> details.wf-cat) { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.wf-list:has(> details.wf-cat) .wf-body { max-width: 760px; }
+/* 1.0.8 ข้อความยาวที่ไม่มีช่องว่าง (เช่น ชื่อบริษัท/รหัสยาว) ไม่ให้ดันหน้าล้นจอมือถือ */
+h1, h2, h3, .facts dd, .facts dt, .sd-facts dd, .sd-tags, .prow-name, .sr-main b, .ac-body, .lib-item b, .owner-card b, .owner-card small { overflow-wrap: anywhere; }
+.tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.ac-body .tag { max-width: 60vw; display: inline-block; white-space: nowrap; }
+.ac-body > * { min-width: 0; }

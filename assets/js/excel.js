@@ -60,8 +60,10 @@ export async function readTableFile(file) {
 }
 
 const csvCell = (v) => {
-  const s = v == null ? '' : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  let s = v == null ? '' : String(v);
+  // กันสูตรแปลกปลอม (CSV/Formula injection): ข้อความที่ขึ้นต้นด้วย = + - @ ให้ Excel อ่านเป็นข้อความ
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
 /**
