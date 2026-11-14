@@ -2029,16 +2029,33 @@ h1, h2, h3, .facts dd, .facts dt, .sd-facts dd, .sd-tags, .prow-name, .sr-main b
 @keyframes msc-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 @keyframes msc-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px) rotate(-2deg); } 75% { transform: translateX(3px) rotate(2deg); } }
 @keyframes msc-drip { 0% { transform: translateY(-2px); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(8px); opacity: 0; } }
-/* ภาพของหน่วยงาน (ไฟล์ภาพ): ขยับทั้งภาพตามท่า */
-.is-pack .msc-art { transform-origin: 50% 0; }
-[data-motion="full"] .is-pack.is-idle .msc-art { animation: msc-swing 3.6s ease-in-out infinite; }
-[data-motion="full"] .is-pack.is-wave .msc-art { animation: msc-wiggle .5s ease-in-out 6 alternate; }
-[data-motion="full"] .is-pack.is-cheer .msc-art { animation: msc-hop .52s cubic-bezier(.3, 1.6, .5, 1) 3; }
-[data-motion="full"] .is-pack.is-oops .msc-art { animation: msc-shake .42s ease-in-out 3; }
-[data-motion="full"] .is-pack.is-think .msc-art { animation: msc-ponder 3s ease-in-out infinite; }
-[data-motion="full"] .is-pack.is-point .msc-art { animation: msc-float 1.4s ease-in-out infinite; }
-@keyframes msc-wiggle { from { transform: rotate(-5deg); } to { transform: rotate(5deg); } }
-.is-pack.is-flip .msc-art { transform: scaleX(-1); }
+/* ภาพของหน่วยงาน (เช่น น้อง ENGY): ภาพสี่เหลี่ยมจัตุรัส ชิดล่าง ขยับทั้งภาพตามท่า (จุดหมุนที่เท้า) */
+html:not([data-msc-ready]) .mascot { visibility: hidden; }
+.mascot.is-pack .msc-art { aspect-ratio: 1 / 1; transform-origin: 50% 100%; }
+.mascot.is-pack .msc-img { width: 100%; height: 100%; object-fit: contain; object-position: 50% 100%; user-select: none; -webkit-user-drag: none; }
+.msc-xs.is-pack { width: 30px; } .msc-sm.is-pack { width: 64px; } .msc-md.is-pack { width: 108px; } .msc-lg.is-pack { width: 150px; } .msc-xl.is-pack { width: 220px; }
+/* ท่าทาง → กลุ่มการเคลื่อนไหว */
+[data-motion="full"] .is-pack:is(.is-idle, .is-relax) .msc-art { animation: msc-pop .5s var(--ease-spring) backwards, msc-breathe 3.4s ease-in-out .5s infinite; }
+[data-motion="full"] .is-pack:is(.is-wave, .is-welcome) .msc-art { animation: msc-pop .5s var(--ease-spring) backwards, msc-hello .5s ease-in-out .5s 6 alternate, msc-breathe 3.4s ease-in-out 3.5s infinite; }
+[data-motion="full"] .is-pack.is-wai .msc-art { animation: msc-pop .5s var(--ease-spring) backwards, msc-bow 1.1s ease-in-out .5s 2, msc-breathe 3.4s ease-in-out 2.7s infinite; }
+[data-motion="full"] .is-pack:is(.is-point, .is-present) .msc-art { animation: msc-pop .5s var(--ease-spring) backwards, msc-lean 1.3s ease-in-out .5s infinite; }
+[data-motion="full"] .is-pack:is(.is-cheer, .is-ok, .is-strong, .is-love) .msc-art { animation: msc-pop .5s var(--ease-spring) backwards, msc-jump .6s cubic-bezier(.3, 1.4, .5, 1) .45s 3, msc-breathe 3.4s ease-in-out 2.3s infinite; }
+[data-motion="full"] .is-pack:is(.is-think, .is-search, .is-busy) .msc-art { animation: msc-pop .5s var(--ease-spring) backwards, msc-ponder2 3.2s ease-in-out .5s infinite; }
+[data-motion="full"] .is-pack.is-oops .msc-art { animation: msc-pop .4s var(--ease-spring) backwards, msc-shake2 .4s ease-in-out .4s 4, msc-breathe 3.4s ease-in-out 2s infinite; }
+@keyframes msc-pop { from { transform: scale(.6) translateY(12%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes msc-breathe { 0%, 100% { transform: scale(1, 1) rotate(0); } 50% { transform: scale(1.015, .985) rotate(-.6deg); } }
+@keyframes msc-hello { from { transform: rotate(-4deg); } to { transform: rotate(4deg) translateY(-2%); } }
+@keyframes msc-bow { 0%, 100% { transform: none; } 45% { transform: translateY(3%) scale(1.02, .96) rotate(-2deg); } }
+@keyframes msc-lean { 0%, 100% { transform: none; } 50% { transform: translateX(4%) rotate(3deg); } }
+@keyframes msc-jump { 0% { transform: scale(1.06, .92); } 35% { transform: translateY(-16%) scale(.96, 1.05); } 70% { transform: translateY(0) scale(1.04, .95); } 100% { transform: none; } }
+@keyframes msc-ponder2 { 0%, 100% { transform: rotate(-2.5deg); } 50% { transform: rotate(2deg) translateY(-1%); } }
+@keyframes msc-shake2 { 0%, 100% { transform: none; } 25% { transform: translateX(-4%) rotate(-3deg); } 75% { transform: translateX(4%) rotate(3deg); } }
+/* ภาพของหน่วยงานไม่กลับด้าน (ตัวอักษรบนภาพจะกลับ) และไม่มีเชือก */
+.is-pack.is-flip .msc-art { transform: none; }
+.hero-msc .mascot.is-pack { width: clamp(150px, 15vw, 230px); }
+.hero-msc .is-pack .msc-img { filter: drop-shadow(0 18px 26px rgba(0, 0, 0, .35)); }
+.greet .mascot.is-pack { align-self: flex-end; width: 84px; margin: 6px 0 0; }
+.greet:has(.is-pack) { min-height: 96px; }
 /* มาสคอตในไกด์ */
 .guide-fab.has-msc { padding-left: 10px; gap: 8px; }
 .guide-fab .gf-msc { width: 26px; margin: -4px 0 -2px; }
@@ -2086,3 +2103,15 @@ h1, h2, h3, .facts dd, .facts dt, .sd-facts dd, .sd-tags, .prow-name, .sr-main b
 .hm-row { display: flex; gap: 20px; align-items: flex-start; }
 .hm-row .mascot { margin-top: 4px; }
 @media (max-width: 600px) { .hm-row { flex-direction: column; } }
+/* ขนาดภาพของหน่วยงานในแต่ละจุด */
+.guide-fab .gf-msc.is-pack { width: 34px; margin: -12px -2px -4px -6px; }
+.tr-card.has-msc .tb-body:has(.is-pack) { grid-template-columns: 60px minmax(0, 1fr); }
+.tr-card .tb-msc.is-pack { width: 60px; margin-top: 0; }
+.toast .toast-msc.is-pack { width: 30px; margin: -10px 0 -6px -6px; }
+.msc-pick .mascot.is-pack { width: 36px; }
+@media (max-width: 900px) {
+  .guide-fab .gf-msc.is-pack { width: 32px; margin: -6px 0 0; }
+  .tr-card.has-msc .tb-body:has(.is-pack) { grid-template-columns: 46px minmax(0, 1fr); }
+  .tr-card .tb-msc.is-pack { width: 46px; }
+  .greet .mascot.is-pack { width: 64px; }
+}

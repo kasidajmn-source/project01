@@ -9,7 +9,7 @@ import { APP_VERSION } from '../defaults.js';
 const MARK = `<svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="10" y="2" width="12" height="28" rx="1.5" class="bm-staff"/><path class="bm-e" d="M10 5h6v1.6h-6zM10 8.2h4v1.6h-4zM10 11.4h6v1.6h-6zM16 14.6h6v1.6h-6zM18 17.8h4v1.6h-4zM16 21h6v1.6h-6zM10 24.2h6v1.6h-6z"/></svg>`;
 
 function heroBg() {
-  const m = mascot({ pose: 'wave', size: 'lg', hang: true });
+  const m = mascot({ pose: 'welcome', size: 'lg', hang: true });
   return `<div class="hero-bg" aria-hidden="true"><div class="hero-grid"></div>${m ? `<div class="hero-msc">${m}</div>` : ''}</div>`;
 }
 

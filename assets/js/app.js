@@ -135,6 +135,8 @@ function route() {
   view.innerHTML = `<section class="panel"><div class="empty">${emptyArt('search')}<h3>ไม่พบหน้าที่ต้องการ</h3><p>ลิงก์อาจพิมพ์ไม่ครบ หรือหน้านี้ถูกย้ายไปแล้ว</p><a class="btn" href="#/">กลับหน้าหลัก</a></div></section>`;
 }
 
+// โหลดชุดภาพมาสคอตเสร็จ → วาดหน้าตั้งค่า/คู่มือใหม่ครั้งเดียว (มีชื่อมาสคอต) เว้นแต่กำลังแก้ข้อมูลค้างอยู่
+window.addEventListener('pt:mascot-pack', () => { if (/^#\/(settings|help)/.test(location.hash) && !guard.dirty && !store.needLogin && view.firstElementChild && !view.querySelector('.loading')) route(); });
 window.addEventListener('hashchange', () => {
   const next = location.hash || '#/';
   if (next.startsWith('#/connect')) { handleConnect(); return; }

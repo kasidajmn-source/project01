@@ -1,12 +1,29 @@
 {
-  "enabled": false,
-  "name": "",
+  "enabled": true,
+  "name": "น้อง ENGY",
   "poses": {
-    "idle": "",
-    "wave": "",
-    "point": "",
-    "cheer": "",
-    "think": "",
-    "oops": ""
+    "idle": "engy-idle.webp",
+    "wave": "engy-wave.webp",
+    "welcome": "engy-welcome.webp",
+    "wai": "engy-wai.webp",
+    "point": "engy-point.webp",
+    "present": "engy-present.webp",
+    "cheer": "engy-cheer.webp",
+    "ok": "engy-ok.webp",
+    "think": "engy-think.webp",
+    "search": "engy-search.webp",
+    "oops": "engy-oops.webp",
+    "busy": "engy-busy.webp",
+    "strong": "engy-strong.webp",
+    "love": "engy-love.webp",
+    "relax": "engy-relax.webp"
+  },
+  "ribbon": false,
+  "ribbonPoses": {
+    "idle": "engy-ribbon-idle.webp",
+    "wave": "engy-ribbon-wave.webp",
+    "welcome": "engy-ribbon-welcome.webp",
+    "point": "engy-ribbon-point.webp",
+    "ok": "engy-ribbon-ok.webp"
   }
 }

@@ -1,17 +1,29 @@
-// มาสคอตของระบบ (1.0.9) — "น้องดิ่ง" ลูกดิ่งของช่างสำรวจ สวมหมวกนิรภัย ตัวละครที่ออกแบบขึ้นใหม่สำหรับระบบนี้
+// มาสคอตของระบบ (1.0.9)
+// - ภาพหลัก: ชุดภาพของหน่วยงานใน assets/mascot/custom/ (ปัจจุบันคือ "น้อง ENGY" ของ กฟผ.) — ขยับด้วย CSS ทั้งภาพตามท่า
+// - ภาพสำรอง: "น้องดิ่ง" ลูกดิ่งสวมหมวกนิรภัย (SVG ในไฟล์นี้) ใช้เมื่อปิดชุดภาพ ไฟล์ตั้งค่าเสีย หรือโหลดภาพไม่ได้
 // ขยับตามบริบท: สอนการใช้งาน ทักทายที่หน้าหลัก หน้าว่าง บันทึกสำเร็จ หน้าผิดพลาด หน้าแนะนำ
-// หน่วยงานใช้ภาพมาสคอตของตนเอง (ที่ได้รับอนุญาตให้ใช้) ได้ — วางไฟล์ภาพใน assets/mascot/custom/ และแก้ mascot.json
-// (ดูวิธีใน assets/mascot/custom/README.md) ระบบรับเฉพาะชื่อไฟล์ภาพในโฟลเดอร์นั้นเท่านั้น
+// ความปลอดภัย: ไฟล์ตั้งค่ารับเฉพาะชื่อไฟล์ภาพในโฟลเดอร์เดียวกัน แสดงด้วย <img> (สคริปต์ใน SVG ไม่ทำงาน) — ดู README ในโฟลเดอร์
 import { conf, saveConf } from './config.js';
 
+/** ท่าหลัก (น้องดิ่งวาดได้ทุกท่า) */
 export const POSES = ['idle', 'wave', 'point', 'cheer', 'think', 'oops'];
+/** ท่าตามบริบทเพิ่มเติม (ใช้เมื่อชุดภาพมีให้ ไม่มีก็ใช้ท่าใกล้เคียง) */
+export const EXTRA_POSES = ['welcome', 'wai', 'present', 'ok', 'search', 'busy', 'strong', 'love', 'relax'];
+export const ALL_POSES = POSES.concat(EXTRA_POSES);
+/** ถ้าไม่มีท่าที่ต้องการ ใช้ท่าถัดไปตามลำดับนี้ */
+const FALLBACK = {
+  welcome: 'wave', wai: 'wave', present: 'point', ok: 'cheer', love: 'cheer', strong: 'cheer',
+  search: 'think', busy: 'think', relax: 'idle', wave: 'idle', point: 'idle', cheer: 'ok', think: 'idle', oops: 'idle',
+};
 const DIR = 'assets/mascot/custom/';
 const FILE_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,59}\.(png|svg|webp|gif)$/i;
 let pack = null; // { name, poses: { pose: url } }
 let packLoad = null;
 let uid = 0;
+const broken = new Set(); // ภาพที่โหลดไม่ได้ → ใช้น้องดิ่งแทนเฉพาะท่านั้น
 
 const escA = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
 /** ค่าตั้งของมาสคอตในเครื่องนี้ — ป้องกันค่าที่ผิดรูปแบบใน localStorage */
 function mconf() {
@@ -28,37 +40,67 @@ export function setMascotOn(v) {
 export const mascotName = () => (pack && pack.name) || 'น้องดิ่ง';
 export const hasCustomPack = () => !!pack;
 
+/** ท่าที่ใช้จริง: ท่าที่ขอ → ท่าใกล้เคียงที่มีภาพ → idle */
+export function resolvePose(pose, avail) {
+  let p = ALL_POSES.includes(pose) ? pose : 'idle';
+  for (let i = 0; i < 6 && !avail(p); i++) p = FALLBACK[p] || 'idle';
+  return avail(p) ? p : 'idle';
+}
+const packHas = (p) => !!pack && has(pack.poses, p) && !broken.has(pack.poses[p]);
+const svgHas = (p) => POSES.includes(p);
+
+function pickFiles(src) {
+  const out = {};
+  if (!src || typeof src !== 'object' || Array.isArray(src)) return out;
+  for (const k of ALL_POSES) {
+    const f = has(src, k) ? src[k] : null;
+    if (typeof f === 'string' && FILE_RE.test(f)) out[k] = DIR + f;
+  }
+  return out;
+}
 /**
  * ตรวจไฟล์ตั้งค่าภาพมาสคอตของหน่วยงาน
- * { "enabled": true, "name": "ชื่อ", "poses": { "idle": "idle.png", "wave": "wave.png", ... } }
+ * { "enabled": true, "name": "ชื่อ", "poses": { "idle": "idle.png", ... }, "ribbon": false, "ribbonPoses": { "idle": "..." } }
  * รับเฉพาะชื่อไฟล์ .png .svg .webp .gif ในโฟลเดอร์เดียวกัน (ห้ามมี / หรือ .. หรือที่อยู่เว็บอื่น) ต้องมีท่า idle เป็นอย่างน้อย
+ * ribbon: true = ช่วงไว้ทุกข์ ใช้เฉพาะภาพติดริบบิ้น (ท่าที่ไม่มีภาพริบบิ้นจะใช้ท่าใกล้เคียงจากชุดริบบิ้น)
  */
 export function parsePack(j) {
   if (!j || typeof j !== 'object' || Array.isArray(j) || j.enabled !== true) return null;
-  const src = j.poses;
-  if (!src || typeof src !== 'object' || Array.isArray(src)) return null;
-  const poses = {};
-  for (const k of POSES) {
-    const f = Object.prototype.hasOwnProperty.call(src, k) ? src[k] : null;
-    if (typeof f === 'string' && FILE_RE.test(f)) poses[k] = DIR + f;
+  let poses = pickFiles(j.poses);
+  if (j.ribbon === true) {
+    const rb = pickFiles(j.ribbonPoses);
+    if (rb.idle) poses = rb;
   }
   if (!poses.idle) return null;
   const name = typeof j.name === 'string' ? j.name.replace(/[\u0000-\u001f\u007f-\u009f<>"'`&]/g, '').trim().slice(0, 30) : '';
   return { name: name || 'มาสคอต', poses };
 }
 
-/** โหลดภาพของหน่วยงาน (ถ้ามี) ครั้งเดียว — วาดมาสคอตที่อยู่บนจอใหม่เมื่อโหลดเสร็จ */
+/** โหลดภาพของหน่วยงาน (ถ้ามี) ครั้งเดียว — ระหว่างรอ ซ่อนมาสคอตไว้ไม่ให้เห็นภาพสลับ */
 export function loadMascotPack() {
   if (packLoad) return packLoad;
-  document.documentElement.toggleAttribute('data-no-mascot', !mascotOn());
+  const root = document.documentElement;
+  root.toggleAttribute('data-no-mascot', !mascotOn());
+  const ready = () => root.setAttribute('data-msc-ready', '');
+  const guard = setTimeout(ready, 2500); // เครือข่ายช้า: แสดงน้องดิ่งไปก่อน
   packLoad = fetch(DIR + 'mascot.json', { cache: 'no-cache', credentials: 'same-origin', redirect: 'error' })
     .then((r) => (r.ok && /json|text\/plain/.test(r.headers.get('content-type') || 'application/json') ? r.json() : null))
     .then((j) => {
       pack = parsePack(j);
       if (pack) document.querySelectorAll('.mascot').forEach((el) => repaint(el));
+      if (pack) window.dispatchEvent(new CustomEvent('pt:mascot-pack'));
       return pack;
     })
-    .catch(() => null);
+    .catch(() => null)
+    .finally(() => { clearTimeout(guard); ready(); });
+  // ภาพโหลดไม่ได้ → ใช้ท่าใกล้เคียง/น้องดิ่งแทน (ไม่ใช้ onerror ในแท็ก เพราะ CSP ห้ามสคริปต์ในบรรทัด)
+  document.addEventListener('error', (e) => {
+    const img = e.target;
+    if (!img || !img.classList || !img.classList.contains('msc-img')) return;
+    broken.add(img.getAttribute('src'));
+    const el = img.closest('.mascot');
+    if (el) repaint(el);
+  }, true);
   return packLoad;
 }
 
@@ -99,40 +141,50 @@ function svgArt() {
 </svg>`;
 }
 
-function art(pose) {
+/** HTML ของภาพตามท่าที่ขอ → { html, pose (ท่าที่ใช้จริง), img } */
+function art(want) {
   if (pack) {
-    const src = pack.poses[pose] || pack.poses.idle;
-    return `<img class="msc-img" src="${escA(src)}" alt="" draggable="false" decoding="async">`;
+    const p = resolvePose(want, packHas);
+    if (packHas(p)) return { pose: p, img: true, html: `<img class="msc-img" src="${escA(pack.poses[p])}" alt="" width="360" height="360" draggable="false" decoding="async">` };
   }
-  return svgArt();
+  return { pose: resolvePose(want, svgHas), img: false, html: svgArt() };
+}
+
+function apply(el, a) {
+  ALL_POSES.forEach((k) => el.classList.remove(`is-${k}`));
+  el.classList.add(`is-${a.pose}`);
+  el.classList.toggle('is-pack', a.img);
+  el.dataset.pose = a.pose;
 }
 
 function repaint(el) {
+  const a = art(el.dataset.want || el.dataset.pose || 'idle');
   const box = el.querySelector('.msc-art');
-  if (box) box.innerHTML = art(el.dataset.pose || 'idle');
-  el.classList.toggle('is-pack', !!pack);
+  if (box) box.innerHTML = a.html;
+  apply(el, a);
 }
 
 /**
  * HTML ของมาสคอต — คืนค่าว่างเมื่อผู้ใช้ปิดมาสคอตไว้ (ผู้เรียกต้องมีสิ่งแทน เช่น ไอคอนเดิม)
- * size: xs | sm | md | lg | xl · hang: ห้อยจากเชือก (ลูกดิ่ง) · flip: หันไปทางซ้าย
+ * pose: ท่าหลักหรือท่าตามบริบท (ALL_POSES) · size: xs | sm | md | lg | xl · hang: ห้อยจากเชือก (เฉพาะน้องดิ่ง) · flip: หันไปทางซ้าย (เฉพาะน้องดิ่ง — ไม่กลับภาพของหน่วยงานเพราะตัวอักษรบนภาพจะกลับด้าน)
  */
 export function mascot({ pose = 'idle', size = 'md', hang = false, flip = false, cls = '', force = false } = {}) {
   if (!force && !mascotOn()) return '';
-  const p = POSES.includes(pose) ? pose : 'idle';
-  return `<span class="mascot msc-${size} is-${p}${hang ? ' is-hang' : ''}${flip ? ' is-flip' : ''}${pack ? ' is-pack' : ''}${cls ? ` ${escA(cls)}` : ''}" data-pose="${p}" aria-hidden="true"><span class="msc-art">${art(p)}</span></span>`;
+  const want = ALL_POSES.includes(pose) ? pose : 'idle';
+  const a = art(want);
+  return `<span class="mascot msc-${escA(size)} is-${a.pose}${hang ? ' is-hang' : ''}${flip ? ' is-flip' : ''}${a.img ? ' is-pack' : ''}${cls ? ` ${escA(cls)}` : ''}" data-pose="${a.pose}" data-want="${want}" aria-hidden="true"><span class="msc-art">${a.html}</span></span>`;
 }
 
 /** เปลี่ยนท่าของมาสคอตที่อยู่บนจอ */
 export function setPose(el, pose, { flip } = {}) {
   if (!el) return;
-  const p = POSES.includes(pose) ? pose : 'idle';
+  const want = ALL_POSES.includes(pose) ? pose : 'idle';
   const old = el.dataset.pose;
-  POSES.forEach((k) => el.classList.remove(`is-${k}`));
-  el.classList.add(`is-${p}`);
+  el.dataset.want = want;
   if (flip != null) el.classList.toggle('is-flip', !!flip);
-  el.dataset.pose = p;
-  if (pack && old !== p) repaint(el);
+  const a = art(want);
+  if (a.img || old !== a.pose) { const box = el.querySelector('.msc-art'); if (box && (a.img || !box.querySelector('svg'))) box.innerHTML = a.html; }
+  apply(el, a);
   // เล่นท่าใหม่ตั้งแต่ต้น
   el.classList.remove('is-replay'); void el.offsetWidth; el.classList.add('is-replay');
 }

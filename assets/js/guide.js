@@ -6,7 +6,7 @@
 import { store, conf, saveConf } from './store.js';
 import { icon, esc } from './ui.js';
 import { motionOn } from './motion.js';
-import { mascot, mascotOn, mascotName } from './mascot.js';
+import { mascot, mascotOn, mascotName, setPose } from './mascot.js';
 import { LESSONS, lessonById, lessonCtx, recommended, stepsOf, rolesText, demoEmailFor } from './lessons.js';
 
 const R = globalThis.PTRules;
@@ -61,6 +61,7 @@ export function mountGuide() {
   paintFab();
   fab.addEventListener('click', () => (panelEl ? closePanel() : openPanel()));
   window.addEventListener('pt:mascot', () => { paintFab(); refreshFab(); });
+  window.addEventListener('pt:mascot-pack', () => { paintFab(); refreshFab(); });
   document.body.appendChild(fab);
   window.addEventListener('pt:conn', refreshFab);
   window.addEventListener('pt:data', refreshFab);
@@ -128,6 +129,7 @@ export function openPanel() {
     </footer>
   </section>`;
   document.body.appendChild(panelEl);
+  setPose(fab?.querySelector('.mascot'), 'wave');
   fab?.classList.add('is-open');
   fab?.setAttribute('aria-expanded', 'true');
   requestAnimationFrame(() => panelEl?.classList.add('is-in'));
@@ -153,6 +155,7 @@ export function closePanel() {
   if (!panelEl) return;
   const el = panelEl;
   panelEl = null;
+  setPose(fab?.querySelector('.mascot'), 'idle');
   fab?.classList.remove('is-open');
   fab?.setAttribute('aria-expanded', 'false');
   el.classList.remove('is-in');
@@ -202,9 +205,9 @@ function showOffer() {
   tour.card({
     center: true,
     kind: 'offer',
-    html: `<div class="tb-hero">${mascot({ pose: 'wave', size: 'lg' }) || `<span class="tb-badge">${icon('compass')}</span>`}</div>
+    html: `<div class="tb-hero">${mascot({ pose: 'wai', size: 'lg' }) || `<span class="tb-badge">${icon('compass')}</span>`}</div>
       <h3 id="tb-h">สวัสดี${name ? ` ${esc(name)}` : ''}</h3>
-      <p>${mascotOn() ? `${esc(mascotName())}จะพาใช้งานทีละขั้น` : 'อยากให้พาใช้งานทีละขั้นไหม?'} เหมือนบทสอนเล่นเกม — ไฮไลต์ให้ดูทีละจุด ลองกดเองได้ หรือข้ามได้ทุกเมื่อ</p>
+      <p>${mascotOn() ? `${esc(mascotName())} จะพาใช้งานทีละขั้น` : 'อยากให้พาใช้งานทีละขั้นไหม?'} เหมือนบทสอนเล่นเกม — ไฮไลต์ให้ดูทีละจุด ลองกดเองได้ หรือข้ามได้ทุกเมื่อ</p>
       <ol class="tb-path">${rec.map((l, i) => `<li><span class="gp-tile t-${l.tone}">${icon(l.icon)}</span><span><b>${esc(l.title)}</b><small>${stepsOf(l, c).length} ขั้นตอน${i === 0 ? ' · เริ่มที่บทนี้' : ''}</small></span></li>`).join('')}</ol>`,
     buttons: [
       { label: 'ข้ามไปก่อน', act: 'skip', cls: 'tb-ghost' },
@@ -486,7 +489,8 @@ export async function startLesson(id, { chain = null } = {}) {
     T.card({
       center: !el,
       click,
-      msc: missing ? 'think' : !el ? (i === 0 ? 'wave' : 'idle') : i === 0 && !click ? 'wave' : 'point',
+      // ท่าตามขั้น: ขั้นแรก = ทักทาย · ลองทำ = ชี้ · อธิบายจุดที่ไฮไลต์ = ผายมือ · ไม่มีส่วนนี้ = คิด
+      msc: missing ? 'think' : i === 0 ? 'wave' : click ? 'point' : el ? 'present' : 'idle',
       top: `<div class="tb-top"><span class="tb-lesson t-${lesson.tone}">${icon(lesson.icon)}${esc(lesson.chip || lesson.role)}</span>${click ? `<span class="tb-try">${icon('hand')}ลองทำ</span>` : missing ? `<span class="tb-try tb-info">${icon('help')}คำอธิบาย</span>` : ''}<span class="tb-count num">${i + 1}/${steps.length}</span>
         <button type="button" class="tb-x" data-tb="skipAll" aria-label="ข้ามบทเรียน" title="ข้ามบทเรียน (Esc)">${icon('x')}</button></div>`,
       html: `<h3 id="tb-h">${esc(step.title)}</h3><p>${text}</p><div class="tb-dots" aria-hidden="true">${dots}</div>`,
@@ -536,7 +540,7 @@ export async function startLesson(id, { chain = null } = {}) {
     T.card({
       center: true,
       kind: 'done',
-      html: `<div class="tb-hero">${mascot({ pose: 'cheer', size: 'lg' }) || `<span class="tb-badge is-done">${icon('award')}</span>`}${confetti()}</div>
+      html: `<div class="tb-hero">${mascot({ pose: next ? 'cheer' : 'love', size: 'lg' }) || `<span class="tb-badge is-done">${icon('award')}</span>`}${confetti()}</div>
         <h3 id="tb-h">ผ่านบทเรียนแล้ว!</h3>
         <p><b>${esc(lesson.title)}</b></p>
         <div class="gp-prog tb-prog"><span>บทที่แนะนำสำหรับคุณ เรียนแล้ว <b>${done}</b> จาก ${rec.length}</span><i><b style="width:${rec.length ? Math.round((done / rec.length) * 100) : 100}%"></b></i></div>

@@ -359,8 +359,8 @@ export function gauge(actual, plan, { size = 'sm', scale = false } = {}) {
   </div>`;
 }
 
-/** ท่ามาสคอตตามความหมายของหน้าว่าง: ไม่มีสิทธิ์/ผิดพลาด → ตกใจ · ค้นหา → คิด · อื่นๆ → แกว่งรอ */
-const EMPTY_POSE = { lock: 'oops', alert: 'oops', search: 'think' };
+/** ท่ามาสคอตตามความหมายของหน้าว่าง: ไม่มีสิทธิ์/ผิดพลาด → ตกใจ · ค้นหา/ไม่พบ → ค้นหา · อื่นๆ → รอ */
+const EMPTY_POSE = { lock: 'oops', alert: 'oops', search: 'search' };
 export function emptyArt(ic, pose) {
   return mascot({ pose: pose || EMPTY_POSE[ic] || 'idle', size: 'md', cls: 'empty-msc' }) || `<div class="empty-ic">${icon(ic)}</div>`;
 }

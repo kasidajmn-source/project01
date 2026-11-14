@@ -689,7 +689,7 @@ function bindAccount(el) {
   el.querySelector('#me-theme').addEventListener('change', (e) => { conf.theme = e.target.value; saveConf(); applyTheme(); });
   el.querySelector('#me-guide').addEventListener('change', (e) => { setGuideHidden(e.target.value === 'hide'); toast(e.target.value === 'hide' ? 'ซ่อนปุ่มไกด์แล้ว — เปิดบทเรียนได้จากหน้าคู่มือ' : 'แสดงปุ่มไกด์แล้ว', 'info'); });
   el.querySelector('[data-act="guide-reset"]').addEventListener('click', () => { resetGuide(); setGuideHidden(false); el.querySelector('#me-guide').value = 'show'; toast('ล้างสถานะบทเรียนแล้ว — เปิดบทเรียนได้จากปุ่มไกด์', 'info'); });
-  el.querySelector('#me-mascot').addEventListener('change', (e) => { setMascotOn(e.target.value === 'on'); toast(e.target.value === 'on' ? `แสดง${mascotName()}แล้ว` : 'ซ่อนมาสคอตแล้ว', 'info'); });
+  el.querySelector('#me-mascot').addEventListener('change', (e) => { setMascotOn(e.target.value === 'on'); toast(e.target.value === 'on' ? `แสดง ${mascotName()} แล้ว` : 'ซ่อนมาสคอตแล้ว', 'info'); });
   el.querySelector('#me-motion').addEventListener('change', (e) => { conf.motion = e.target.value; saveConf(); applyMotion(); toast(conf.motion === 'off' ? 'ปิดภาพเคลื่อนไหวแล้ว' : 'ตั้งค่าภาพเคลื่อนไหวแล้ว', 'info'); });
   el.querySelector('[data-act="actas"]')?.addEventListener('click', () => {
     conf.actAs = el.querySelector('#me-actas').value;

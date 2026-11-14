@@ -166,19 +166,25 @@ function greeting(pf) {
   const q = store.legacy || !store.me.email ? null : store.myQueue();
   const miss = store.legacy || !store.me.email ? [] : dailyMissing();
   const name = store.me.name && store.me.name !== store.me.email ? store.me.name : conf.user;
-  let pose = 'wave', line, act = '';
+  // ท่าตามเรื่องของวันนี้: งานรอ = ยุ่ง · ยังไม่บันทึก = ชี้ทาง · ล่าช้า = สู้ๆ · เรียบร้อย = โอเค · วันอาทิตย์ไม่มีงาน = พักผ่อน
+  let pose, line, act = '';
   if (q && q.decide.length) {
     line = `มีเรื่องรอคุณพิจารณา ${q.decide.length} เรื่อง`;
     act = '<a class="btn btn-sm" href="#/inbox">ดูเรื่องที่รอ</a>';
+    pose = 'busy';
   } else if (miss.length) {
     line = `วันนี้ยังไม่ได้บันทึกรายงานประจำวัน ${miss.length} โครงการ`;
     act = `<a class="btn btn-sm" href="#/p/${encodeURIComponent(miss[0].id)}/daily">บันทึกรายงาน</a>`;
+    pose = 'present';
   } else if (pf.behind) {
-    line = `มีโครงการล่าช้ากว่าแผน ${pf.behind} โครงการ ดูได้ในส่วน "ต้องติดตาม"`;
-    pose = 'think';
+    line = `มีโครงการล่าช้ากว่าแผน ${pf.behind} โครงการ ดูได้ในส่วน "ต้องติดตาม" สู้ๆ นะครับ`;
+    pose = 'strong';
+  } else if (new Date(Date.now() + 7 * 3600e3).getUTCDay() === 0) {
+    line = 'ทุกโครงการเป็นไปตามแผน วันอาทิตย์พักผ่อนบ้างนะครับ';
+    pose = 'relax';
   } else {
     line = 'ทุกโครงการเป็นไปตามแผน';
-    pose = 'cheer';
+    pose = 'ok';
   }
   const art = mascot({ pose, size: 'sm', hang: true });
   if (!art) return '';
