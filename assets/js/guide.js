@@ -3,17 +3,20 @@
 // - บทเรียนแบบเกม: ไฮไลต์ทีละจุด ผู้ใช้ "ลองทำ" เอง หรือกด "ทำให้ดู" / "ข้าม"
 // - ผู้ใช้ใหม่: หลังผ่านหน้าแนะนำเข้าหน้าใช้งาน จะถามว่าจะเริ่มบทเรียนหรือข้าม
 // - 1.0.9: มาสคอตอยู่บนปุ่มไกด์ ทักทายในแผง ชี้ไปยังจุดที่ไฮไลต์ และฉลองเมื่อจบบท
+// - 1.0.10: ขั้น "กรอก" (fill) พร้อมปุ่มใส่ตัวอย่าง · ขั้นที่รอผลจริง (until) · ขั้นตามเงื่อนไข (when) · จุดตรวจห้ามย้อน (checkpoint)
+//           ชวนเรียนบทของบทบาทใหม่เมื่อได้รับเชิญเข้าโครงการ
 import { store, conf, saveConf } from './store.js';
 import { icon, esc } from './ui.js';
 import { motionOn } from './motion.js';
 import { mascot, mascotOn, mascotName, setPose } from './mascot.js';
-import { LESSONS, lessonById, lessonCtx, recommended, stepsOf, rolesText, demoEmailFor } from './lessons.js';
+import { LESSONS, lessonById, lessonCtx, recommended, stepsOf, rolesText, demoEmailFor, ROLE_LESSON } from './lessons.js';
 
 const R = globalThis.PTRules;
 const PAD = 8; // ระยะขอบรอบสิ่งที่ไฮไลต์
 const mobile = () => matchMedia('(max-width: 900px)').matches;
 const visible = (el) => !!el && el.isConnected && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const safeCall = (fn) => { try { return fn(); } catch { return false; } };
 
 // ---------- สถานะ (เก็บในเครื่อง แยกตามอีเมล) ----------
 function gconf() {
@@ -29,9 +32,20 @@ function ustate() {
   return g.users[k];
 }
 const isDone = (id) => ustate().done.includes(id);
+/** บทบาทปัจจุบันของผู้ใช้ (ใช้ตรวจว่าได้รับบทบาทใหม่หรือไม่) */
+const isRoleKey = (r) => typeof r === 'string' && Object.prototype.hasOwnProperty.call(ROLE_LESSON, r);
+function currentRoles() {
+  try { return [...lessonCtx().roles].filter(isRoleKey).sort(); } catch { return []; }
+}
+function rememberRoles(u = ustate()) {
+  const now = currentRoles();
+  const seen = Array.isArray(u.roles) ? u.roles.filter(isRoleKey) : [];
+  u.roles = [...new Set([...seen, ...now])].sort().slice(0, 12);
+}
 function markDone(id) {
   const u = ustate();
   if (!u.done.includes(id)) u.done.push(id);
+  rememberRoles(u); // เพิ่งเรียนจบ (เช่น สร้างโครงการแรกแล้วได้บทบาทเจ้าของ) — ไม่ชวนซ้ำทันที
   saveConf();
   refreshFab();
 }
@@ -66,7 +80,21 @@ export function mountGuide() {
   window.addEventListener('pt:conn', refreshFab);
   window.addEventListener('pt:data', refreshFab);
   window.addEventListener('pt:guide', (e) => (e.detail?.lesson ? startLesson(e.detail.lesson) : openPanel()));
+  // 1.0.10: น้อง ENGY บนปุ่มไกด์ทักเมื่อเอาเมาส์ชี้ และเปลี่ยนท่าเป็นระยะ (มีบทเรียนรอ = โบกมือเรียก)
+  fab.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse' && !panelEl) setPose(fabMsc(), 'wave'); });
+  fab.addEventListener('pointerleave', () => { if (!panelEl) setPose(fabMsc(), 'idle'); });
+  setInterval(fabLife, 14000);
   refreshFab();
+}
+const fabMsc = () => fab?.querySelector('.gf-msc.is-pack') || null;
+let fabBusy = false;
+function fabLife() {
+  const m = fabMsc();
+  if (!m || fabBusy || fab.hidden || !motionOn() || document.hidden || tour || panelEl || fab.matches(':hover')) return;
+  const poses = fab.classList.contains('has-dot') ? ['wave', 'point', 'welcome', 'wave'] : ['wave', 'ok', 'think', 'relax'];
+  fabBusy = true;
+  setPose(m, poses[Math.floor(Math.random() * poses.length)]);
+  setTimeout(() => { fabBusy = false; if (m.isConnected && !panelEl && !fab.matches(':hover')) setPose(m, 'idle'); }, 3400);
 }
 
 function paintFab() {
@@ -120,7 +148,7 @@ export function openPanel() {
     </header>
     <div class="gp-prog"><span>เรียนแล้ว <b>${doneRec}</b> จาก ${rec.length} บทที่แนะนำ</span><i><b style="width:${rec.length ? Math.round((doneRec / rec.length) * 100) : 0}%"></b></i></div>
     <div class="gp-scroll"><ul class="gp-list gp-rec">${rec.map((l) => lessonCard(l, c, { rec: true })).join('')}</ul>
-    ${others.length ? `<details class="gp-more"><summary>บทเรียนของบทบาทอื่น (${others.length})</summary>
+    ${others.length ? `<details class="gp-more"><summary>บทเรียนอื่น (${others.length})</summary>
       ${c.local ? '<p class="gp-hint">โหมดทดลอง: กด “ลองเป็น…” เพื่อสลับไปใช้งานในนามสมาชิกตัวอย่างของบทบาทนั้น</p>' : '<p class="gp-hint">ดูได้ว่าบทบาทอื่นทำอะไร — ปุ่มที่คุณไม่มีสิทธิ์จะแสดงเป็นคำอธิบายแทน</p>'}
       <ul class="gp-list">${others.map((l) => lessonCard(l, c, { rec: false })).join('')}</ul></details>` : ''}</div>
     <footer class="gp-foot">
@@ -178,7 +206,13 @@ let offerTimer = 0;
 const autoAllowed = () => !navigator.webdriver || localStorage.getItem('pt.guide.auto') === '1';
 /** ผู้ใช้นี้กำลังจะได้รับคำชวนเรียน (ยังไม่เคยชวน) — หน้าหลักจะเลื่อนคำทักทายของมาสคอตไปครั้งถัดไป */
 export function offerPending() {
-  try { return autoAllowed() && !guideHidden() && !store.needLogin && !!conf.onboarded && !ustate().offered; } catch { return false; }
+  try {
+    if (!autoAllowed() || guideHidden() || store.needLogin || !conf.onboarded) return false;
+    const u = ustate();
+    if (!u.offered) return true;
+    // ได้บทบาทใหม่ → กำลังจะชวนเรียนบทของบทบาทนั้น
+    return !!store.cloud && !conf.actAs && Array.isArray(u.roles) && currentRoles().some((r) => !u.roles.filter(isRoleKey).includes(r));
+  } catch { return false; }
 }
 
 /** เรียกหลังวาดทุกหน้า — ชวนครั้งเดียวต่อผู้ใช้ เมื่อพร้อมใช้งานจริง */
@@ -190,24 +224,48 @@ export function maybeOffer() {
     if (store.needLogin || !conf.onboarded) return;
     if (!store.cloud && (location.hash || '').startsWith('#/settings')) return; // กำลังตั้งค่าการเชื่อมต่อ
     const u = ustate();
-    if (u.offered) return;
+    if (u.offered) {
+      // 1.0.10: ได้รับบทบาทใหม่ (เช่น ถูกเชิญเป็นผู้รับจ้าง) → ชวนเรียนบทของบทบาทนั้นครั้งเดียว
+      if (!store.cloud || conf.actAs) return; // คำเชิญมีเฉพาะที่เก็บข้อมูลจริง · โหมดทดลองสลับบทบาทเองได้
+      const seen = Array.isArray(u.roles) ? u.roles.filter(isRoleKey) : null;
+      const now = currentRoles();
+      if (!seen) { rememberRoles(u); saveConf(); return; } // ผู้ใช้เดิมก่อน 1.0.10: ตั้งต้น ไม่ชวน
+      const fresh = now.filter((r) => !seen.includes(r));
+      if (!fresh.length) return;
+      rememberRoles(u);
+      saveConf();
+      const c = lessonCtx();
+      const want = new Set(fresh.map((r) => ROLE_LESSON[r]));
+      if (!seen.length) want.add('basics'); // เพิ่งได้โครงการแรก
+      const lessons = recommended(c).filter((l) => want.has(l.id) && !isDone(l.id));
+      if (lessons.length) showOffer({ lessons, fresh });
+      return;
+    }
     u.offered = true;
+    rememberRoles(u);
     saveConf();
     showOffer();
   }, 700);
 }
 
-function showOffer() {
+function showOffer({ lessons = null, fresh = null } = {}) {
   const c = lessonCtx();
-  const rec = recommended(c).slice(0, 3);
+  const rec = (lessons || recommended(c)).slice(0, 3);
+  if (!rec.length) return;
   const name = store.me.name && store.me.name !== store.me.email ? store.me.name : conf.user;
+  const roleNames = (fresh || []).map((r) => R.ROLES[r]?.label).filter(Boolean);
+  const lead = roleNames.length
+    ? `คุณได้รับบทบาท <b>${esc(roleNames.join(' · '))}</b> ในโครงการแล้ว — ${mascotOn() ? `${esc(mascotName())} พาใช้งาน` : 'มาดู'}ตามสิทธิ์ที่คุณได้รับทีละขั้น`
+    : c.none && c.creator
+      ? `${mascotOn() ? `${esc(mascotName())} จะพา` : 'มา'}สร้างโครงการแรกด้วยกันทีละขั้น ในฐานะ<b>ผู้ควบคุมงาน</b> — ลงมือทำจริง กด “ใส่ตัวอย่างให้” ได้ทุกช่อง หรือข้ามได้ทุกเมื่อ`
+      : `${mascotOn() ? `${esc(mascotName())} จะพาใช้งานทีละขั้น` : 'อยากให้พาใช้งานทีละขั้นไหม?'} เหมือนบทสอนเล่นเกม — ไฮไลต์ให้ดูทีละจุด ลองกดเองได้ หรือข้ามได้ทุกเมื่อ`;
   openTour({ offer: true });
   tour.card({
     center: true,
     kind: 'offer',
-    html: `<div class="tb-hero">${mascot({ pose: 'wai', size: 'lg' }) || `<span class="tb-badge">${icon('compass')}</span>`}</div>
-      <h3 id="tb-h">สวัสดี${name ? ` ${esc(name)}` : ''}</h3>
-      <p>${mascotOn() ? `${esc(mascotName())} จะพาใช้งานทีละขั้น` : 'อยากให้พาใช้งานทีละขั้นไหม?'} เหมือนบทสอนเล่นเกม — ไฮไลต์ให้ดูทีละจุด ลองกดเองได้ หรือข้ามได้ทุกเมื่อ</p>
+    html: `<div class="tb-hero">${mascot({ pose: roleNames.length ? 'welcome' : 'wai', size: 'lg' }) || `<span class="tb-badge">${icon('compass')}</span>`}</div>
+      <h3 id="tb-h">${roleNames.length ? 'ยินดีต้อนรับสู่โครงการ' : `สวัสดี${name ? ` ${esc(name)}` : ''}`}</h3>
+      <p>${lead}</p>
       <ol class="tb-path">${rec.map((l, i) => `<li><span class="gp-tile t-${l.tone}">${icon(l.icon)}</span><span><b>${esc(l.title)}</b><small>${stepsOf(l, c).length} ขั้นตอน${i === 0 ? ' · เริ่มที่บทนี้' : ''}</small></span></li>`).join('')}</ol>`,
     buttons: [
       { label: 'ข้ามไปก่อน', act: 'skip', cls: 'tb-ghost' },
@@ -252,6 +310,8 @@ function openTour({ offer = false } = {}) {
   };
   T.keys = (e) => {
     const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
+    // ขั้นกรอก: Enter = ถัดไป (ไม่ให้ฟอร์มส่งข้อมูลก่อนถึงขั้นบันทึก)
+    if (e.key === 'Enter' && T.fill && typing && e.target.tagName !== 'TEXTAREA' && T.el?.contains(e.target)) { e.preventDefault(); e.stopPropagation(); T.on.next?.(); return; }
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); T.on.skipAll ? T.on.skipAll() : T.on.skip?.(); }
     else if (e.key === 'ArrowRight' && T.on.next && !typing) { e.preventDefault(); T.on.next(); }
     else if (e.key === 'ArrowLeft' && T.on.back && !typing) { e.preventDefault(); T.on.back(); }
@@ -275,6 +335,7 @@ export function closeTour(instant = false) {
   tour = null;
   cancelAnimationFrame(T.raf);
   T.clickOff?.();
+  clearInterval(T.poll);
   document.removeEventListener('keydown', T.keys, true);
   window.removeEventListener('resize', T.resize);
   document.body.classList.remove('tour-on');
@@ -343,7 +404,25 @@ function placeCard(T, r, vw, vh) {
   if (mobile()) {
     // มือถือ: การ์ดเป็นแผ่นล่าง หรือย้ายขึ้นบนเมื่อเป้าหมายอยู่ครึ่งล่างของจอ
     card.classList.add('is-sheet');
-    if (r.y + r.h / 2 > vh * 0.5) { card.classList.add('at-top'); card.style.top = `${66}px`; } else { card.classList.add('at-bottom'); card.style.bottom = `calc(${16}px + env(safe-area-inset-bottom))`; }
+    const atTop = r.y + r.h / 2 > vh * 0.5;
+    if (atTop) { card.classList.add('at-top'); card.style.top = `${66}px`; } else { card.classList.add('at-bottom'); card.style.bottom = `calc(${16}px + env(safe-area-inset-bottom))`; }
+    // 1.0.10: เป้าหมายถูกการ์ดบัง (เช่น ช่องกรอกยาว) → เลื่อนหน้าให้พ้นการ์ด ครั้งเดียวต่อขั้น
+    const ch = card.offsetHeight || 260;
+    const freeTop = atTop ? 66 + ch + 10 : 62;
+    const freeBot = atTop ? vh - 90 : vh - 16 - ch - 10;
+    const need = Math.min(r.h, Math.max(40, freeBot - freeTop));
+    if (!T.nudged && T.el && freeBot - freeTop > 60 && (r.y < freeTop - 2 || r.y + need > freeBot + 2)) {
+      T.nudged = true;
+      const el = T.el;
+      const prevT = el.style.scrollMarginTop;
+      const prevB = el.style.scrollMarginBottom;
+      const fitsBelowTop = r.h <= freeBot - freeTop;
+      if (atTop || !fitsBelowTop) { el.style.scrollMarginTop = `${freeTop}px`; el.scrollIntoView({ block: 'start', behavior: 'auto' }); }
+      else { el.style.scrollMarginBottom = `${vh - freeBot}px`; el.scrollIntoView({ block: 'end', behavior: 'auto' }); }
+      el.style.scrollMarginTop = prevT;
+      el.style.scrollMarginBottom = prevB;
+      T.last = '';
+    }
     return;
   }
   const cw = card.offsetWidth || 360, ch = card.offsetHeight || 220;
@@ -373,12 +452,14 @@ function placeCard(T, r, vw, vh) {
   card.style.setProperty('--ay', ay == null ? '50%' : `${ay}px`);
 }
 
-function renderCard(T, { center = false, kind = 'step', html, buttons = [], foot = '', on = {}, click = false, top = '', msc = '' }) {
+function renderCard(T, { center = false, kind = 'step', html, buttons = [], foot = '', on = {}, click = false, fill = false, top = '', msc = '' }) {
   const card = T.root.querySelector('.tr-card');
   T.center = center;
   T.on = on;
   T.kind = kind;
-  T.root.classList.toggle('is-click', !!click);
+  T.fill = fill;
+  T.root.classList.toggle('is-click', !!click || !!fill);
+  T.root.classList.toggle('is-fill', !!fill);
   T.root.classList.toggle('is-offer', kind === 'offer' || kind === 'done');
   const m = msc ? mascot({ pose: msc, size: 'sm', cls: 'tb-msc' }) : '';
   card.className = `tr-card k-${kind}${m ? ' has-msc' : ''}`;
@@ -388,11 +469,12 @@ function renderCard(T, { center = false, kind = 'step', html, buttons = [], foot
   card.querySelectorAll('[data-tb]').forEach((b) => b.addEventListener('click', () => on[b.dataset.tb]?.()));
   if (motionOn()) { card.classList.remove('is-pop'); void card.offsetWidth; card.classList.add('is-pop'); }
   T.last = ''; // วางตำแหน่งใหม่ตามขนาดการ์ด
+  T.nudged = false;
   (card.querySelector('.tb-main') || card.querySelector('.tb-btn'))?.focus({ preventScroll: true });
 }
 
 // ---------- เดินบทเรียน ----------
-async function resolveTarget(step, timeout = step.optional ? 1400 : 2400) {
+async function resolveTarget(step, timeout = step.timeout || (step.optional ? 1400 : 2400)) {
   if (!step.target) return null;
   const list = Array.isArray(step.target) ? step.target : [step.target];
   const find = () => {
@@ -447,6 +529,7 @@ export async function startLesson(id, { chain = null } = {}) {
   const T = tour;
   T.lesson = lesson;
   T.chain = chain;
+  T.floor = 0;
   let i = 0;
   let seq = 0;
 
@@ -456,8 +539,17 @@ export async function startLesson(id, { chain = null } = {}) {
     i = idx;
     const step = steps[i];
     T.clickOff?.(); T.clickOff = null;
+    clearInterval(T.poll); T.poll = 0;
     T.el = null; T.getEl = null; T.last = '';
     T.root.classList.add('is-moving');
+    // ขั้นตามเงื่อนไข: ไม่เข้าเงื่อนไข → ข้ามไปทางเดิม
+    if (typeof step.when === 'function' && !safeCall(step.when)) {
+      const nx = i + dir;
+      if (nx >= 0 && nx < steps.length) return show(nx, dir);
+      if (nx >= steps.length) return finish();
+      return show(Math.max(T.floor, 0), 1);
+    }
+    if (step.checkpoint) T.floor = i;
     const h = hashOf(step);
     if (h && h !== (location.hash || '#/')) {
       location.hash = h;
@@ -470,7 +562,7 @@ export async function startLesson(id, { chain = null } = {}) {
       const nx = i + dir;
       if (nx >= 0 && nx < steps.length) return show(nx, dir);
       if (nx >= steps.length) return finish();
-      return show(0, 1);
+      return show(Math.max(T.floor, 0), 1);
     }
     const el = found?.el || null;
     if (el && bringIntoView(el)) {
@@ -482,46 +574,80 @@ export async function startLesson(id, { chain = null } = {}) {
     T.root.classList.remove('is-moving');
     fab?.classList.toggle('is-spot', step.target === '#guide-fab');
     const click = !!(el && step.do === 'click');
+    const fill = !!(el && step.do === 'fill');
     const last = i === steps.length - 1;
     const dots = steps.map((_, k) => `<i class="${k < i ? 'is-past' : k === i ? 'is-now' : ''}"></i>`).join('');
     const missing = step.target && !el;
-    const text = missing ? `${step.note || 'ส่วนนี้ยังไม่แสดงสำหรับบัญชีของคุณ'}` : step.text;
+    // ขั้นกรอกที่ไม่พบช่อง (เช่น ข้ามขั้นเปิดแบบฟอร์ม) → ยังแสดงคำอธิบายของขั้นนั้น
+    const text = missing ? `${step.note || (step.do === 'fill' ? step.text : 'ส่วนนี้ยังไม่แสดงสำหรับบัญชีของคุณ')}` : step.text;
+    const canBack = i > Math.max(T.floor, 0);
+    const tag = click ? `<span class="tb-try">${icon('hand')}ลองทำ</span>` : fill ? `<span class="tb-try">${icon('edit')}กรอก</span>` : missing ? `<span class="tb-try tb-info">${icon('help')}คำอธิบาย</span>` : '';
     T.card({
       center: !el,
       click,
-      // ท่าตามขั้น: ขั้นแรก = ทักทาย · ลองทำ = ชี้ · อธิบายจุดที่ไฮไลต์ = ผายมือ · ไม่มีส่วนนี้ = คิด
-      msc: missing ? 'think' : i === 0 ? 'wave' : click ? 'point' : el ? 'present' : 'idle',
-      top: `<div class="tb-top"><span class="tb-lesson t-${lesson.tone}">${icon(lesson.icon)}${esc(lesson.chip || lesson.role)}</span>${click ? `<span class="tb-try">${icon('hand')}ลองทำ</span>` : missing ? `<span class="tb-try tb-info">${icon('help')}คำอธิบาย</span>` : ''}<span class="tb-count num">${i + 1}/${steps.length}</span>
+      fill,
+      // ท่าตามขั้น: ขั้นแรก = ทักทาย · ลองทำ/กรอก = ชี้ · อธิบายจุดที่ไฮไลต์ = ผายมือ · ไม่มีส่วนนี้ = คิด
+      msc: step.pose || (missing ? 'think' : i === 0 ? 'wave' : click || fill ? 'point' : el ? 'present' : 'idle'),
+      top: `<div class="tb-top"><span class="tb-lesson t-${lesson.tone}">${icon(lesson.icon)}${esc(lesson.chip || lesson.role)}</span>${tag}<span class="tb-count num">${i + 1}/${steps.length}</span>
         <button type="button" class="tb-x" data-tb="skipAll" aria-label="ข้ามบทเรียน" title="ข้ามบทเรียน (Esc)">${icon('x')}</button></div>`,
-      html: `<h3 id="tb-h">${esc(step.title)}</h3><p>${text}</p><div class="tb-dots" aria-hidden="true">${dots}</div>`,
+      html: `<h3 id="tb-h">${esc(step.title)}</h3><p>${text}</p><p class="tb-err" role="alert" hidden></p><div class="tb-dots" aria-hidden="true">${dots}</div>`,
       buttons: click
         ? [
-          { label: 'ข้ามขั้นนี้', act: 'next', cls: 'tb-ghost' },
+          // must: ขั้นที่ข้ามไม่ได้ (บทที่เหลือต้องใช้ผลของขั้นนี้) — ออกจากบทเรียนได้ที่ปุ่ม ×
+          ...(step.must ? [] : [{ label: 'ข้ามขั้นนี้', act: 'next', cls: 'tb-ghost' }]),
           { label: `${icon('play')}ทำให้ดู`, act: 'auto', cls: 'tb-main' },
         ]
-        : [
-          ...(i > 0 ? [{ label: `${icon('chevL')}ย้อนกลับ`, act: 'back', cls: 'tb-ghost' }] : [{ label: 'ข้ามบทเรียน', act: 'skipAll', cls: 'tb-ghost' }]),
-          { label: last ? `${icon('flag')}จบบทเรียน` : `ถัดไป${icon('chevR')}`, act: 'next', cls: 'tb-main' },
-        ],
+        : fill
+          ? [
+            ...(canBack ? [{ label: `${icon('chevL')}ย้อนกลับ`, act: 'back', cls: 'tb-ghost' }] : []),
+            ...(step.fill?.sample ? [{ label: `${icon('edit')}ใส่ตัวอย่างให้`, act: 'sample', cls: 'tb-ghost tb-sample' }] : []),
+            { label: last ? `${icon('flag')}จบบทเรียน` : `ถัดไป${icon('chevR')}`, act: 'next', cls: 'tb-main' },
+          ]
+          : [
+            ...(canBack ? [{ label: `${icon('chevL')}ย้อนกลับ`, act: 'back', cls: 'tb-ghost' }] : i === 0 ? [{ label: 'ข้ามบทเรียน', act: 'skipAll', cls: 'tb-ghost' }] : []),
+            { label: last ? `${icon('flag')}จบบทเรียน` : `ถัดไป${icon('chevR')}`, act: 'next', cls: 'tb-main' },
+          ],
       on: {
-        next: () => (last ? finish() : show(i + 1, 1)),
-        back: () => (i > 0 ? show(i - 1, -1) : null),
+        next: () => {
+          if (click && step.must) return; // ต้องทำขั้นนี้จริง (ลูกศรขวา/Enter ข้ามไม่ได้)
+          // ขั้นกรอก: ตรวจก่อนไปต่อ
+          if (fill && step.fill?.valid && !safeCall(() => step.fill.valid(T.el))) return complain(step.fill.need || 'กรอกช่องที่ไฮไลต์ก่อน หรือกด “ใส่ตัวอย่างให้”');
+          return last ? finish() : show(i + 1, 1);
+        },
+        back: () => (canBack ? show(i - 1, -1) : null),
         skipAll: () => { closeTour(); hintFab(); },
-        auto: () => { const t = T.el; if (t) { advance(); t.click(); } },
+        auto: () => { const t = T.el; if (t) { if (!step.until) advance(); t.click(); } },
+        sample: async () => {
+          try { await step.fill.sample(T.el); } catch (ex) { console.warn(ex); }
+          T.root.querySelector('.tb-err').hidden = true;
+          T.root.querySelector('.tb-main')?.focus({ preventScroll: true });
+        },
       },
     });
-    // ขั้น "ลองทำ": เมื่อผู้ใช้กดเป้าหมายเอง → ไปขั้นถัดไป
+    function complain(msg) {
+      const e = T.root.querySelector('.tb-err');
+      if (e) { e.textContent = msg; e.hidden = false; }
+      const card = T.root.querySelector('.tr-card');
+      card.classList.remove('is-nudge'); void card.offsetWidth; card.classList.add('is-nudge');
+      T.el?.querySelector?.('input, textarea, select')?.focus({ preventScroll: true });
+    }
+    // ขั้น "ลองทำ": เมื่อผู้ใช้กดเป้าหมายเอง → ไปขั้นถัดไป (ขั้นที่มี until รอผลจริง เช่น บันทึกสำเร็จ)
     let advanced = false;
     const advance = () => {
-      if (advanced) return;
+      if (advanced || tour !== T || my !== seq) return;
       advanced = true;
       setTimeout(() => (last ? finish() : show(i + 1, 1)), 80);
     };
-    if (click) {
+    if (click && !step.until) {
       const onDown = (e) => { if (T.el && T.el.contains(e.target)) advance(); };
       document.addEventListener('click', onDown, true);
       T.clickOff = () => document.removeEventListener('click', onDown, true);
     }
+    if (step.until) {
+      T.poll = setInterval(() => { if (safeCall(step.until)) { clearInterval(T.poll); advance(); } }, 200);
+    }
+    // ขั้นกรอก: โฟกัสช่องแรกให้พิมพ์ได้ทันที
+    if (fill && !mobile()) T.el.querySelector?.('input:not([type=radio]):not([type=checkbox]), textarea')?.focus({ preventScroll: true });
   };
 
   const finish = () => {
@@ -532,17 +658,21 @@ export async function startLesson(id, { chain = null } = {}) {
     fab?.classList.remove('is-spot');
     T.root.classList.remove('is-moving');
     const c = lessonCtx();
-    const rec = recommended(c);
-    const order = T.chain || rec.map((l) => l.id);
+    const rec0 = recommended(c);
+    // บทที่เพิ่งจบอาจไม่อยู่ในรายการแนะนำแล้ว (เช่น สร้างโครงการแรกเสร็จ) — นับรวมให้ความคืบหน้าถูกต้อง
+    const rec = rec0.some((l) => l.id === lesson.id) ? rec0 : [lesson, ...rec0];
+    const order = [lesson.next, ...(T.chain || []), ...rec.map((l) => l.id)].filter((x) => x && lessonById(x)?.who(c));
     const nextId = order.find((x) => x !== lesson.id && !isDone(x));
     const next = nextId ? lessonById(nextId) : null;
     const done = rec.filter((l) => isDone(l.id)).length;
+    const note = safeCall(() => lesson.doneNote?.() || '');
     T.card({
       center: true,
       kind: 'done',
       html: `<div class="tb-hero">${mascot({ pose: next ? 'cheer' : 'love', size: 'lg' }) || `<span class="tb-badge is-done">${icon('award')}</span>`}${confetti()}</div>
         <h3 id="tb-h">ผ่านบทเรียนแล้ว!</h3>
         <p><b>${esc(lesson.title)}</b></p>
+        ${note ? `<p class="tb-donenote">${note}</p>` : ''}
         <div class="gp-prog tb-prog"><span>บทที่แนะนำสำหรับคุณ เรียนแล้ว <b>${done}</b> จาก ${rec.length}</span><i><b style="width:${rec.length ? Math.round((done / rec.length) * 100) : 100}%"></b></i></div>
         ${next ? `<p class="tb-next">บทต่อไป: <b>${esc(next.title)}</b><br><small>${esc(next.short)}</small></p>` : '<p class="tb-next">เรียนครบบทที่แนะนำแล้ว — เปิดบทอื่นหรือคู่มือฉบับเต็มได้จากปุ่มไกด์</p>'}`,
       buttons: next

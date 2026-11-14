@@ -5,6 +5,7 @@ import { esc, icon } from '../ui.js';
 import { motionOn } from '../motion.js';
 import { mascot } from '../mascot.js';
 import { APP_VERSION } from '../defaults.js';
+import { applyBrand } from '../brand.js';
 
 const MARK = `<svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="10" y="2" width="12" height="28" rx="1.5" class="bm-staff"/><path class="bm-e" d="M10 5h6v1.6h-6zM10 8.2h4v1.6h-4zM10 11.4h6v1.6h-6zM16 14.6h6v1.6h-6zM18 17.8h4v1.6h-4zM16 21h6v1.6h-6zM10 24.2h6v1.6h-6z"/></svg>`;
 
@@ -19,6 +20,7 @@ export function introBackdrop() {
   el.className = 'intro-backdrop';
   el.innerHTML = `${heroBg()}<div class="ib-text"><span class="intro-eyebrow">${MARK}ติดตามโครงการ</span><h1 class="intro-h1">ทุกโครงการ<br>ในที่เดียว</h1></div>`;
   document.body.appendChild(el);
+  applyBrand(el);
   requestAnimationFrame(() => el.classList.add('is-in'));
   return () => { el.classList.remove('is-in'); setTimeout(() => el.remove(), 350); };
 }
@@ -111,6 +113,7 @@ export function showIntro({ onPick, tour = false } = {}) {
     <a href="#in-roles" data-jump="in-roles"><span>บทบาท</span></a>
   </nav>`;
   document.body.appendChild(el);
+  applyBrand(el);
   document.body.classList.add('has-intro');
   requestAnimationFrame(() => el.classList.add('is-in'));
 

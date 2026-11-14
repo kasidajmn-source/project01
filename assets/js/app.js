@@ -16,6 +16,7 @@ import { showIntro } from './views/intro.js';
 import { applyMotion, enterView, bindPointerFx, replayNext } from './motion.js';
 import { mountGuide, maybeOffer } from './guide.js';
 import { loadMascotPack } from './mascot.js';
+import { loadBrand, applyBrand } from './brand.js';
 import { openLogin } from './views/login.js';
 import { loadDemoData } from './views/common.js';
 import { msAuth } from './backends/ms-auth.js';
@@ -45,6 +46,7 @@ function renderShell() {
     <a class="brand" href="#/">${BRAND}<span class="brand-text"><b>ติดตามโครงการ</b><small id="brand-org"></small></span></a>
     <nav class="nav" aria-label="เมนูหลัก">${NAV.map(([k, h, ic, l]) => `<a href="${h}" data-nav="${k}">${icon(ic)}<span>${l}</span></a>`).join('')}</nav>
     <div class="side-foot"><a href="#/settings" id="conn" class="conn"></a></div>`;
+  applyBrand(document.getElementById('side'));
   document.getElementById('tabbar').innerHTML = NAV.filter((n) => n[4] !== 'side').map(([k, h, ic, l, , sh]) => `<a href="${h}" data-nav="${k}">${icon(ic)}<span>${sh || l}</span></a>`).join('');
   updateConn();
 }
@@ -315,6 +317,7 @@ async function boot() {
   applyMotion();
   bindPointerFx();
   loadMascotPack();
+  loadBrand();
   matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', applyMotion);
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
   renderShell();
