@@ -233,6 +233,9 @@ function renderDetail(el, ctx, id) {
         </dl>
       </section>
 
+      ${sub.status === 'approved' && /ขยายเวลา|เปลี่ยนแปลงงาน/.test(sub.category || '') && store.can(p, 'editProject')
+        ? `<p class="notice">${icon('calendar')}<span><b>อนุมัติขยายเวลา/เปลี่ยนแปลงงานแล้ว</b> — ระบบไม่เปลี่ยนสัญญาให้เอง ปรับ <b>วันสิ้นสุดสัญญา</b> หรือ <b>มูลค่าสัญญา</b> ตามที่อนุมัติ เพื่อให้แผนงาน S-Curve และวันคงเหลือถูกต้อง
+          <a class="btn btn-sm" href="#/p/${pid}/settings">${icon('edit')}แก้ข้อมูลสัญญา</a></span></p>` : ''}
       <section class="panel">
         <header class="panel-head"><h2>ขั้นตอนการพิจารณา</h2><button type="button" class="btn btn-sm" data-act="f01" title="พิมพ์ใบขออนุมัติพร้อมผลการพิจารณาทุกขั้น">${icon('print')}พิมพ์แบบฟอร์ม PT-F01</button></header>
         <ol class="stepper">${sub.steps.map((x, i) => {
@@ -342,6 +345,10 @@ function renderDetail(el, ctx, id) {
       toast(e.message, 'bad', 7000);
       setBusy(btn, false);
       el.querySelectorAll('[data-do]').forEach((b) => { b.disabled = false; });
+      // 1.0.11: เรื่องเปลี่ยนสถานะไปแล้ว (คนอื่นพิจารณาก่อน) → ดึงข้อมูลล่าสุดมาแสดง
+      if (store.cloud && e.code !== 'login' && /ไม่ได้รอ|สถานะ|ขั้นตอน|ปิดแล้ว|ถูกยกเลิก/.test(e.message)) {
+        store.refresh().then(() => { guard.dirty = false; ctx.rerender(); toast('อัปเดตสถานะล่าสุดของเรื่องนี้แล้ว', 'info'); }).catch(() => {});
+      }
     }
   };
   bindVotePanel(el, sub, p, run);
@@ -537,7 +544,7 @@ function renderRequired(el, ctx) {
   const rows = store.reqsOf(p.id).map((r) => ({ r, s: R.reqStatus(r, p, subs, today) }));
   const k = {
     total: rows.length,
-    approved: rows.filter((x) => x.s.state === 'approved').length,
+    approved: rows.filter((x) => x.s.state === 'approved' || x.s.state === 'offline').length,
     pending: rows.filter((x) => x.s.state === 'pending').length,
     none: rows.filter((x) => x.s.state === 'none' || x.s.state === 'rejected').length,
     overdue: rows.filter((x) => x.s.overdueDays > 0).length,
@@ -557,6 +564,7 @@ function renderRequired(el, ctx) {
 
   const stateCell = ({ s }) => {
     if (s.state === 'approved') return '<span class="chip chip-ok">ผ่านแล้ว</span>';
+    if (s.state === 'offline') return '<span class="chip chip-ok" title="บันทึกโดยผู้กำหนดรายการ — ส่ง/อนุมัติก่อนใช้ระบบหรือเป็นหนังสือ">ส่งแล้วนอกระบบ</span>';
     if (s.state === 'pending') return '<span class="chip chip-warn">รอพิจารณา</span>';
     if (s.state === 'rejected') return '<span class="chip chip-bad">ไม่ผ่าน — ต้องส่งใหม่</span>';
     return `<span class="chip ${s.overdueDays ? 'chip-bad' : 'chip-muted'}">ยังไม่ส่ง</span>`;
@@ -629,11 +637,12 @@ function renderReqEdit(el, ctx) {
       <button class="btn btn-primary" data-act="save">${icon('check')}บันทึกรายการ</button>
     </div>
   </div>
-  <p class="hint">${icon('calendar')}เลือกรูปแบบกำหนดส่ง เช่น "ภายใน 15 วันหลังเริ่มสัญญา" ระบบคำนวณวันครบกำหนดจากวันเริ่ม/สิ้นสุดสัญญาให้ (เริ่ม ${fmt.date(p.startDate)} · สิ้นสุด ${fmt.date(p.endDate)})</p>
+  <p class="hint">${icon('calendar')}เลือกรูปแบบกำหนดส่ง เช่น "ภายใน 15 วันหลังเริ่มสัญญา" ระบบคำนวณวันครบกำหนดจากวันเริ่ม/สิ้นสุดสัญญาให้ (เริ่ม ${fmt.date(p.startDate)} · สิ้นสุด ${fmt.date(p.endDate)})
+    · เอกสารที่ส่งก่อนเริ่มใช้ระบบหรือส่งเป็นหนังสือ ใส่วันที่ในช่อง <b>ส่งแล้วนอกระบบเมื่อ</b> — ระบบจะไม่นับว่าเลยกำหนดและไม่ส่งอีเมลเตือน</p>
   <section class="panel panel-flush">
     <div class="table-wrap">
       <table class="boq req-edit">
-        <thead><tr><th>เอกสาร</th><th>หมวดเรื่องเมื่อส่ง</th><th>กำหนดส่ง</th><th></th><th>ครบกำหนด</th><th>หมายเหตุ</th><th></th></tr></thead>
+        <thead><tr><th>เอกสาร</th><th>หมวดเรื่องเมื่อส่ง</th><th>กำหนดส่ง</th><th></th><th>ครบกำหนด</th><th>หมายเหตุ</th><th title="ส่ง/อนุมัติแล้วก่อนเริ่มใช้ระบบ หรือส่งเป็นหนังสือ — ระบบจะไม่ติดตามและไม่เตือน">ส่งแล้วนอกระบบเมื่อ</th><th></th></tr></thead>
         <tbody id="rq-body"></tbody>
       </table>
     </div>
@@ -655,11 +664,12 @@ function renderReqEdit(el, ctx) {
         : `<label class="wf-days">N = <input type="number" min="0" data-i="${i}" data-f="dueDays" value="${esc(r.dueDays ?? '')}" aria-label="จำนวนวัน"> วัน</label>`}</td>
       <td class="nowrap" data-due="${i}">${due(r)}</td>
       <td><input data-i="${i}" data-f="note" value="${esc(r.note || '')}" placeholder="–" aria-label="หมายเหตุ"></td>
+      <td><input type="date" data-i="${i}" data-f="doneDate" value="${esc(r.doneDate || '')}" max="${todayISO()}" aria-label="ส่งแล้วนอกระบบเมื่อ (เว้นว่าง = ติดตามในระบบ)"></td>
       <td class="row-tools">
         <button class="icon-btn" data-mv="${i}" data-dir="-1" aria-label="เลื่อนขึ้น">${icon('arrowUp')}</button>
         <button class="icon-btn" data-mv="${i}" data-dir="1" aria-label="เลื่อนลง">${icon('arrowDown')}</button>
         <button class="icon-btn danger" data-del="${i}" aria-label="ลบ">${icon('trash')}</button></td>
-    </tr>`).join('') || '<tr><td colspan="7" class="muted pad">ยังไม่มีรายการ — กดเพิ่มรายการ หรือเพิ่มจากแม่แบบ</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="8" class="muted pad">ยังไม่มีรายการ — กดเพิ่มรายการ หรือเพิ่มจากแม่แบบ</td></tr>';
   };
   draw();
   body.addEventListener('input', (e) => {
@@ -704,6 +714,14 @@ function renderReqEdit(el, ctx) {
     const list = d.list.filter((r) => String(r.title || '').trim());
     const badDate = list.find((r) => r.dueType === 'date' && !r.dueDate);
     if (badDate) { toast(`"${badDate.title}" ยังไม่ได้ระบุวันที่ต้องส่ง`, 'bad'); return; }
+    // 1.0.11: เพิ่มรายการย้อนหลัง (โครงการเริ่มก่อนใช้ระบบ) → เตือนก่อนว่าจะถูกนับเลยกำหนดและส่งอีเมลเตือนผู้รับจ้าง
+    const tday = todayISO();
+    const pastDue = list.filter((r) => !r.doneDate && !store.subsOf(p.id).some((s) => s.requiredId === r.id && r.id) && (R.reqDueDate(r, p) || '9999') < tday);
+    if (pastDue.length && !(await confirmBox({
+      title: `${pastDue.length} รายการเลยกำหนดส่งแล้ว`,
+      message: `${pastDue.slice(0, 5).map((r) => esc(r.title)).join(', ')}${pastDue.length > 5 ? ' …' : ''} — ถ้าผู้รับจ้างส่งแล้วก่อนเริ่มใช้ระบบหรือส่งเป็นหนังสือ ให้ใส่วันที่ในช่อง "ส่งแล้วนอกระบบเมื่อ" ก่อน มิฉะนั้นระบบจะแสดงว่าเลยกำหนดและส่งอีเมลเตือนผู้รับจ้าง`,
+      ok: 'บันทึกต่อ (ให้ระบบติดตาม)', cancel: 'กลับไปใส่วันที่',
+    }))) return;
     const used = store.reqsOf(p.id).filter((r) => !list.some((x) => x.id === r.id) && store.subsOf(p.id).some((s) => s.requiredId === r.id));
     if (used.length && !(await confirmBox({ title: 'ลบรายการที่มีการส่งแล้ว', message: `${used.map((r) => esc(r.title)).join(', ')} มีเรื่องที่ส่งอ้างถึงแล้ว เรื่องเดิมยังอยู่แต่จะไม่แสดงในรายการนี้`, ok: 'บันทึกต่อ', danger: true }))) return;
     setBusy(btn, true, 'กำลังบันทึก…');

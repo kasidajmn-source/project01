@@ -57,6 +57,15 @@ function convert(rows, cfg) {
   const get = (r, f) => (map[f] == null || map[f] === -1 ? '' : r[map[f]]);
   const items = [];
   let group = '';
+  // 1.0.11: หัวข้อหลายระดับตามเลขลำดับ (เช่น 3 หมวดสถาปัตยกรรม › 3.1 งานผนัง › 3.1.1 …) — รายการ 3.4 กลับไปอยู่ใต้หมวด 3 ถูกต้อง
+  const heads = new Map();
+  const numKey = (v) => { const t = String(v ?? '').trim().replace(/\.$/, ''); return /^\d+(\.\d+)*$/.test(t) ? t : ''; };
+  const pathOf = (no) => {
+    const parts = no.split('.');
+    const names = [];
+    for (let i = 1; i < parts.length; i++) { const h = heads.get(parts.slice(0, i).join('.')); if (h) names.push(h); }
+    return names.join(' › ');
+  };
   for (const r of rows.slice(start)) {
     const desc = String(get(r, 'desc') ?? '').replace(/\s+/g, ' ').trim();
     const qtyRaw = get(r, 'qty');
@@ -64,11 +73,17 @@ function convert(rows, cfg) {
     const mat = num(get(r, 'mat')), labor = num(get(r, 'labor')), price = num(get(r, 'price'));
     if (!desc && !qty) continue;
     if (skipTotals && /^(รวม|ยอดรวม|total|sum)/i.test(desc)) continue;
-    if (groupRows && desc && !qty && !mat && !labor && !price) { group = desc; continue; }
+    if (groupRows && desc && !qty && !mat && !labor && !price) {
+      const k = numKey(get(r, 'no'));
+      if (k) { [...heads.keys()].forEach((x) => { if (x === k || x.startsWith(`${k}.`)) heads.delete(x); }); heads.set(k, desc); group = pathOf(`${k}.x`) || desc; } else group = desc;
+      continue;
+    }
     const g = String(get(r, 'group') ?? '').trim();
+    const k = numKey(get(r, 'no'));
+    const byNo = k && heads.size ? pathOf(k) : '';
     items.push({
       id: uid('B'),
-      group: g || group,
+      group: g || byNo || group,
       no: String(get(r, 'no') ?? '').trim(),
       desc, unit: String(get(r, 'unit') ?? '').trim(),
       qty, mat: map.mat != null && map.mat !== -1 ? mat : price, labor: map.labor != null && map.labor !== -1 ? labor : 0,
@@ -76,6 +91,21 @@ function convert(rows, cfg) {
     });
   }
   return items;
+}
+
+/** 1.0.11: เลือกชีตที่อ่านรายการได้มากที่สุด (ไฟล์ราคากลางมักมี ปร.5 เป็นชีตแรก) — ชื่อ ปร.4/BOQ ได้ก่อนเมื่อเท่ากัน */
+function bestSheet(sheets) {
+  let best = 0, score = -1;
+  sheets.forEach((s, i) => {
+    let n = 0;
+    try {
+      const { headerRow, twoRow } = detectHeader(s.rows);
+      n = convert(s.rows, { headerRow, twoRow, groupRows: true, skipTotals: true, map: guessMap(labels(s.rows, headerRow, twoRow)) }).filter((x) => x.qty > 0).length;
+    } catch { n = 0; }
+    const sc = n * 10 + (/ปร\.?\s*4|boq/i.test(s.name) ? 5 : 0);
+    if (sc > score) { score = sc; best = i; }
+  });
+  return best;
 }
 
 export function openBoqImport({ mode = 'file', onDone }) {
@@ -107,7 +137,7 @@ export function openBoqImport({ mode = 'file', onDone }) {
       const take = async (file) => {
         if (!file) return;
         drop.classList.add('is-busy');
-        try { sheets = (await readTableFile(file)).sheets; sheetIdx = Math.max(0, sheets.findIndex((s) => s.rows.length > 3)); prepare(); stepMap(); }
+        try { sheets = (await readTableFile(file)).sheets; sheetIdx = bestSheet(sheets); prepare(); stepMap(); }
         catch (e) { toast(e.message, 'bad', 6000); drop.classList.remove('is-busy'); }
       };
       input.addEventListener('change', () => take(input.files[0]));

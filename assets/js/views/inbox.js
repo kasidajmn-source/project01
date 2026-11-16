@@ -24,6 +24,8 @@ export function renderInbox(el) {
     return;
   }
   const q = store.myQueue();
+  // 1.0.11: ผู้ที่ไม่มีสิทธิ์พิจารณาในโครงการใดเลย (เช่น ผู้รับจ้าง) ไม่ต้องเห็นหัวข้อ "รอคุณพิจารณา" ที่ว่างตลอด
+  const canDecideAny = store.data.projects.some((p) => store.canView(p) && store.can(p, 'approve'));
   const total = q.decide.length + q.vote.length + q.resubmit.length + q.reqs.length + q.mine.length + q.meetings.length + q.actions.length;
   const section = (title, ic, rows, empty, hint = '') => `
     <section class="panel panel-flush inbox-sec">
@@ -35,7 +37,7 @@ export function renderInbox(el) {
   el.innerHTML = `
   ${pageHead('งานของฉัน', `${me.name && me.name !== me.email ? `${esc(me.name)} <span class="sep"></span> ` : ''}${esc(me.email)}`)}
   ${!total ? `<section class="panel">${emptyState({ ic: 'check', title: 'ไม่มีงานค้าง', text: 'เมื่อมีเรื่องรอคุณพิจารณา หรือเอกสารที่คุณต้องส่ง จะแสดงที่นี่ และแจ้งทางอีเมล' })}</section>` : ''}
-  ${q.decide.length || total ? section('รอคุณพิจารณา', 'shield', q.decide, 'ไม่มีเรื่องรอคุณพิจารณา', 'เรียงจากเรื่องที่ค้างนานที่สุด — สีเหลือง/แดงคือค้างเกินกำหนดของโครงการ') : ''}
+  ${q.decide.length || (total && canDecideAny) ? section('รอคุณพิจารณา', 'shield', q.decide, 'ไม่มีเรื่องรอคุณพิจารณา', 'เรียงจากเรื่องที่ค้างนานที่สุด — สีเหลือง/แดงคือค้างเกินกำหนดของโครงการ') : ''}
   ${q.vote.length ? section('รอคุณโหวตเลือกรูปแบบ', 'users', q.vote, '', 'คณะกรรมการโหวตเลือกสี/รูปแบบที่แบบไม่ได้กำหนด — เปิดเรื่องแล้วกด "เลือกแบบนี้"') : ''}
   ${q.resubmit.length ? section('ไม่ผ่าน — ต้องแก้ไขและส่งใหม่', 'refresh', q.resubmit, '') : ''}
   ${q.reqs.length ? `<section class="panel panel-flush inbox-sec">

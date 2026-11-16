@@ -301,13 +301,13 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-export function confirmBox({ title = 'ยืนยัน', message = '', ok = 'ยืนยัน', danger = false }) {
+export function confirmBox({ title = 'ยืนยัน', message = '', ok = 'ยืนยัน', cancel = 'ยกเลิก', danger = false }) {
   return new Promise((resolve) => {
     let val = false;
     const m = openModal({
       title, size: 'sm',
       body: `<p class="confirm-msg">${message}</p>`,
-      footer: `<button class="btn" data-close>ยกเลิก</button><button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-ok>${esc(ok)}</button>`,
+      footer: `<button class="btn" data-close>${esc(cancel)}</button><button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-ok>${esc(ok)}</button>`,
       onClose: () => resolve(val),
     });
     m.el.querySelector('[data-ok]').addEventListener('click', () => { val = true; m.close(); });

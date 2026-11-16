@@ -114,9 +114,60 @@ const routes = [
 const baseOf = (h) => (h || '#/').split('/').slice(0, 3).join('/');
 let current = location.hash || '#/';
 
+// 1.0.11: ข้อมูลในแท็บที่เปิดค้างไว้นานอาจเก่า (เช่น ผู้รับจ้างเพิ่งส่งเรื่อง)
+// · เปิดหน้าโครงการ/เรื่องที่ยังไม่มีในเครื่อง → ดึงข้อมูลล่าสุดก่อนแสดง (ครั้งเดียวต่อหน้า)
+// · เปิดหน้าหลัก/งานของฉัน/รายการโครงการ เมื่อดึงข้อมูลครั้งล่าสุดเกิน 1 นาที → แสดงข้อมูลเดิมก่อน แล้วอัปเดตเบื้องหลัง
+const freshTried = new Set();
+let freshening = null;
+function needsFresh(h) {
+  if (!store.cloud || store.needLogin || guard.dirty) return '';
+  const m = h.match(/^#\/p\/([^/?]+)(?:\/subs\/([^/?]+))?/);
+  if (m) {
+    const pid = decodeURIComponent(m[1]);
+    const missing = !store.project(pid) || (m[2] && m[2] !== 'new' && m[2] !== 'required' && !store.data.subs.some((x) => x.id === decodeURIComponent(m[2])));
+    const age = store.lastSync ? Date.now() - new Date(store.lastSync).getTime() : Infinity;
+    if (missing) return !freshTried.has(h) ? 'wait' : '';
+    // หน้าเรื่องขออนุมัติ: สถานะอาจเปลี่ยนแล้ว (ผ่าน/ตีกลับโดยคนอื่น) → อัปเดตเบื้องหลัง
+    return m[2] && !/^(new|required)$/.test(m[2]) && age > 10000 ? 'background' : '';
+  }
+  const age = store.lastSync ? Date.now() - new Date(store.lastSync).getTime() : Infinity;
+  // งานของฉัน = หน้าที่ต้องสดที่สุด (15 วินาที) · หน้าหลัก 1 นาที
+  return ((h === '#/inbox' || h === '#/chat') && age > 15000) || ((h === '#/' || h === '') && age > 60000) ? 'background' : '';
+}
+/** ลายนิ้วมือข้อมูลอย่างย่อ — อัปเดตเบื้องหลังแล้วไม่มีอะไรเปลี่ยน ไม่ต้องวาดหน้าใหม่ (ไม่กระพริบ) */
+const dataSig = () => {
+  const d = store.data;
+  return [d.projects.length, d.updates.length, d.daily?.length || 0, d.files?.length || 0,
+    d.subs.map((x) => `${x.id}:${x.status}:${x.step ?? ''}:${(x.history || x.log || []).length}`).join(','),
+    d.projects.map((x) => `${x.id}:${x.updatedAt || ''}:${(x.members || []).length}`).join(',')].join('|');
+};
+function freshen(h, wait) {
+  freshTried.add(h);
+  const before = dataSig();
+  if (!freshening) {
+    freshening = store.refresh().then(() => { updateConn(); return true; }, (e) => {
+      if (e.code === 'login') window.dispatchEvent(new Event('pt:relogin'));
+      return false;
+    }).finally(() => { freshening = null; });
+  }
+  return freshening.then((ok) => {
+    if (!ok || (location.hash || '#/') !== h || guard.dirty || document.querySelector('.modal-wrap')) return;
+    // กำลังพิมพ์ความเห็น/ข้อความอยู่ → ไม่วาดหน้าใหม่ทับ
+    if (!wait && [...view.querySelectorAll('textarea, input[type="text"], input:not([type])')].some((x) => x.value && x.value !== x.defaultValue)) return;
+    if (wait || view.querySelector('.loading') || dataSig() !== before) route();
+  });
+}
+
 function route() {
   runCleanups();
   const h = location.hash || '#/';
+  const fresh = needsFresh(h);
+  if (fresh === 'wait') {
+    view.innerHTML = `<div class="loading"><span class="spin"></span>กำลังดึงข้อมูลล่าสุดจาก ${esc(store.backendLabel)}…</div>`;
+    freshen(h, true);
+    return;
+  }
+  if (fresh === 'background') setTimeout(() => freshen(h, false), 0);
   if (store.needLogin && store.mode === 'gas' && !h.startsWith('#/settings') && !h.startsWith('#/help')) {
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.remove('is-on'));
     window.dispatchEvent(new Event('pt:login-cancel'));
@@ -158,18 +209,48 @@ window.addEventListener('hashchange', () => {
 });
 window.addEventListener('beforeunload', (e) => { if (guard.dirty) { e.preventDefault(); e.returnValue = ''; } });
 
+// 1.0.11: ช่องวันที่ของเบราว์เซอร์ใช้ปี ค.ศ. — ถ้าพิมพ์ปี พ.ศ. (เช่น 2569) แปลงให้อัตโนมัติ ไม่ให้สัญญายาว 543 ปี
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (!(t instanceof HTMLInputElement) || t.type !== 'date' || !/^\d{4}-\d{2}-\d{2}$/.test(t.value)) return;
+  const y = +t.value.slice(0, 4);
+  if (y < 2400 || y > 2700) return;
+  t.value = `${y - 543}${t.value.slice(4)}`;
+  t.dispatchEvent(new Event('input', { bubbles: true })); // ให้ช่องที่คำนวณต่อ (เช่น วันสิ้นสุดสัญญา) ใช้ค่าที่แปลงแล้ว
+  toast(`ช่องวันที่ใช้ปี ค.ศ. — แปลงปี พ.ศ. ${y} เป็น ค.ศ. ${y - 543} ให้แล้ว`, 'info', 5000);
+}, true);
+
 // ---------- ลิงก์เชิญ ----------
 // Google:     #/connect?u=<URL เว็บแอป>&k=<รหัส>
 // SharePoint: #/connect?sp=1&t=<tenant>&c=<client id>&s=<site url>&f=<โฟลเดอร์>&m=<all|selected>
 // OneDrive:   #/connect?od=1&t=<tenant>&c=<client id>&d=<drive id>&i=<item id>&n=<ชื่อโฟลเดอร์>&f=<ลิงก์โฟลเดอร์>
+// 1.0.11: to=<หน้า> — เปิดหน้านั้นหลังเชื่อมต่อ (ลิงก์ในอีเมลแจ้งเตือน) · รับเฉพาะหน้าในระบบ
+const CONNECT_TO = /^\/(?:p\/[A-Za-z0-9_-]{1,64}(?:\/(?:overview|boq|updates|daily|subs|docs|chat|members|settings)(?:\/[A-Za-z0-9_-]{1,64})?)?|meetings\/[A-Za-z0-9_-]{1,64}|inbox|summary|projects)$/;
 async function handleConnect() {
   const q = new URLSearchParams((location.hash.split('?')[1] || ''));
   const isOd = q.get('od') === '1';
   const isSp = q.get('sp') === '1' || isOd;
   const url = q.get('u'), key = q.get('k') || '';
+  const to = CONNECT_TO.test(q.get('to') || '') ? `#${q.get('to')}` : '#/';
+  window.dispatchEvent(new Event('pt:intro-close')); // หน้าแนะนำระบบเปิดอยู่ → ปิดก่อน ไม่ให้บังหน้าต่างเชื่อมต่อ
   history.replaceState(null, '', `${location.pathname}#/`);
   current = '#/';
   if (!isSp && !url) { route(); return; }
+  // เชื่อมต่อระบบเดียวกันอยู่แล้ว (เช่น กดลิงก์ในอีเมลฉบับถัดไป) → ไปหน้านั้นเลย ไม่ถามซ้ำ
+  const same = isOd ? conf.mode === 'onedrive' && !!conf.od.itemId && conf.od.itemId === q.get('i')
+    : isSp ? conf.mode === 'sharepoint' && !!conf.sp.site && conf.sp.site === q.get('s')
+      : conf.mode === 'gas' && conf.url === url;
+  if (same) {
+    if (!isSp && key && key !== conf.key) {
+      try { await testConnection(url, key); conf.key = key; saveConf(); } catch { /* รหัสในลิงก์ใช้ไม่ได้ — ใช้รหัสเดิม */ }
+    }
+    history.replaceState(null, '', `${location.pathname}${to}`);
+    current = to;
+    try { await initWithLogin(); } catch (e) { if (e.code !== 'login') toast(e.message, 'bad', 8000); }
+    updateConn();
+    route();
+    return;
+  }
   // ตรวจลิงก์เชิญก่อน: ปลายทางต้องเป็น Google Apps Script / SharePoint / Microsoft จริงเท่านั้น
   const problem = isOd
     ? msIdProblem(q.get('t') || 'organizations', 'รหัสองค์กร (tenant) ') || msIdProblem(q.get('c'), 'Client ID ') || (/^[A-Za-z0-9!_.-]{2,200}$/.test(q.get('d') || '') && /^[A-Za-z0-9!_.-]{2,200}$/.test(q.get('i') || '') ? '' : 'รหัสโฟลเดอร์ OneDrive ไม่ถูกต้อง')
@@ -244,7 +325,8 @@ async function handleConnect() {
       m.close();
       await initWithLogin();
       updateConn();
-      toast('เชื่อมต่อข้อมูลของทีมแล้ว');
+      if (conf.mode !== 'gas') toast('เชื่อมต่อข้อมูลของทีมแล้ว'); // Google: ข้อความต้อนรับหลังยืนยัน OTP บอกอยู่แล้ว
+      if (to !== '#/') { history.replaceState(null, '', `${location.pathname}${to}`); current = to; }
       route();
     } catch (e) {
       toast(e.message, 'bad', 8000);
@@ -301,7 +383,7 @@ window.addEventListener('pt:intro', () => showIntro({ tour: true }));
 let syncing = false;
 async function autoSync() {
   if (!store.cloud || syncing || guard.dirty || document.querySelector('.modal-wrap, .present')) return;
-  if (store.lastSync && Date.now() - store.lastSync < 120000) return;
+  if (store.lastSync && Date.now() - store.lastSync < 30000) return; // 1.0.11: กลับมาที่แท็บหลัง 30 วินาที → ดึงข้อมูลล่าสุด
   syncing = true;
   try { await store.refresh(); updateConn(); if (!guard.dirty) route(); } catch (e) {
     if (e.code === 'login') { syncing = false; window.dispatchEvent(new Event('pt:relogin')); return; }

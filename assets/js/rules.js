@@ -763,6 +763,12 @@
     var last = linked[linked.length - 1] || null;
     var res = { due: due, sub: last, firstAt: first ? first.submittedAt : '', state: 'none', lateDays: 0, overdueDays: 0, leftDays: null, tone: 'muted' };
     if (first && due) res.lateDays = Math.max(0, daysBetween(due, first.submittedAt.slice(0, 10)));
+    // 1.0.11: ส่ง/อนุมัติแล้วนอกระบบ (ก่อนเริ่มใช้ระบบ หรือส่งเป็นหนังสือ) — ไม่ติดตาม/ไม่เตือนอีก
+    if (!last && /^\d{4}-\d{2}-\d{2}$/.test(String(req.doneDate || ''))) {
+      res.state = 'offline'; res.tone = 'ok'; res.firstAt = req.doneDate;
+      if (due) res.lateDays = Math.max(0, daysBetween(due, req.doneDate));
+      return res;
+    }
     if (last) res.state = last.status;
     if (res.state === 'approved') { res.tone = 'ok'; return res; }
     if (due) {
@@ -792,8 +798,10 @@
         info = byLevel(['all']);
         break;
       case 'advanced':
+        // 1.0.11: ผ่านขั้นกลางทาง — แจ้งผู้ส่งและผู้ที่รับ "ทุกเรื่อง" เท่านั้น
+        // (หัวหน้า/ผู้พิจารณาขั้นก่อนหน้ารับเฉพาะผลสุดท้าย ลดอีเมลซ้ำและประหยัดโควตาอีเมลรายวัน)
         action = currentApprovers(sub, p);
-        info = [sub.submittedBy].concat(byLevel(['all', 'decisions']), deciders);
+        info = [sub.submittedBy].concat(byLevel(['all']));
         break;
       case 'approved':
       case 'rejected':
@@ -858,10 +866,19 @@
     }
     return s;
   }
-  function appLink(appUrl, p, sub) {
+  /**
+   * ลิงก์ไปยังหน้าในระบบ — ถ้า appUrl มีข้อมูลเชื่อมต่อ (#/connect?…) จะพาเครื่องที่ยังไม่เคยเชื่อมต่อเข้าระบบของทีมก่อน
+   * แล้วเปิดหน้านั้น (to=…) ให้ทันที (1.0.11)
+   */
+  function pageLink(appUrl, path) {
     if (!appUrl) return '';
-    var base = String(appUrl).split('#')[0];
-    return base + '#/p/' + encodeURIComponent(p.id) + (sub ? '/subs/' + encodeURIComponent(sub.id) : '');
+    var s = String(appUrl);
+    var base = s.split('#')[0];
+    var m = s.match(/#\/connect\?([^#]*)$/);
+    return m ? base + '#/connect?' + m[1] + '&to=' + encodeURIComponent(path) : base + '#' + path;
+  }
+  function appLink(appUrl, p, sub) {
+    return pageLink(appUrl, '/p/' + encodeURIComponent(p.id) + (sub ? '/subs/' + encodeURIComponent(sub.id) : ''));
   }
   function layout(title, lead, rows, body, link, linkLabel) {
     var rowHtml = rows.map(function (r) {
@@ -1194,7 +1211,7 @@
         return '<li>' + (a.done ? '✔ ' : '') + esc(a.text) + (a.owner ? ' — ' + esc(p ? memberName(p, a.owner) : a.owner) : '') + (a.due ? ' (ภายใน ' + esc(thaiDateTime(a.due, false)) + ')' : '') + '</li>';
       }).join('') + '</ul>';
     }
-    var link = appUrl ? String(appUrl).split('#')[0] + '#/meetings/' + encodeURIComponent(m.id) : '';
+    var link = pageLink(appUrl, '/meetings/' + encodeURIComponent(m.id));
     return {
       subject: code + head + ': ' + m.title + (kind === 'minutes' ? '' : ' — ' + meetingWhen(m)),
       html: layout(head, kind === 'remind' ? 'คุณมีนัดประชุมในวันพรุ่งนี้' : esc(actor.name || actor.email) + (kind === 'cancel' ? ' ยกเลิกการประชุมนี้' : kind === 'minutes' ? ' ส่งบันทึกการประชุม' : ' เชิญคุณเข้าร่วมประชุม'), rows, body, link, 'เปิดการประชุมในระบบ'),
@@ -1278,6 +1295,7 @@
   function pctTxt(r) { return r == null || isNaN(r) ? '–' : (r * 100).toFixed(1) + '%'; }
   function statusOf(prog, settings) {
     if (!prog || prog.actual == null || prog.plan == null) return { label: 'ไม่มีข้อมูล', color: '#737D90' };
+    if (prog.status === 'nodata' && !(prog.daysLeft != null && prog.daysLeft < 0)) return { label: 'รอบันทึกครั้งแรก', color: '#B86E00' };
     var diff = (prog.actual - prog.plan) * 100;
     var watch = settings && settings.watchThreshold != null && settings.watchThreshold !== '' ? +settings.watchThreshold : 2;
     var behind = settings && settings.behindThreshold != null && settings.behindThreshold !== '' ? +settings.behindThreshold : 5;
@@ -1316,7 +1334,7 @@
     if ((d.files || []).length) html += '<p style="color:#737D90">รูปถ่าย/ไฟล์แนบ ' + d.files.length + ' ไฟล์ — เปิดดูในระบบ</p>';
     return html;
   }
-  function linkFor(appUrl, p, tail) { return appUrl ? String(appUrl).split('#')[0] + '#/p/' + encodeURIComponent(p.id) + (tail || '') : ''; }
+  function linkFor(appUrl, p, tail) { return pageLink(appUrl, '/p/' + encodeURIComponent(p.id) + (tail || '')); }
   /** รายงานประจำวัน — c = { p, daily, subs, reqs, settings, today, nowIso, appUrl } */
   function dailyReportEmail(c) {
     var p = c.p, code = p.code ? '[' + p.code + '] ' : '';
@@ -1381,7 +1399,7 @@
     }));
     var mm = String(c.month || '');
     var monthTxt = mm ? THAI_MONTHS[(+mm.slice(5, 7) || 1) - 1] + ' ' + String(+mm.slice(0, 4) + 543) : '';
-    var link = c.appUrl ? String(c.appUrl).split('#')[0] + '#/summary' : '';
+    var link = pageLink(c.appUrl, '/summary');
     return {
       subject: (c.title || 'รายงานความคืบหน้าประจำเดือน') + ' ' + monthTxt + ' — ' + rows.length + ' โครงการ' + (behind ? ' (ล่าช้า ' + behind + ')' : ''),
       html: layout(c.title || 'รายงานความคืบหน้าประจำเดือน', 'ผลงาน ณ วันที่บันทึกความคืบหน้าล่าสุดของแต่ละโครงการ', [['เดือน', esc(monthTxt)], ['จำนวนโครงการ', esc(rows.length + ' โครงการ' + (behind ? ' · ล่าช้ากว่าแผน ' + behind : ''))]], tbl, link, 'เปิดสรุปผู้บริหาร'),
@@ -1520,7 +1538,7 @@
     });
     Object.keys(byOwner).forEach(function (e) {
       var items = byOwner[e];
-      var link = c.appUrl ? String(c.appUrl).split('#')[0] + '#/inbox' : '';
+      var link = pageLink(c.appUrl, '/inbox');
       out.push(MSG([e], 'action', 'action-overdue', items[0].m.projectId, {
         subject: 'เตือน: งานจากการประชุมเลยกำหนด ' + items.length + ' รายการ',
         html: layout('งานจากการประชุมที่เลยกำหนด', 'งานที่ได้รับมอบหมายต่อไปนี้ยังไม่ได้ทำเครื่องหมายว่าเสร็จ', [], ul(items.map(function (x) {

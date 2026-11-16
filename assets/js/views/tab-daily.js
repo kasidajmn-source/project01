@@ -157,6 +157,13 @@ function renderView(el, ctx, d) {
   el.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => preview(files.find((f) => f.id === b.dataset.f))));
   el.querySelectorAll('[data-thumb]').forEach(async (img) => {
     const f = files.find((x) => x.id === img.dataset.thumb);
+    // 1.0.11: ดูรูปไม่ได้ (เช่น ยังไม่ได้ลงชื่อเข้า Google ด้วยอีเมลที่ได้รับแชร์) → แสดงไอคอนแทนภาพแตก กดเปิดดูได้ตามเดิม
+    img.addEventListener('error', () => {
+      const ph = document.createElement('span');
+      ph.className = 'fthumb-ph';
+      ph.innerHTML = `${icon('image')}<small>${esc(f?.name || 'รูปถ่าย')}</small>`;
+      img.replaceWith(ph);
+    }, { once: true });
     try { const u = await store.thumbUrl(f); if (u) img.src = u; } catch { /* ignore */ }
   });
   el.querySelector('[data-act="del"]')?.addEventListener('click', async () => {

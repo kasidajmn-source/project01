@@ -42,6 +42,7 @@ export const PLAN_MODES = {
 export const STATUS = {
   behind: { label: 'ล่าช้ากว่าแผน', tone: 'bad' },
   watch: { label: 'เฝ้าระวัง', tone: 'warn' },
+  nodata: { label: 'รอบันทึกครั้งแรก', tone: 'warn' }, // 1.0.11: เริ่มสัญญาแล้วแต่ยังไม่มีบันทึกความคืบหน้า
   ontrack: { label: 'ตามแผน', tone: 'ok' },
   ahead: { label: 'เร็วกว่าแผน', tone: 'good' },
   notstarted: { label: 'ยังไม่เริ่ม', tone: 'muted' },
@@ -49,7 +50,7 @@ export const STATUS = {
   done: { label: 'แล้วเสร็จ', tone: 'done' },
   cancelled: { label: 'ยกเลิก', tone: 'muted' },
 };
-export const STATUS_ORDER = ['behind', 'watch', 'ontrack', 'ahead', 'notstarted', 'paused', 'done', 'cancelled'];
+export const STATUS_ORDER = ['behind', 'watch', 'nodata', 'ontrack', 'ahead', 'notstarted', 'paused', 'done', 'cancelled'];
 
 // ---------- วันที่ ----------
 export function parseISO(s) {
@@ -328,6 +329,8 @@ export function analyze(p, items, updates, S, today = todayISO()) {
   else if (p.status === 'paused') status = 'paused';
   else if (!started) status = 'notstarted';
   else if (daysLeft != null && daysLeft < 0 && actual < 0.999) status = 'behind';
+  // โครงการที่เพิ่งนำเข้าระบบระหว่างสัญญา: ยังไม่มีบันทึกเลย ไม่ใช่ "ล่าช้า" (ยังไม่รู้ผลงานจริง)
+  else if (!last && p.progressMethod !== 'time' && actual <= 0) status = 'nodata';
   else if (diff >= watch) status = 'ahead';
   else if (diff > -watch) status = 'ontrack';
   else if (diff > -behind) status = 'watch';

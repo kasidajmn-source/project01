@@ -48,7 +48,8 @@ export function renderDashboard(el) {
   for (const { p, a } of current) {
     if (a.status === 'behind') watch.push({ p, tone: 'bad', text: a.overdue ? `เกินกำหนดสัญญา ${fmt.num(-a.daysLeft, 0)} วัน ผลงาน ${fmt.pct(a.actual)}` : `ตามหลังแผน ${fmt.signed(a.diff)}%` });
     else if (a.status === 'watch') watch.push({ p, tone: 'warn', text: `ตามหลังแผน ${fmt.signed(a.diff)}% เริ่มต้องเฝ้าระวัง` });
-    if (p.status === 'active' && a.started && a.staleDays != null && a.staleDays > S.staleDays) watch.push({ p, tone: 'muted', text: `ไม่ได้บันทึกความคืบหน้ามา ${fmt.num(a.staleDays, 0)} วัน` });
+    else if (a.status === 'nodata') watch.push({ p, tone: 'warn', text: `ยังไม่ได้บันทึกความคืบหน้าครั้งแรก — แผน ณ วันนี้ ${fmt.pct(a.plan)}` });
+    if (a.status !== 'nodata' && p.status === 'active' && a.started && a.staleDays != null && a.staleDays > S.staleDays) watch.push({ p, tone: 'muted', text: `ไม่ได้บันทึกความคืบหน้ามา ${fmt.num(a.staleDays, 0)} วัน` });
     if (a.daysLeft != null && a.daysLeft >= 0 && a.daysLeft <= 30 && a.actual < 0.999 && a.started) watch.push({ p, tone: 'warn', text: `ใกล้ครบสัญญา (อีก ${a.daysLeft} วัน) ผลงาน ${fmt.pct(a.actual)}` });
   }
 

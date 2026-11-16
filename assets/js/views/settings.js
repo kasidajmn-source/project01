@@ -503,12 +503,7 @@ export function renderSettings(el) {
   el.querySelector('[data-act="invite"]')?.addEventListener('click', () => {
     const base = `${location.origin}${location.pathname}#/connect?`;
     const isSp = conf.mode === 'sharepoint' || conf.mode === 'onedrive';
-    const ref = conf.mode === 'onedrive' ? store.backend.rootRef() : null;
-    const link = conf.mode === 'onedrive'
-      ? base + new URLSearchParams({ od: '1', t: od.tenant, c: od.clientId, d: ref?.driveId || od.driveId, i: ref?.itemId || od.itemId, n: ref?.name || '', f: ref?.webUrl || od.folder })
-      : isSp
-        ? base + new URLSearchParams({ sp: '1', t: sp.tenant, c: sp.clientId, s: sp.site, f: sp.folder, m: sp.scopeMode })
-        : `${base}u=${encodeURIComponent(conf.url)}&k=${encodeURIComponent(conf.key)}`;
+    const link = base + store.connectQuery();
     const m = openModal({
       title: 'ลิงก์เชิญทีม',
       body: `<p>ส่งลิงก์นี้ให้เพื่อนร่วมทีม เปิดแล้วเชื่อมต่อฐานข้อมูลเดียวกันทันทีโดยไม่ต้องกรอกค่าเอง</p>

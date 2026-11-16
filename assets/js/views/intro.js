@@ -126,6 +126,8 @@ export function showIntro({ onPick, tour = false } = {}) {
   };
   const onKey = (e) => { if (e.key === 'Escape' && tour) close(); };
   addEventListener('keydown', onKey);
+  // 1.0.11: เปิดลิงก์เชิญทีมขณะหน้าแนะนำเปิดอยู่ → ปิดหน้าแนะนำ ให้หน้าต่างเชื่อมต่อแสดงได้
+  addEventListener('pt:intro-close', () => { if (el.isConnected) close(); }, { once: true });
 
   // เลื่อนไปยังส่วนต่างๆ (ไม่เปลี่ยน hash ของแอป)
   el.querySelectorAll('[data-jump]').forEach((a) => a.addEventListener('click', (e) => {

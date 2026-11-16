@@ -12,7 +12,7 @@ async function api(action, payload = {}, { url = conf.url, key = conf.key, timeo
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action, key, token: conf.token || '', user: conf.user, appUrl: location.href.split('#')[0], ...payload }),
+      body: JSON.stringify({ action, key, token: conf.token || '', user: conf.user, appUrl: location.href.split('#')[0], api: url, ...payload }),
       signal: ctrl.signal,
       redirect: 'follow',
     });

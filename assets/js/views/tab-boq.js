@@ -6,6 +6,8 @@ import { openBoqImport } from './boq-import.js';
 import { renderPlan } from './tab-plan.js';
 import { exportWorkbook, parseDelimited } from '../excel.js';
 
+let closeImportTip = null;
+
 const st = { pid: null, editing: false, draft: [] };
 
 export function renderBoq(host, ctx, sub = '') {
@@ -132,7 +134,8 @@ function bindView(el, ctx) {
 function importDone(el, ctx, items, how) {
   const base = how === 'append' ? store.boqOf(ctx.p.id) : [];
   startEdit(el, ctx, [...base, ...items]);
-  toast(`นำเข้า ${items.length} รายการ — ตรวจทานแล้วกด "บันทึก BOQ"`, 'info', 5000);
+  closeImportTip?.();
+  closeImportTip = toast(`นำเข้า ${items.length} รายการ — ตรวจทานแล้วกด "บันทึก BOQ"`, 'info', 5000);
 }
 
 async function exportBoq({ p, a }) {
@@ -332,6 +335,7 @@ async function save(el, ctx, btn) {
   try {
     await store.saveBoq(p.id, items, (n, t) => { btn.innerHTML = `<span class="spin"></span>กำลังบันทึก ${n}/${t}…`; });
     stopEdit();
+    closeImportTip?.(); closeImportTip = null; // ข้อความ "ตรวจทานแล้วกดบันทึก" หมดความหมายแล้ว
     toast(`บันทึก BOQ ${items.length} รายการแล้ว`);
     ctx.rerender();
   } catch (e) {

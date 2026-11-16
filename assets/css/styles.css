@@ -2202,3 +2202,16 @@ img.brand-mark.brand-logo { width: auto; max-width: 72px; height: 34px; object-f
   .tr-card.has-msc:has(.tb-msc.is-pack) .tb-top { margin-left: -76px; }
   .tb-lesson, .tb-try { white-space: nowrap; }
 }
+
+/* =====================================================================
+   1.0.11 ปรับจากการทดลองใช้งานจริง
+   ===================================================================== */
+/* หน้าต่างเปิดอยู่: แจ้งผลย้ายไปด้านบน ไม่บังปุ่มยืนยันของหน้าต่าง */
+body.has-modal #toasts { top: calc(16px + env(safe-area-inset-top)); bottom: auto; }
+/* หน้าเรื่องขออนุมัติที่มีช่องพิจารณา/ส่งใหม่ (แผงด้านข้างตรึงอยู่): ซ่อนปุ่มไกด์ไม่ให้บังปุ่ม "ไม่ผ่าน" */
+body:has(#act-decide, #act-resubmit) .guide-fab:not(.is-spot) { opacity: 0; visibility: hidden; transform: scale(.6); transition: opacity .2s, transform .2s, visibility 0s .2s; }
+/* ห้องสนทนา: ช่องพิมพ์และปุ่มส่งอยู่มุมขวาล่าง — ซ่อนปุ่มไกด์ไม่ให้บังปุ่มส่ง */
+body:has(.rm-compose) .guide-fab:not(.is-spot) { opacity: 0; visibility: hidden; transform: scale(.6); transition: opacity .2s, transform .2s, visibility 0s .2s; }
+body:has(.rm-compose) #toasts { bottom: 96px; }
+.fthumb-ph { display: grid; place-items: center; align-content: center; gap: 4px; width: 100%; height: 100%; min-height: 72px; padding: 6px; color: var(--ink-3); background: var(--bg); font-size: 11px; text-align: center; }
+.fthumb-ph small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

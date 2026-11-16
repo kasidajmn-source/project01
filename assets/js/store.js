@@ -379,7 +379,22 @@ export const store = {
   _need(pid, perm, msg) { if (!this.can(pid, perm)) throw permError(msg); },
 
   // ---------- อีเมลแจ้งเตือน (โหมดทดลอง / SharePoint) ----------
-  appUrl() { return this.settings.appUrl || location.href.split('#')[0]; },
+  /** 1.0.11 ข้อมูลเชื่อมต่อในลิงก์เชิญ/ลิงก์ในอีเมล — SharePoint/OneDrive ไม่มีรหัสลับ · Google มีรหัสเข้าใช้งาน (ยังต้องยืนยัน OTP) */
+  connectQuery() {
+    if (conf.mode === 'onedrive') {
+      const ref = this.backend?.rootRef?.() || null;
+      return new URLSearchParams({ od: '1', t: conf.od.tenant, c: conf.od.clientId, d: ref?.driveId || conf.od.driveId, i: ref?.itemId || conf.od.itemId, n: ref?.name || '', f: ref?.webUrl || conf.od.folder }).toString();
+    }
+    if (conf.mode === 'sharepoint') return new URLSearchParams({ sp: '1', t: conf.sp.tenant, c: conf.sp.clientId, s: conf.sp.site, f: conf.sp.folder, m: conf.sp.scopeMode }).toString();
+    if (conf.mode === 'gas' && conf.url) return `u=${encodeURIComponent(conf.url)}&k=${encodeURIComponent(conf.key)}`;
+    return '';
+  },
+  /** ลิงก์ของระบบที่ใส่ในอีเมล (SharePoint/OneDrive ส่งจากเครื่อง — แนบข้อมูลเชื่อมต่อให้ผู้รับที่ยังไม่เคยเปิดระบบ) */
+  appUrl() {
+    const base = (this.settings.appUrl || location.href).split('#')[0];
+    const q = this.direct ? this.connectQuery() : '';
+    return q ? `${base}#/connect?${q}` : base;
+  },
   async _mail(messages) {
     const list = (messages || []).filter((m) => m && m.to && m.to.length);
     if (!list.length || this.serverRules) return { sent: 0 };
@@ -1054,7 +1069,7 @@ export const store = {
       const items = this.boqOf(p.id);
       const ups = this.updatesOf(p.id);
       const a = analyze(p, items, ups, this.settings, iso);
-      out[p.id] = { actual: a.actual, plan: a.plan, daysLeft: a.daysLeft, prevActual: prevIso ? progressAt(p, items, ups, prevIso) : null };
+      out[p.id] = { actual: a.actual, plan: a.plan, daysLeft: a.daysLeft, status: a.status, prevActual: prevIso ? progressAt(p, items, ups, prevIso) : null };
     }
     return out;
   },
@@ -1216,6 +1231,7 @@ export const store = {
       id: r.id || uid('Q'), projectId: pid, title: String(r.title || '').trim(), category: r.category || '',
       dueType: R.DUE_TYPES[r.dueType] ? r.dueType : 'afterStart', dueDays: Math.max(0, Math.round(+r.dueDays || 0)),
       dueDate: r.dueType === 'date' ? (r.dueDate || '') : '', note: String(r.note || '').trim(), order: i + 1,
+      doneDate: /^\d{4}-\d{2}-\d{2}$/.test(String(r.doneDate || '')) ? r.doneDate : '',
     })).filter((r) => r.title);
     const saved = this.cloud ? await this.backend.saveRequired(pid, clean) : clean;
     this.data.reqs = this.data.reqs.filter((r) => r.projectId !== pid).concat(saved);

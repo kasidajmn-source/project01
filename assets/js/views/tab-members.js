@@ -187,6 +187,7 @@ export function renderMembers(el, ctx) {
     const desc = () => { const r = el.querySelector('#ma-role').value; el.querySelector('#ma-desc').innerHTML = `${roleChip(r)} ${esc(R.ROLES[r].desc)}`; };
     el.querySelector('#ma-role').addEventListener('change', desc);
     desc();
+    let addTip = null, addedSoFar = 0; // 1.0.11: แจ้งยอดรวมในข้อความเดียว ไม่ซ้อนกันบังตาราง
     const add = () => {
       const raw = el.querySelector('#ma-email').value;
       const emails = R.parseList(raw);
@@ -206,7 +207,12 @@ export function renderMembers(el, ctx) {
       el.querySelector('#ma-email').value = '';
       el.querySelector('#ma-name').value = '';
       dirty(); drawMembers(); drawWf();
-      if (added) toast(`เพิ่ม ${added} คน — กด "บันทึกสมาชิกและสิทธิ์" เพื่อยืนยัน`, 'info');
+      if (added) {
+        addedSoFar += added;
+        addTip?.();
+        addTip = toast(`เพิ่มแล้ว ${addedSoFar} คน — กด "บันทึกสมาชิกและสิทธิ์" ด้านล่างเพื่อยืนยันและส่งอีเมลเชิญ`, 'info', 4000);
+      }
+      if (!matchMedia('(pointer: coarse)').matches) el.querySelector('#ma-email').focus(); // พร้อมพิมพ์คนถัดไป (ไม่เด้งแป้นพิมพ์บนมือถือ)
     };
     el.querySelector('[data-act="add"]').addEventListener('click', add);
     el.querySelector('#ma-email').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });

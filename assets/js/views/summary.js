@@ -78,7 +78,7 @@ export function renderSummary(el) {
         <div><dt>ผลงานคิดเป็นเงิน</dt><dd class="num">${moneyHTML(pf.earned)}</dd></div>
         ${showPend ? `<div><dt>เรื่องขออนุมัติรอพิจารณา</dt><dd class="num ${pendTotal.late ? 'is-bad' : ''}">${pendTotal.n} <small>${pendTotal.late ? `ค้างนาน ${pendTotal.late}` : pendTotal.warn ? `ใกล้เกินกำหนด ${pendTotal.warn}` : 'เรื่อง'}</small></dd></div>` : ''}
       </dl>
-      <ul class="rk-status">${['behind', 'watch', 'ontrack', 'ahead', 'notstarted', 'done'].filter((s) => counts[s]).map((s) => `<li>${chip(s)}<b class="num">${counts[s]}</b></li>`).join('')}</ul>
+      <ul class="rk-status">${['behind', 'watch', 'nodata', 'ontrack', 'ahead', 'notstarted', 'done'].filter((s) => counts[s]).map((s) => `<li>${chip(s)}<b class="num">${counts[s]}</b></li>`).join('')}</ul>
     </section>
 
     <section class="panel">

@@ -34,7 +34,10 @@ const RENDER = {
 export function renderProject(el, id, tab = 'overview', sub = '') {
   const p = store.project(decodeURIComponent(id));
   if (!p) {
-    el.innerHTML = `<section class="panel">${emptyState({ ic: 'alert', title: 'ไม่พบโครงการนี้', text: store.serverRules ? 'โครงการอาจถูกลบไปแล้ว หรือคุณยังไม่ได้เป็นสมาชิกของโครงการนี้' : 'โครงการอาจถูกลบไปแล้ว', actions: '<a class="btn" href="#/projects">กลับไปหน้ารายการโครงการ</a>' })}</section>`;
+    // 1.0.11: เปิดลิงก์จากอีเมลบนเครื่องที่ยังใช้โหมดทดลอง → บอกว่ายังไม่ได้เชื่อมต่อ (ไม่ใช่ "ถูกลบ")
+    el.innerHTML = `<section class="panel">${!store.cloud
+      ? emptyState({ ic: 'cloud', title: 'เครื่องนี้ยังไม่ได้เชื่อมต่อระบบของทีม', text: 'ลิงก์นี้เป็นโครงการในระบบของทีม แต่เครื่องนี้ยังใช้โหมดทดลอง — เปิด <b>ลิงก์เชิญทีม</b> ที่ได้จากเจ้าของโครงการหรือผู้ดูแลระบบ หรือลิงก์ในอีเมลแจ้งเตือนฉบับล่าสุด แล้วเข้าสู่ระบบด้วยอีเมลของคุณ', actions: '<a class="btn btn-primary" href="#/settings">ตั้งค่าการเชื่อมต่อ</a><a class="btn" href="#/projects">กลับไปหน้ารายการโครงการ</a>' })
+      : emptyState({ ic: 'alert', title: 'ไม่พบโครงการนี้', text: store.serverRules ? `โครงการอาจถูกลบไปแล้ว หรือคุณยังไม่ได้เป็นสมาชิกของโครงการนี้ — ตรวจว่าเข้าสู่ระบบด้วยอีเมลที่ได้รับเชิญ (ตอนนี้: ${esc(store.me.email || '–')})` : 'โครงการอาจถูกลบไปแล้ว', actions: '<a class="btn" href="#/projects">กลับไปหน้ารายการโครงการ</a>' })}</section>`;
     return;
   }
   if (!store.canView(p)) {

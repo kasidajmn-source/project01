@@ -113,7 +113,7 @@ export function openMeetingForm({ pid = '', existing = null }) {
         <select name="dur" aria-label="ระยะเวลา">${[30, 60, 90, 120, 180, 240].map((n) => `<option value="${n}" ${+def.durationMin === n ? 'selected' : ''}>${n < 60 ? `${n} นาที` : `${n / 60} ชม.`}</option>`).join('')}</select></div></div>
       <label class="field"><span>สถานที่</span><input name="place" maxlength="200" value="${esc(def.place)}" placeholder="เช่น ห้องประชุม 2 อาคาร ท.100"></label>
       <label class="field"><span>ลิงก์ประชุมออนไลน์</span><input name="link" maxlength="500" value="${esc(def.link)}" placeholder="https://teams.microsoft.com/…"></label>
-      <div class="field span-2"><span>ผู้เข้าประชุม</span><div class="mf-people" id="mf-people"></div>
+      <div class="field span-2"><span>ผู้เข้าประชุม <button type="button" class="link-btn" data-act="all-people">เลือกทุกคน</button> <button type="button" class="link-btn" data-act="no-people">ไม่เลือกเลย</button></span><div class="mf-people" id="mf-people"></div>
         <input name="extra" placeholder="อีเมลอื่นๆ คั่นด้วยจุลภาค" value=""></div>
       <label class="field span-2"><span>วาระการประชุม</span><textarea name="agenda" rows="5" maxlength="4000" placeholder="1. เรื่องแจ้งเพื่อทราบ&#10;2. ความก้าวหน้าของงาน&#10;3. ปัญหาและอุปสรรค">${esc(def.agenda)}</textarea></label>
       <label class="check span-2"><input type="checkbox" name="notify" checked>${m ? 'ส่งอีเมลแจ้งการเปลี่ยนแปลงถึงผู้เข้าประชุม' : 'ส่งอีเมลเชิญผู้เข้าประชุม'}</label>
@@ -138,6 +138,10 @@ export function openMeetingForm({ pid = '', existing = null }) {
       : '<p class="muted">ยังไม่มีรายชื่อ — พิมพ์อีเมลด้านล่าง</p>';
   };
   md.el.querySelector('#mf-people').addEventListener('change', (e) => { if (e.target.checked) chosen.add(e.target.value); else chosen.delete(e.target.value); });
+  // 1.0.11: ประชุมส่วนใหญ่เชิญทุกคนในรายชื่อ — กดครั้งเดียว ไม่ต้องติ๊กทีละคน
+  const setAll = (on) => md.el.querySelectorAll('#mf-people input[type="checkbox"]').forEach((cb) => { cb.checked = on; if (on) chosen.add(cb.value); else chosen.delete(cb.value); });
+  md.el.querySelector('[data-act="all-people"]').addEventListener('click', () => setAll(true));
+  md.el.querySelector('[data-act="no-people"]').addEventListener('click', () => setAll(false));
   f.elements.audience.addEventListener('change', drawPeople);
   f.elements.pid.addEventListener('change', drawPeople);
   drawPeople();

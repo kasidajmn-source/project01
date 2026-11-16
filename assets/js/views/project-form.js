@@ -83,6 +83,8 @@ export function openProjectForm() {
   const me = store.me;
   if (!store.legacy && !me.canCreate) { toast('บัญชีนี้ยังไม่ได้รับสิทธิ์สร้างโครงการ — ติดต่อผู้ดูแลระบบ', 'bad', 6000); return; }
   const p = newProject(store.settings);
+  // 1.0.11: ผู้สร้างโครงการทำหน้าที่ผู้ควบคุมงานโดยค่าเริ่มต้น — ใส่ชื่อให้ก่อน (แก้ได้)
+  if (!p.manager) p.manager = (store.me.name && store.me.name !== store.me.email ? store.me.name : conf.user) || '';
   const m = openModal({
     title: 'สร้างโครงการใหม่',
     size: 'lg',
