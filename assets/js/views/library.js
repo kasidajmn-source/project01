@@ -1,10 +1,10 @@
 // คลังแบบฟอร์มและระเบียบ (1.0.5): มาตรฐานกลางของหน่วยงาน — ทุกโครงการใช้ชุดเดียวกัน
-// - แบบฟอร์มในระบบ (PT-F01…F06) พิมพ์ได้ทันที กรอกข้อมูลโครงการให้อัตโนมัติ
+// - แบบฟอร์มในระบบ (แบบ กฟผ. FM-001/FM-002 ตามคู่มือ QP-CMD-MS-005 และ PT-F01/F03…F06) พิมพ์ได้ทันที กรอกข้อมูลโครงการให้อัตโนมัติ
 // - เอกสารที่ผู้ดูแลระบบอัปโหลด/ใส่ลิงก์ แยกตามประเภท ประเภทงาน และงานที่ใช้ (แสดงตามจุดใช้งานในแต่ละหน้า)
 import { store } from '../store.js';
 import { esc, fmt, icon, emptyState, toast, confirmBox, openModal, setBusy, fileBadge } from '../ui.js';
 import { pageHead } from './common.js';
-import { FORMS, openForm } from '../forms.js';
+import { FORMS, EGAT_ORIGINALS, openForm } from '../forms.js';
 import { preview } from './tab-docs.js';
 
 const R = globalThis.PTRules;
@@ -55,7 +55,7 @@ export function libraryBox({ use, category = '', workType = '', forms = [], titl
   if (!items.length && !forms.length) return '';
   return `<section class="panel lib-box" data-libbox>
     <h3 class="lib-box-h">${icon('book')}${esc(title)}</h3>
-    ${forms.length ? `<div class="lib-forms-mini">${forms.map(([k, label], i) => `<button type="button" class="lf-row" data-form="${i}" title="พิมพ์ ${esc(FORMS[k].title)}">${icon('print')}<span>${esc(label || FORMS[k].title)}</span> <small class="muted">${FORMS[k].code}</small></button>`).join('')}</div>` : ''}
+    ${forms.length ? `<div class="lib-forms-mini">${forms.map(([k, label], i) => `<button type="button" class="lf-row" data-form="${i}" title="พิมพ์ ${esc(FORMS[k].title)}">${icon('print')}<span>${esc(label || FORMS[k].title)}</span> <small class="muted">${esc(FORMS[k].short || FORMS[k].code)}</small></button>`).join('')}</div>` : ''}
     ${items.length ? `<ul class="flist lib-list compact">${items.map((it) => libItemHTML(it, { compact: true })).join('')}</ul>` : ''}
     <a class="link small" href="#/library">${icon('chevR')}ดูคลังแบบฟอร์มและระเบียบทั้งหมด</a>
   </section>`;
@@ -88,10 +88,11 @@ export function renderLibrary(el) {
     </div>
     <div class="lib-forms">${Object.entries(FORMS).map(([k, f]) => `
       <button type="button" class="lib-form" data-print="${k}" title="พิมพ์ ${esc(f.code)} ${esc(f.title)}">
-        <span class="lf-head"><span class="lib-code">${f.code}</span><b>${esc(f.title)}</b></span>
+        <span class="lf-head"><span class="lib-code ${f.official ? 'is-official' : ''}" title="${esc(f.code)}">${esc(f.short || f.code)}</span><b>${esc(f.title)}</b></span>
         <span class="lf-use">${esc(f.use)}</span>
         <span class="lf-foot"><small class="muted">ใช้ที่: ${esc(f.where)}</small><span class="lf-go">${icon('print')}พิมพ์</span></span>
       </button>`).join('')}</div>
+    <div class="lib-orig"><span class="lo-head">${icon('file')}ต้นฉบับ กฟผ. (PDF ไม่มีตรา CONTROLLED)</span>${EGAT_ORIGINALS.map((o) => `<a class="lo-link" href="${esc(o.href)}" target="_blank" rel="noopener" title="${esc(o.title)}">${icon('download')}<b>${esc(o.label)}</b><small>${esc(o.title)}</small></a>`).join('')}</div>
     <p class="hint">แบบฟอร์มเหล่านี้เปิดได้จากจุดที่ใช้งานด้วย เช่น หน้าเรื่องขออนุมัติ (พิมพ์พร้อมผลการพิจารณา) รายงานประจำวัน และหน้าการประชุม</p>
   </section>
   <section class="panel">

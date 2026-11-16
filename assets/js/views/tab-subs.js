@@ -237,7 +237,7 @@ function renderDetail(el, ctx, id) {
         ? `<p class="notice">${icon('calendar')}<span><b>อนุมัติขยายเวลา/เปลี่ยนแปลงงานแล้ว</b> — ระบบไม่เปลี่ยนสัญญาให้เอง ปรับ <b>วันสิ้นสุดสัญญา</b> หรือ <b>มูลค่าสัญญา</b> ตามที่อนุมัติ เพื่อให้แผนงาน S-Curve และวันคงเหลือถูกต้อง
           <a class="btn btn-sm" href="#/p/${pid}/settings">${icon('edit')}แก้ข้อมูลสัญญา</a></span></p>` : ''}
       <section class="panel">
-        <header class="panel-head"><h2>ขั้นตอนการพิจารณา</h2><button type="button" class="btn btn-sm" data-act="f01" title="พิมพ์ใบขออนุมัติพร้อมผลการพิจารณาทุกขั้น">${icon('print')}พิมพ์แบบฟอร์ม PT-F01</button></header>
+        <header class="panel-head"><h2>ขั้นตอนการพิจารณา</h2><span class="ph-acts">${/วัสดุ/.test(sub.category || '') ? `<button type="button" class="btn btn-sm" data-act="fm001" title="แบบ FM-001/QP-CMD-MS-005 รายละเอียดผลการตรวจวัสดุก่อสร้าง — กรอกข้อมูลโครงการและวัสดุให้แล้ว">${icon('print')}ผลการตรวจวัสดุ FM-001</button>` : ''}<button type="button" class="btn btn-sm" data-act="f01" title="พิมพ์ใบขออนุมัติพร้อมผลการพิจารณาทุกขั้น">${icon('print')}พิมพ์แบบฟอร์ม PT-F01</button></span></header>
         <ol class="stepper">${sub.steps.map((x, i) => {
           const t = stepState(x, i);
           return `<li class="sp-${t.cls}"><span class="sp-ic">${icon(t.ic)}</span>
@@ -323,6 +323,7 @@ function renderDetail(el, ctx, id) {
     if (f) preview(f);
   }));
   el.querySelector('[data-act="f01"]')?.addEventListener('click', () => openForm('sub', { p, sub }));
+  el.querySelector('[data-act="fm001"]')?.addEventListener('click', () => openForm('material', { p, sub }));
   const drops = {};
   for (const k of ['d', 'r', 'c']) if (el.querySelector(`#${k}-drop`)) drops[k] = bindDrop(el, k);
   const ov = canOpenVote ? bindVoteEditor(el, 'ov') : null;
@@ -488,7 +489,7 @@ function renderNew(el, ctx) {
       return `${i ? `<span class="flow-arrow">${icon('chevR')}</span>` : ''}<span class="flow-step"><b>${i + 1}. ${esc(s.label)}</b><small>ภายใน ${esc(s.days)} วัน${who.length ? ` · ${esc(who.join(', '))}` : ''}</small></span>`;
     }).join('')}</div>`;
     const rc = R.recipients(p, 'submitted', fake, me.email);
-    const forms = [['sub', 'ใบขออนุมัติ (แบบเปล่า)', { p }]];
+    const forms = [['sub', 'ใบขออนุมัติ (แบบเปล่า)', { p }], ...(/วัสดุ/.test(wf.name) ? [['material', 'ผลการตรวจวัสดุก่อสร้าง FM-001 (แบบเปล่า)', { p }]] : [])];
     const lib = el.querySelector('#nf-lib');
     lib.innerHTML = libraryBox({ use: 'sub', category: wf.name, workType: p.type, forms, title: `แบบฟอร์มและระเบียบสำหรับ "${wf.name}"` });
     bindLibraryBox(lib, forms);

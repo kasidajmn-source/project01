@@ -550,7 +550,9 @@
     if (!p.name) throw fail('กรุณาระบุชื่อโครงการ', 'invalid');
     // 1.0.9 จำกัดความยาวข้อความ และชนิดข้อมูลของรายการ
     ['code', 'contractNo'].forEach(function (k) { if (p[k] != null) p[k] = cut(p[k], 60); });
-    ['type', 'contractor', 'manager', 'location', 'owner'].forEach(function (k) { if (p[k] != null) p[k] = cut(p[k], 200); });
+    ['type', 'contractor', 'manager', 'location', 'owner', 'contractorRep'].forEach(function (k) { if (p[k] != null) p[k] = cut(p[k], 200); });
+    // 1.0.11 ข้อมูลหัวแบบฟอร์ม กฟผ. (FM-001/FM-002): แผนก กอง ฝ่าย เลขที่งาน PM-Order
+    ['orgSection', 'orgDivision', 'orgDept', 'pmOrder'].forEach(function (k) { if (p[k] != null) p[k] = cut(p[k], 120); });
     if (p.description != null) p.description = cut(p.description, 5000);
     if (p.tags != null) p.tags = (Array.isArray(p.tags) ? p.tags : []).map(function (t) { return cut(t, 40); }).filter(Boolean).slice(0, 20);
     if (p.docCategories != null) p.docCategories = (Array.isArray(p.docCategories) ? p.docCategories : []).map(function (t) { return cut(t, 80); }).filter(Boolean).slice(0, 60);

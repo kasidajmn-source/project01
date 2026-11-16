@@ -1,5 +1,7 @@
 // แบบฟอร์มมาตรฐานในระบบ (1.0.5) — ทุกโครงการใช้แบบเดียวกัน พิมพ์ได้ทันที และกรอกข้อมูลโครงการให้อัตโนมัติ
 // เปิดเป็นหน้าพิมพ์ขนาด A4 ในแท็บใหม่ (บันทึกเป็น PDF ได้จากหน้าต่างพิมพ์ของเบราว์เซอร์)
+// 1.0.11: แบบฟอร์มทางการตามคู่มือ QP-CMD-MS-005 การควบคุมงานก่อสร้าง (official: true) จัดหน้าตามต้นฉบับ
+//   FM-001 รายละเอียดผลการตรวจวัสดุก่อสร้าง · FM-002 บันทึกการควบคุมงานประจำวัน (แทน PT-F02 เดิม) — ไม่มีตรา CONTROLLED
 import { store } from './store.js';
 import { analyze } from './calc.js';
 import { download } from './ui.js';
@@ -15,12 +17,20 @@ const pct = (r) => (r == null || Number.isNaN(+r) ? '' : `${(+r * 100).toFixed(2
 /** รายการแบบฟอร์ม: code, ชื่อ, ใช้เมื่อไร, ต้องมีอะไร */
 export const FORMS = {
   sub: { code: 'PT-F01', title: 'ใบขออนุมัติ / แจ้งเรื่องของผู้รับจ้าง', use: 'ผู้รับจ้างยื่นขออนุมัติวัสดุ แบบ แผนงาน หรือแจ้งปัญหา — พิมพ์จากเรื่องขออนุมัติได้พร้อมผลการพิจารณาทุกขั้น', where: 'เรื่องขออนุมัติ' },
-  daily: { code: 'PT-F02', title: 'รายงานประจำวันของผู้ควบคุมงาน', use: 'บันทึกสภาพการปฏิบัติงานของผู้รับจ้างและเหตุการณ์แวดล้อมรายวัน (ระเบียบกระทรวงการคลังฯ พ.ศ. 2560 ข้อ 178)', where: 'รายงานประจำวัน' },
+  material: { code: 'FM-001/QP-CMD-MS-005', short: 'FM-001', official: true, title: 'รายละเอียดผลการตรวจวัสดุก่อสร้าง', use: 'ผู้ควบคุมงานบันทึกผลการตรวจวัสดุที่นำเข้าใช้งาน เทียบขนาด/รูปแบบของตัวอย่างกับมาตรฐาน — แบบฟอร์มตามคู่มือ QP-CMD-MS-005', where: 'เรื่องขออนุมัติวัสดุ · รายงานประจำวัน', pdf: 'templates/egat/FM-001_QP-CMD-MS-005.pdf' },
+  daily: { code: 'FM-002/QP-CMD-MS-005', short: 'FM-002', official: true, title: 'บันทึกการควบคุมงานประจำวัน', use: 'รายละเอียดและปริมาณงาน ปัญหาและการแก้ไข วัสดุนำเข้า ผู้ปฏิบัติงานและเครื่องจักรทุนแรง — แบบฟอร์มตามคู่มือ QP-CMD-MS-005 (ระเบียบกระทรวงการคลังฯ พ.ศ. 2560 ข้อ 178)', where: 'รายงานประจำวัน', pdf: 'templates/egat/FM-002_QP-CMD-MS-005.pdf' },
   weekly: { code: 'PT-F03', title: 'รายงานผลการปฏิบัติงานประจำสัปดาห์', use: 'ผู้ควบคุมงานรายงานคณะกรรมการตรวจรับพัสดุทุกสัปดาห์ สรุปจากรายงานประจำวัน', where: 'รายงานประจำวัน' },
   meeting: { code: 'PT-F04', title: 'บันทึกการประชุม', use: 'บันทึกการประชุมโครงการ พร้อมรายชื่อผู้เข้าร่วมและงานที่มอบหมาย', where: 'การประชุม' },
   inspect: { code: 'PT-F05', title: 'บันทึกการตรวจรับงานจ้าง (งวดงาน)', use: 'คณะกรรมการตรวจรับพัสดุตรวจรับงานงวด — มีช่องลงนามตามลำดับกรรมการของโครงการ', where: 'ส่งมอบ/ตรวจรับงาน' },
   instruction: { code: 'PT-F06', title: 'ใบสั่งการ / ข้อแนะนำของผู้ควบคุมงาน', use: 'แจ้งข้อสั่งการหรือข้อแนะนำเป็นลายลักษณ์อักษรต่อผู้รับจ้าง พร้อมช่องรับทราบ', where: 'รายงานประจำวัน' },
 };
+
+/** ต้นฉบับ PDF ของ กฟผ. (เอาตรา CONTROLLED ออกแล้ว) — templates/egat/ */
+export const EGAT_ORIGINALS = [
+  { label: 'FM-001', title: 'รายละเอียดผลการตรวจวัสดุก่อสร้าง', href: 'templates/egat/FM-001_QP-CMD-MS-005.pdf' },
+  { label: 'FM-002', title: 'บันทึกการควบคุมงานประจำวัน', href: 'templates/egat/FM-002_QP-CMD-MS-005.pdf' },
+  { label: 'QP-CMD-MS-005', title: 'คู่มือ หน้า 15–17 และแบบฟอร์มทั้งชุด', href: 'templates/egat/QP-CMD-MS-005_forms.pdf' },
+];
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
@@ -83,6 +93,161 @@ const nameOf = (p, email) => (p ? R.memberName(p, email) : '') || email || '';
 const supervisors = (p) => (p ? R.members(p).filter((m) => m.role === 'supervisor' || (m.role === 'owner' && R.ownerActsAs(p) === 'supervisor')) : []);
 const committee = (p) => (p ? R.committeeSeats(p).slice().sort((a, b) => (+a.seat === 0 ? -1 : +b.seat === 0 ? 1 : +a.seat - +b.seat)) : []);
 
+// ---------- แบบฟอร์มทางการ QP-CMD-MS-005 (จัดหน้าตามต้นฉบับ ไม่มีตรา CONTROLLED) ----------
+const OFFICIAL_CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Taviraj:wght@400;600&display=swap');
+@page { size: A4; margin: 0; }
+/* ตัวอักษรใกล้เคียงต้นฉบับ (Angsana New) — Taviraj จาก Google Fonts ถ้าออฟไลน์ใช้ฟอนต์ไทยในเครื่อง */
+body.official .sheet { width: 210mm; height: 297mm; overflow: hidden; padding: 21mm 14mm 30mm 18mm; display: flex; flex-direction: column;
+  font-family: 'Taviraj', 'Angsana New', 'AngsanaUPC', 'TH Sarabun New', serif; font-size: 12.6px; line-height: 1.4; }
+body.official.of-long .sheet { height: auto; min-height: 297mm; overflow: visible; }
+body.official .of-main { flex: 1 0 auto; }
+.of-title { text-align: center; font-size: 20.5px; margin: 0 0 1.5mm; }
+.of-sub { text-align: center; font-size: 13.6px; margin: 0 0 1.2mm; }
+table.of { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.of td, table.of th { border: 1px solid #000; padding: 1px 5px; height: 24px; font-weight: 400; vertical-align: middle; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+table.of td.wrap { white-space: normal; }
+table.of th { text-align: center; }
+table.of td.c { text-align: center; }
+table.of .v { font-weight: 600; }
+table.of tr.big td { height: 60px; text-align: center; font-size: 15.5px; }
+table.of tr.blank td { height: 18.5px; }
+table.of tr.head2 th { height: 36px; }
+.lf { display: flex; align-items: baseline; gap: 3px; min-width: 0; }
+.lf > span:first-child { flex: none; }
+.lf .dl { flex: 1; min-width: 12px; border-bottom: 1px dotted #000; height: 1.05em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: 1; font-weight: 600; }
+.lf .dl.has { border-bottom: 0; height: auto; line-height: 1.4; }
+.sp { display: inline-flex; gap: 4px; align-items: baseline; }
+.of-gap { height: 5.2mm; }
+.of-sign { margin: 8mm 0 0 auto; width: 46%; text-align: center; line-height: 2; }
+.of-sign .ln { display: block; width: 58%; margin: 0 auto; border-bottom: 1px dotted #000; height: 1.6em; }
+.of-sign .nm { display: inline-flex; gap: 2px; align-items: baseline; }
+.of-sign .nm .dl { display: inline-block; min-width: 150px; border-bottom: 1px dotted #000; height: 1.1em; }
+.of-notes { margin-top: 3mm; } .of-notes ol { margin: 2mm 0 0 17mm; padding: 0; } .of-notes li { margin-bottom: 1.5mm; }
+.u { text-decoration: underline; }
+table.of-foot { width: 100%; border-collapse: collapse; margin-top: 5mm; }
+table.of-foot td { border: 1px solid #000; padding: 4px 8px; text-align: center; }
+@media print { body.official .sheet { margin: 0; box-shadow: none; } body.official:not(.of-long) .sheet { height: 297mm; } }
+`;
+/** ช่อง "หัวข้อ......" แบบ FM-001: มีค่า = แสดงค่า · ไม่มีค่า = เส้นประยาวถึงขอบช่อง */
+const lf = (label, v) => `<div class="lf"><span>${e(label)}</span><span class="dl ${v === '' || v == null ? '' : 'has'}">${v === '' || v == null ? '' : e(v)}</span></div>`;
+/** ช่องแบบ FM-002: หัวข้อแล้วตามด้วยค่า (ต้นฉบับไม่มีเส้นประ) */
+const pv = (label, v) => `<span class="sp"><span>${e(label)}</span>${v === '' || v == null ? '' : `<span class="v">${e(v)}</span>`}</span>`;
+/** ท้ายกระดาษตามต้นฉบับ (รหัสเอกสารและครั้งที่แก้ไข) */
+const ofFoot = (kind) => `<table class="of-foot"><tr><td style="width:40%">รองผู้ว่าการธุรกิจเกี่ยวเนื่อง</td><td>รหัสเอกสาร ${e(FORMS[kind].code)}</td><td style="width:20%">แก้ไขครั้งที่ 00</td></tr></table>`;
+const ORG = 'การไฟฟ้าฝ่ายผลิตแห่งประเทศไทย';
+/** แยก "ขุดดินฐานราก 45 ลบ.ม." → [รายการ, ปริมาณ] — รับเฉพาะตัวเลขที่ตามด้วยหน่วยงานก่อสร้าง (กัน "ชั้น 2" ถูกนับเป็นปริมาณ) */
+const UNIT = '(?:ลบ\\.?ม\\.?|ตร\\.?ม\\.?|ม\\.|เมตร|ตารางเมตร|ลูกบาศก์เมตร|คิว|กก\\.?|กิโลกรัม|ตัน|ต้น|จุด|ชุด|เส้น|แผ่น|ท่อน|ลิตร|คัน|ถุง|ก้อน|อัน|ตัว|ชิ้น|หลุม|ช่อง|บาน|ม้วน|กล่อง|ถัง|เที่ยว|งาน|แห่ง|m3|m2|m|kg|ton|pcs|set|lot|%)';
+const QTY_RE = new RegExp(`^(.+?)[\\s:]+((?:จำนวน\\s*)?\\d[\\d,]*(?:\\.\\d+)?\\s*${UNIT})$`, 'i');
+function splitQty(text) {
+  const t = String(text || '').replace(/^\\s*(?:\\d+[.)]|[-•·])\\s+/, '').trim();
+  const m = t.match(QTY_RE);
+  return m && m[1].length > 1 ? [m[1].trim(), m[2].trim()] : [t, ''];
+}
+const linesOf = (text) => String(text || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+const pad = (list, n, blank) => { const out = list.slice(); while (out.length < n) out.push(blank); return out; };
+const contractorRep = (p) => p?.contractorRep || (p ? (R.members(p).find((m) => m.role === 'contractor')?.name || '') : '');
+const supervisorName = (p) => p?.manager || (supervisors(p)[0] ? nameOf(p, supervisors(p)[0].email) : '');
+
+// ---------- FM-001/QP-CMD-MS-005 รายละเอียดผลการตรวจวัสดุก่อสร้าง ----------
+function formMaterial({ p, sub, date }) {
+  const mat = sub ? String(sub.title || '').replace(/^ขออนุมัติ(?:ใช้)?\s*/, '') : '';
+  const when = sub ? d(sub.closedAt || sub.submittedAt) : (date ? d(date) : '');
+  const rows = pad([], 9, '<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>').join('');
+  const sup = supervisorName(p);
+  return `<div class="of-main">
+  <div class="of-title">${e(ORG)}</div>
+  <table class="of">
+    <colgroup><col style="width:33.3%"><col style="width:30.8%"><col style="width:35.9%"></colgroup>
+    <tr><td colspan="3">${lf('งานก่อสร้าง', p ? `${p.code ? `${p.code} ` : ''}${p.name}` : '')}</td></tr>
+    <tr><td colspan="2">${lf('สถานที่', p?.location)}</td><td>${lf('เลขที่งาน (PM-Orderกอง)', p?.pmOrder)}</td></tr>
+    <tr><td colspan="2">${lf('ผู้รับจ้าง', p?.contractor)}</td><td>${lf('สัญญาเลขที่', p?.contractNo)}</td></tr>
+    <tr class="big"><td colspan="3">รายละเอียดผลการตรวจวัสดุก่อสร้าง</td></tr>
+    <tr><td colspan="2">${lf('วัสดุ', mat)}</td><td>${lf('วันที่', when)}</td></tr>
+    <tr><td>${lf('จำนวนนำเข้าใช้งาน', '')}</td><td>${lf('จำนวนสุ่มตรวจ', '')}</td><td>${lf('มาตรฐานของวัสดุ', '')}</td></tr>
+  </table>
+  <div class="of-gap"></div>
+  <table class="of">
+    <colgroup><col style="width:32.5%"><col style="width:13.7%"><col style="width:14.3%"><col style="width:19.5%"><col style="width:20%"></colgroup>
+    <tr class="head2"><th rowspan="2">รายละเอียดวัสดุ</th><th colspan="2">ขนาด หรือรูปแบบของวัสดุ</th><th rowspan="2">ผลการตรวจ</th><th rowspan="2">หมายเหตุ</th></tr>
+    <tr class="head2"><th>ตัวอย่าง</th><th>มาตรฐาน</th></tr>
+    ${rows}
+  </table>
+  <div class="of-sign"><span class="ln"></span><span class="nm">(${sup ? `<span class="v">${e(sup)}</span>` : '<span class="dl"></span>'})</span><br>ผู้ควบคุมงาน</div>
+  <div class="of-notes">หมายเหตุ
+    <ol>
+      <li>มาตรฐานที่ใช้อ้างอิง เป็นมาตรฐานของผู้ออกแบบ หรือมาตรฐานของผู้ผลิต หรือมาตรฐานสากลที่สามารถยอมรับได้</li>
+      <li>จำนวนตัวอย่างตรวจสอบ ตามข้อกำหนดของผู้ออกแบบ<br>หรือตามข้อกำหนดของผลิตภัณฑ์ หรือตามข้อกำหนดของมาตรฐานสากลที่สามารถยอมรับได้</li>
+    </ol>
+  </div></div>
+  ${ofFoot('material')}`;
+}
+
+// ---------- FM-002/QP-CMD-MS-005 บันทึกการควบคุมงานประจำวัน ----------
+function formDaily({ p, daily: dy, date }) {
+  const day = dy?.date || date || '';
+  const W = R.WEATHER;
+  const wx = dy ? [dy.weather?.am && `เช้า ${W[dy.weather.am] || ''}`, dy.weather?.pm && `บ่าย ${W[dy.weather.pm] || ''}`].filter(Boolean).join(' · ') : '';
+  const [from, to] = String(dy?.workHours || '').split(/\s*(?:–|-|—|ถึง)\s*/).concat(['', '']);
+  // รายละเอียดของงาน: งานที่บันทึก + ปริมาณงานจากบันทึกความคืบหน้าวันเดียวกัน (ถ้ามี)
+  const work = linesOf(dy?.work).map(splitQty);
+  const up = p && day ? store.updatesOf(p.id).find((u) => u.date === day) : null;
+  if (up) {
+    const boq = store.boqOf(p.id);
+    Object.entries(up.entries || {}).forEach(([id, q]) => {
+      const it = boq.find((b) => b.id === id);
+      if (it && +q) work.push([`${it.no ? `${it.no} ` : ''}${it.desc}`, `${(+q).toLocaleString('th-TH', { maximumFractionDigits: 2 })} ${it.unit || ''}`.trim()]);
+    });
+  }
+  const workRows = pad(work.map(([w, q], i) => `<tr><td class="c">${i + 1}</td><td>${e(w)}</td><td>${e(q)}</td></tr>`), 11, '<tr><td>&nbsp;</td><td></td><td></td></tr>').join('');
+  // ปัญหา / การแก้ไข
+  const probs = [
+    ...(dy?.stoppage?.stopped ? [`หยุดงาน${dy.stoppage.hours ? ` ${dy.stoppage.hours} ชั่วโมง` : ''}${dy.stoppage.reason ? ` — ${dy.stoppage.reason}` : ''}`] : []),
+    ...(up?.issues ? linesOf(up.issues) : []),
+    ...(dy?.safety ? linesOf(dy.safety).map((x) => `ความปลอดภัย: ${x}`) : []),
+  ];
+  const fixes = linesOf(dy?.instructions);
+  const lineRows = (list, n) => pad(list.map((x) => `<tr class="blank"><td colspan="6">${e(x)}</td></tr>`), n, '<tr class="blank"><td colspan="6">&nbsp;</td></tr>').join('');
+  // วัสดุนำเข้า · ผู้ปฏิบัติงาน · เครื่องจักรทุนแรง
+  const mats = linesOf(dy?.materials).map(splitQty);
+  const men = dy?.manpower || [];
+  const eq = dy?.equipment || [];
+  const n = Math.max(5, mats.length, men.length, eq.length);
+  const resRows = Array.from({ length: n }, (_, i) => `<tr><td>${e(mats[i]?.[0] || '')}</td><td>${e(mats[i]?.[1] || '')}</td><td>${e(men[i]?.trade || '')}</td><td class="c">${e(men[i]?.count ?? '')}</td><td>${e(eq[i]?.name || '')}</td><td class="c">${e(eq[i]?.count ?? '')}</td></tr>`).join('');
+  return `<div class="of-main">
+  <div class="of-title">${e(ORG)}</div>
+  <div class="of-sub">บันทึกการควบคุมงานประจำวัน</div>
+  <table class="of">
+    <colgroup><col style="width:50.4%"><col style="width:49.6%"></colgroup>
+    <tr><td colspan="2"><span style="display:inline-block;width:36%">${pv('แผนก', p?.orgSection)}</span><span style="display:inline-block;width:33%">${pv('กอง', p?.orgDivision)}</span>${pv('ฝ่าย', p?.orgDept)}</td></tr>
+    <tr><td>${pv('งาน', p?.name)}</td><td>${pv('ผู้รับจ้าง', p?.contractor)}</td></tr>
+    <tr><td>${pv('สถานที่', p?.location)}</td><td>${pv('ผู้แทนผู้รับจ้าง', contractorRep(p))}</td></tr>
+    <tr><td><span style="display:inline-block;width:38%">${pv('วันที่', day ? R.thaiDateTime(day, false) : '')}</span><span style="display:inline-block;width:34%">${pv('เวลา จาก', from)}</span>${pv('ถึง', to)}</td><td>${pv('สภาพอากาศ', wx)}</td></tr>
+    <tr class="blank"><td colspan="2">&nbsp;</td></tr>
+  </table>
+  <div class="of-gap"></div>
+  <table class="of">
+    <colgroup><col style="width:9%"><col style="width:45.5%"><col style="width:45.5%"></colgroup>
+    <tr><th>ลำดับ</th><th>รายละเอียดของงาน</th><th>ปริมาณงาน</th></tr>
+    ${workRows}
+  </table>
+  <table class="of" style="border-top:0">
+    <colgroup><col style="width:31.6%"><col style="width:18.1%"><col style="width:18%"><col style="width:9.1%"><col style="width:15.8%"><col style="width:7.4%"></colgroup>
+    <tr class="blank"><td colspan="6">หมายเหตุ - <span class="u">ปัญหา</span></td></tr>
+    ${lineRows(probs, 2)}
+    <tr class="blank"><td colspan="6"><span style="padding-left:12mm" class="u">การแก้ไข</span></td></tr>
+    ${lineRows(fixes, 2)}
+    <tr><th colspan="2">วัสดุนำเข้า</th><th colspan="4">ผู้ปฏิบัติงานและเครื่องจักรทุนแรง</th></tr>
+    <tr><th>ชนิด</th><th>ปริมาณ</th><th>ประเภท</th><th>จำนวน</th><th>ชนิด</th><th>จำนวน</th></tr>
+    ${resRows}
+  </table>
+  <div class="of-gap"></div>
+  <table class="of"><tr><td style="height:28px">${pv('ผู้ควบคุมงาน', dy?.createdBy || supervisorName(p))}</td></tr></table>
+  ${dy?.files?.length ? `<p class="small" style="margin-top:2mm">รูปถ่ายประกอบ ${dy.files.length} รูป (เก็บในระบบ หมวดรูปถ่ายความคืบหน้า)</p>` : ''}
+  </div>
+  ${ofFoot('daily')}`;
+}
+
 // ---------- F01 ใบขออนุมัติ ----------
 function formSub({ p, sub }) {
   const files = sub ? (sub.files || []).map((id) => store.data.files.find((f) => f.id === id)).filter(Boolean) : [];
@@ -109,38 +274,6 @@ function formSub({ p, sub }) {
     ...(steps.length ? steps.filter((s) => s.status === 'approved' || s.status === 'rejected').map((s) => sign(s.label.replace(/ ?พิจารณา$/, ''), s.byName || nameOf(p, s.by), s.at))
       : [sign('ผู้ควบคุมงาน'), sign('ประธานกรรมการตรวจรับพัสดุ')]),
   ])}${foot('sub')}`;
-}
-
-// ---------- F02 รายงานประจำวัน ----------
-function formDaily({ p, daily: dy, date }) {
-  const W = R.WEATHER;
-  const ck = (on) => `<span class="ck">${on ? '✓' : ''}</span>`;
-  const weather = (slot) => Object.entries(W).map(([k, l]) => `${ck(dy?.weather?.[slot] === k)}${e(l)}`).join('&nbsp;&nbsp;');
-  const men = dy?.manpower || [];
-  const eq = dy?.equipment || [];
-  const rows = (list, n, a, b) => {
-    const out = list.map((r) => `<tr><td>${e(r[a])}</td><td class="r">${e(r[b])}</td></tr>`);
-    while (out.length < n) out.push('<tr><td>&nbsp;</td><td></td></tr>');
-    return out.join('');
-  };
-  const a = p ? store.analysis(p.id) : null;
-  const sup = dy ? dy.createdBy : (supervisors(p)[0] ? nameOf(p, supervisors(p)[0].email) : '');
-  return `${head('daily', p)}
-  ${projectInfo(p, [['ประจำวันที่', d(dy?.date || date) || ''], ['เวลาทำงาน', dy?.workHours || ''], ['ผลงานสะสม (ล่าสุด)', a ? `${pct(a.actual)} (แผน ${pct(a.plan)})` : '']])}
-  <h2>สภาพอากาศ</h2>
-  <table class="info"><tr><td class="k">ช่วงเช้า</td><td>${weather('am')}</td></tr><tr><td class="k">ช่วงบ่าย</td><td>${weather('pm')}</td></tr></table>
-  <div class="nb" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-    <div><h2>คนงาน${men.length ? ` (รวม ${R.manpowerTotal(dy)} คน)` : ''}</h2><table class="grid small"><tr><th>ประเภทช่าง/แรงงาน</th><th class="r" style="width:22%">จำนวน (คน)</th></tr>${rows(men, 6, 'trade', 'count')}</table></div>
-    <div><h2>เครื่องจักร/เครื่องมือ</h2><table class="grid small"><tr><th>รายการ</th><th class="r" style="width:22%">จำนวน</th></tr>${rows(eq, 6, 'name', 'count')}</table></div>
-  </div>
-  <h2>งานที่ดำเนินการ</h2>${dy?.work ? `<div class="box tall">${e(dy.work)}</div>` : blankLines(6)}
-  <h2>วัสดุที่นำเข้าหน่วยงาน</h2>${dy?.materials ? `<div class="box">${e(dy.materials)}</div>` : blankLines(2)}
-  <h2>การหยุดงาน / อุปสรรค</h2>
-  <div>${ck(dy && !dy.stoppage?.stopped)}ทำงานปกติ &nbsp; ${ck(dy?.stoppage?.stopped)}หยุดงาน ${val(dy?.stoppage?.stopped ? dy.stoppage.hours || '' : '', '40px')} ชั่วโมง สาเหตุ ${val(dy?.stoppage?.reason || '', '50%')}</div>
-  <h2>ความปลอดภัย / อุบัติเหตุ</h2>${dy?.safety ? `<div class="box">${e(dy.safety)}</div>` : blankLines(2)}
-  <h2>ข้อสั่งการ / ข้อแนะนำต่อผู้รับจ้าง</h2>${dy?.instructions ? `<div class="box">${e(dy.instructions)}</div>` : blankLines(3)}
-  ${dy?.files?.length ? `<p class="small muted">รูปถ่ายประกอบ ${dy.files.length} รูป (เก็บในระบบ หมวดรูปถ่ายความคืบหน้า)</p>` : ''}
-  ${signs([sign('ผู้ควบคุมงาน', sup, dy?.date || date), sign('ผู้แทนผู้รับจ้าง (รับทราบ)')])}${foot('daily')}`;
 }
 
 // ---------- F03 รายงานประจำสัปดาห์ ----------
@@ -234,16 +367,18 @@ function formInstruction({ p, daily: dy }) {
   ${foot('instruction')}`;
 }
 
-const BUILD = { sub: formSub, daily: formDaily, weekly: formWeekly, meeting: formMeeting, inspect: formInspect, instruction: formInstruction };
+const BUILD = { sub: formSub, material: formMaterial, daily: formDaily, weekly: formWeekly, meeting: formMeeting, inspect: formInspect, instruction: formInstruction };
 
 /** HTML ของแบบฟอร์ม (ใช้ทดสอบและพิมพ์) */
 export function formHtml(kind, ctx = {}, { inline = false } = {}) {
   const f = FORMS[kind];
   if (!f) throw new Error(`ไม่รู้จักแบบฟอร์ม ${kind}`);
   const body = BUILD[kind](ctx);
+  // แบบฟอร์มทางการที่ข้อมูลยาวเกิน 1 หน้า → ให้ขึ้นหน้าใหม่ได้ (ปกติพอดี A4 หน้าเดียวเหมือนต้นฉบับ)
+  const long = f.official && (body.match(/<tr/g) || []).length > 60;
   const title = `${f.code} ${f.title}${ctx.p ? ` — ${ctx.p.code || ctx.p.name}` : ''}`;
-  return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><title>${e(title)}</title><style>${CSS}</style></head>
-  <body><div class="bar"><button data-pt="print"${inline ? ' onclick="window.print()"' : ''}>พิมพ์ / บันทึกเป็น PDF</button><button class="ghost" data-pt="close"${inline ? ' onclick="window.close()"' : ''}>ปิด</button><span>${e(f.code)} · ${ctx.p ? 'กรอกข้อมูลจากระบบแล้ว ตรวจทานก่อนพิมพ์' : 'แบบเปล่าสำหรับกรอกด้วยมือ'}</span></div>
+  return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><title>${e(title)}</title><style>${CSS}${f.official ? OFFICIAL_CSS : ''}</style></head>
+  <body${f.official ? ` class="official${long ? ' of-long' : ''}"` : ''}><div class="bar"><button data-pt="print"${inline ? ' onclick="window.print()"' : ''}>พิมพ์ / บันทึกเป็น PDF</button><button class="ghost" data-pt="close"${inline ? ' onclick="window.close()"' : ''}>ปิด</button><span>${e(f.code)} · ${ctx.p ? 'กรอกข้อมูลจากระบบแล้ว ตรวจทานก่อนพิมพ์' : 'แบบเปล่าสำหรับกรอกด้วยมือ'}${f.official ? ' · ตั้งระยะขอบกระดาษเป็น "ไม่มี" หรือ "ค่าเริ่มต้น" ตอนพิมพ์' : ''}</span></div>
   <div class="sheet">${body}</div></body></html>`;
 }
 
@@ -252,7 +387,7 @@ export function openForm(kind, ctx = {}) {
   const w = window.open('', '_blank');
   if (!w) {
     // ไฟล์ที่ดาวน์โหลดเปิดแยกจากเว็บ จึงใช้ปุ่มแบบ inline ได้
-    download(`${FORMS[kind].code}${ctx.p ? `-${ctx.p.code || 'project'}` : ''}.html`, formHtml(kind, ctx, { inline: true }), 'text/html;charset=utf-8');
+    download(`${(FORMS[kind].short || FORMS[kind].code).replace(/[^A-Za-z0-9-]/g, '-')}${ctx.p ? `-${ctx.p.code || 'project'}` : ''}.html`, formHtml(kind, ctx, { inline: true }), 'text/html;charset=utf-8');
     return null;
   }
   w.document.open();

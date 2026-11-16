@@ -4,6 +4,8 @@ import { newProject, PROJECT_STATUS } from '../defaults.js';
 import { METHODS, addDays, diffDays, num } from '../calc.js';
 import { esc, openModal, toast, setBusy, icon } from '../ui.js';
 
+const R = globalThis.PTRules;
+
 export function projectFieldsHTML(p, { full = true } = {}) {
   const S = store.settings;
   const types = [...new Set([...(S.projectTypes || []), ...store.data.projects.map((x) => x.type).filter(Boolean)])];
@@ -33,6 +35,13 @@ export function projectFieldsHTML(p, { full = true } = {}) {
     <label class="field"><span>สถานที่</span><input name="location" value="${esc(p.location)}"></label>
     <label class="field"><span>ป้ายกำกับ</span><input name="tags" value="${esc((p.tags || []).join(', '))}" placeholder="คั่นด้วยจุลภาค เช่น งบลงทุน, ด่วน"></label>
     <label class="field span-2"><span>รายละเอียดโครงการ</span><textarea name="description" rows="3">${esc(p.description)}</textarea></label>
+    <h3 class="sub-h span-2">ข้อมูลหัวแบบฟอร์ม กฟผ. <small class="muted">ใช้ในแบบ FM-001 ผลการตรวจวัสดุ และ FM-002 บันทึกการควบคุมงานประจำวัน</small></h3>
+    <label class="field"><span>แผนก</span><input name="orgSection" value="${esc(p.orgSection || '')}" list="dl-osec" maxlength="120"></label>
+    <label class="field"><span>กอง</span><input name="orgDivision" value="${esc(p.orgDivision || '')}" list="dl-odiv" maxlength="120"></label>
+    <label class="field"><span>ฝ่าย</span><input name="orgDept" value="${esc(p.orgDept || '')}" list="dl-odep" maxlength="120"></label>
+    <label class="field"><span>เลขที่งาน (PM-Order กอง)</span><input name="pmOrder" value="${esc(p.pmOrder || '')}" maxlength="120"></label>
+    <label class="field span-2"><span>ผู้แทนผู้รับจ้าง <small class="muted">เว้นว่าง = ใช้ชื่อผู้รับจ้างคนแรกในแท็บสมาชิก</small></span><input name="contractorRep" value="${esc(p.contractorRep || '')}" maxlength="200"></label>
+    ${['orgSection', 'orgDivision', 'orgDept'].map((k, i) => `<datalist id="${['dl-osec', 'dl-odiv', 'dl-odep'][i]}">${[...new Set(store.data.projects.map((x) => x[k]).filter(Boolean))].map((v) => `<option value="${esc(v)}">`).join('')}</datalist>`).join('')}
     ` : `
     <label class="field span-2"><span>คิดความคืบหน้าจาก</span>
       <select name="progressMethod">${Object.entries(METHODS).map(([k, m]) => `<option value="${k}" ${p.progressMethod === k ? 'selected' : ''}>${m.label}</option>`).join('')}</select>
@@ -57,7 +66,7 @@ export function readProjectFields(form, base) {
   const f = form.elements;
   const v = (n) => (f[n] ? f[n].value.trim() : base[n]);
   const out = { ...base };
-  for (const k of ['name', 'code', 'type', 'contractor', 'contractNo', 'startDate', 'endDate', 'manager', 'status', 'owner', 'location', 'description', 'progressMethod']) {
+  for (const k of ['name', 'code', 'type', 'contractor', 'contractNo', 'startDate', 'endDate', 'manager', 'status', 'owner', 'location', 'description', 'progressMethod', 'orgSection', 'orgDivision', 'orgDept', 'pmOrder', 'contractorRep']) {
     if (f[k]) out[k] = v(k);
   }
   if (f.contractValue) out.contractValue = f.contractValue.value.trim() === '' ? '' : num(f.contractValue.value);
@@ -85,6 +94,10 @@ export function openProjectForm() {
   const p = newProject(store.settings);
   // 1.0.11: ผู้สร้างโครงการทำหน้าที่ผู้ควบคุมงานโดยค่าเริ่มต้น — ใส่ชื่อให้ก่อน (แก้ได้)
   if (!p.manager) p.manager = (store.me.name && store.me.name !== store.me.email ? store.me.name : conf.user) || '';
+  // หัวแบบฟอร์ม กฟผ.: แผนก/กอง/ฝ่าย มักเหมือนโครงการล่าสุดของผู้สร้าง
+  const mine = store.data.projects.filter((x) => x.orgDivision || x.orgSection || x.orgDept).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    .find((x) => !store.me.email || R.norm(x.ownerEmail) === R.norm(store.me.email)) || null;
+  if (mine) Object.assign(p, { orgSection: mine.orgSection || '', orgDivision: mine.orgDivision || '', orgDept: mine.orgDept || '' });
   const m = openModal({
     title: 'สร้างโครงการใหม่',
     size: 'lg',

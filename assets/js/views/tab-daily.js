@@ -1,5 +1,5 @@
 // แท็บรายงานประจำวัน (1.0.5): ผู้ควบคุมงานบันทึกสภาพการปฏิบัติงานรายวัน (ระเบียบกระทรวงการคลังฯ ข้อ 178)
-// และส่งรายงานประจำวัน/ประจำสัปดาห์ทางอีเมล พิมพ์แบบฟอร์มมาตรฐาน PT-F02/F03/F05/F06
+// และส่งรายงานประจำวัน/ประจำสัปดาห์ทางอีเมล พิมพ์แบบฟอร์ม กฟผ. FM-002 (บันทึกการควบคุมงานประจำวัน) FM-001 (ผลการตรวจวัสดุ) และ PT-F03/F05/F06
 import { store } from '../store.js';
 import { esc, fmt, icon, emptyState, toast, confirmBox, setBusy, guard, menu } from '../ui.js';
 import { mailNote, personName } from './common.js';
@@ -62,7 +62,8 @@ function renderList(el, ctx) {
   const last30 = list.filter((d) => d.date > R.addDaysIso(t, -30)).length;
   const canSend = store.canSendReport('daily', p.id);
   const forms = [
-    ['daily', 'แบบรายงานประจำวัน (เปล่า)', { p, date: t }],
+    ['daily', 'บันทึกการควบคุมงานประจำวัน (เปล่า)', { p, date: t }],
+    ['material', 'ผลการตรวจวัสดุก่อสร้าง (เปล่า)', { p, date: t }],
     ['weekly', 'รายงานประจำสัปดาห์', () => ({ p, to: t })],
     ['instruction', 'ใบสั่งการ', { p }],
     ['inspect', 'บันทึกการตรวจรับงาน', { p }],
@@ -96,7 +97,7 @@ function renderList(el, ctx) {
           <td class="r num" data-l="คนงาน">${R.manpowerTotal(d)}</td>
           <td class="c-note">${esc(String(d.work || '').slice(0, 140))}${(d.files || []).length ? ` <span class="muted small">${icon('image')}${d.files.length}</span>` : ''}</td>
           <td class="dy-stopc" data-l="หยุดงาน">${d.stoppage?.stopped ? `<span class="t-issue">${icon('alert')}${esc(`${d.stoppage.hours ? `${d.stoppage.hours} ชม. ` : ''}${d.stoppage.reason || ''}`)}</span>` : '<span class="muted">–</span>'}</td>
-          <td class="row-tools"><button class="icon-btn" data-print="${esc(d.id)}" title="พิมพ์ PT-F02" aria-label="พิมพ์">${icon('print')}</button>
+          <td class="row-tools"><button class="icon-btn" data-print="${esc(d.id)}" title="พิมพ์บันทึกการควบคุมงานประจำวัน FM-002" aria-label="พิมพ์">${icon('print')}</button>
             ${canRec ? `<a class="icon-btn" href="#/p/${pid}/daily/${d.date}/edit" title="แก้ไข" aria-label="แก้ไข">${icon('edit')}</a>` : ''}</td>
         </tr>`).join('')}</tbody></table></div>`
     : emptyState({ ic: 'calendar', title: 'ยังไม่มีรายงานประจำวัน', text: canRec ? 'บันทึกสภาพอากาศ คนงาน เครื่องจักร งานที่ทำ และการหยุดงานทุกวัน ระบบจะสรุปเป็นรายงานประจำสัปดาห์ให้คณะกรรมการตรวจรับพัสดุ และส่งทางอีเมลได้' : 'ผู้ควบคุมงานจะบันทึกรายงานประจำวันที่นี่',
@@ -127,7 +128,8 @@ function renderView(el, ctx, d) {
       ${prevD ? `<a class="btn btn-sm" href="#/p/${pid}/daily/${prevD.date}" title="วันก่อนหน้า">${icon('chevL')}${fmt.date(prevD.date)}</a>` : ''}
       ${nextD ? `<a class="btn btn-sm" href="#/p/${pid}/daily/${nextD.date}" title="วันถัดไป">${fmt.date(nextD.date)}${icon('chevR')}</a>` : ''}
       ${menu({ items: [
-        { act: 'print', icon: 'print', label: 'พิมพ์รายงานประจำวัน PT-F02' },
+        { act: 'print', icon: 'print', label: 'พิมพ์บันทึกการควบคุมงานประจำวัน FM-002' },
+        d.materials && { act: 'mat', icon: 'print', label: 'พิมพ์ผลการตรวจวัสดุ FM-001' },
         d.instructions && { act: 'instr', icon: 'print', label: 'พิมพ์ใบสั่งการ PT-F06' },
         store.canSendReport('daily', p.id) && { act: 'mail', icon: 'mail', label: 'ส่งรายงานนี้ทางอีเมล' },
         canRec && { sep: true },
@@ -153,6 +155,7 @@ function renderView(el, ctx, d) {
   </section>`;
   el.querySelector('[data-act="print"]').addEventListener('click', () => openForm('daily', { p, daily: d }));
   el.querySelector('[data-act="instr"]')?.addEventListener('click', () => openForm('instruction', { p, daily: d }));
+  el.querySelector('[data-act="mat"]')?.addEventListener('click', () => openForm('material', { p, date: d.date }));
   el.querySelector('[data-act="mail"]')?.addEventListener('click', () => openReportDialog('daily', { projectId: p.id, date: d.date }));
   el.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => preview(files.find((f) => f.id === b.dataset.f))));
   el.querySelectorAll('[data-thumb]').forEach(async (img) => {
