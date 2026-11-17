@@ -7,6 +7,8 @@ import { openForm } from '../forms.js';
 import { libraryBox, bindLibraryBox } from './library.js';
 import { openReportDialog } from './reports.js';
 import { preview } from './tab-docs.js';
+import { suggestions, learned, splitLine, joinLine, tradeLabel } from '../vocab.js';
+import '../annotate.js';
 
 /** ชื่อผู้บันทึกโดยตัดวงเล็บท้ายชื่อ เช่น "นายช่างวิไล (ผู้ควบคุมงาน)" → "นายช่างวิไล" (ไม่ใช้ regex เพื่อไม่ให้ช้ากับข้อความยาวผิดปกติ) */
 function shortName(n) {
@@ -16,13 +18,14 @@ function shortName(n) {
 }
 
 const R = globalThis.PTRules;
-const TRADES = ['โฟร์แมน', 'วิศวกร', 'ช่างไม้', 'ช่างเหล็ก', 'ช่างปูน', 'ช่างเชื่อม', 'ช่างไฟฟ้า', 'ช่างประปา', 'ช่างทาสี', 'กรรมกร'];
-const EQUIP = ['รถแบคโฮ', 'รถเครน', 'รถบรรทุก', 'รถโม่คอนกรีต', 'ปั๊มคอนกรีต', 'รถบดอัด', 'เครื่องตบดิน', 'เครื่องปั่นไฟ', 'นั่งร้าน (ชุด)'];
-const ed = { key: '', photos: [] };
+// ช่างและเครื่องจักรที่แนะนำ: ค่าเริ่มต้น + คำที่โครงการใช้ครบ 3 วัน (vocab.js)
+const ed = { key: '', items: null };
 window.addEventListener('pt:discard', () => { ed.key = ''; });
 
 const today = () => store.thaiNow().date;
-const weatherText = (d) => [R.WEATHER[d.weather?.am] && `เช้า${R.WEATHER[d.weather.am]}`, R.WEATHER[d.weather?.pm] && `บ่าย${R.WEATHER[d.weather.pm]}`].filter(Boolean).join(' · ') || '–';
+const weatherText = (d) => [R.WEATHER[d.weather?.am] && `เช้า${R.WEATHER[d.weather.am]}`, R.WEATHER[d.weather?.pm] && `บ่าย${R.WEATHER[d.weather.pm]}`, R.WEATHER[d.weather?.night] && `กลางคืน${R.WEATHER[d.weather.night]}`, d.weather?.pm25 !== '' && d.weather?.pm25 != null && `PM2.5 ${d.weather.pm25}`].filter(Boolean).join(' · ') || '–';
+const linesOf = (t) => String(t || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+const qtyText = (q, u) => (q ? `${q}${u ? ` ${u}` : ''}` : '');
 
 export function renderDaily(el, ctx, sub = '') {
   const { p } = ctx;
@@ -122,6 +125,12 @@ function renderView(el, ctx, d) {
   const row = (k, v) => (v ? `<div><dt>${esc(k)}</dt><dd>${v}</dd></div>` : '');
   const prevD = store.dailyOf(p.id).find((x) => x.date < d.date);
   const nextD = [...store.dailyOf(p.id)].reverse().find((x) => x.date > d.date);
+  const work = linesOf(d.work).map(splitLine);
+  const mats = linesOf(d.materials).map(splitLine);
+  const linked = store.dailyUpdate(d);
+  const boq = store.boqOf(p.id);
+  const boqRows = linked ? Object.entries(linked.entries || {}).map(([id, q]) => [boq.find((b) => b.id === id), q]).filter(([it]) => it) : [];
+  const table = (head, rows) => `<div class="table-wrap"><table class="hist dy-tbl"><thead><tr>${head.map((h, i) => `<th${i ? ' class="r"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
   el.innerHTML = `
   <div class="toolbar">
     <div class="tb-info"><a class="link" href="#/p/${pid}/daily">${icon('chevL')}รายงานประจำวัน</a></div>
@@ -129,10 +138,10 @@ function renderView(el, ctx, d) {
       ${prevD ? `<a class="btn btn-sm" href="#/p/${pid}/daily/${prevD.date}" title="วันก่อนหน้า">${icon('chevL')}${fmt.date(prevD.date)}</a>` : ''}
       ${nextD ? `<a class="btn btn-sm" href="#/p/${pid}/daily/${nextD.date}" title="วันถัดไป">${fmt.date(nextD.date)}${icon('chevR')}</a>` : ''}
       ${menu({ items: [
-        { act: 'print', icon: 'print', label: 'พิมพ์บันทึกการควบคุมงานประจำวัน FM-002' },
+        { act: 'print', icon: 'print', label: 'บันทึกการควบคุมงานประจำวัน FM-002' },
         { act: 'cdaily', icon: 'print', label: 'Daily Report and Daily Request PT-F07' },
-        d.materials && { act: 'mat', icon: 'print', label: 'พิมพ์ผลการตรวจวัสดุ FM-001' },
-        d.instructions && { act: 'instr', icon: 'print', label: 'พิมพ์ใบสั่งการ PT-F06' },
+        d.materials && { act: 'mat', icon: 'print', label: 'ผลการตรวจวัสดุ FM-001' },
+        d.instructions && { act: 'instr', icon: 'print', label: 'ใบสั่งการ PT-F06' },
         store.canSendReport('daily', p.id) && { act: 'mail', icon: 'mail', label: 'ส่งรายงานนี้ทางอีเมล' },
         canRec && { sep: true },
         canRec && { act: 'del', icon: 'trash', label: 'ลบรายงานนี้', danger: true },
@@ -146,14 +155,17 @@ function renderView(el, ctx, d) {
     <dl class="facts dy-facts">
       ${row('สภาพอากาศ', esc(weatherText(d)))}
       ${row('เวลาทำงาน', esc(d.workHours))}
-      ${row('คนงาน', `<b>${R.manpowerTotal(d)} คน</b>${d.manpower.length ? ` <small class="muted">(${esc(d.manpower.map((r) => `${r.trade} ${r.count}`).join(', '))})</small>` : ''}`)}
+      ${row('คนงาน', `<b>${R.manpowerTotal(d)} คน</b>${d.manpower.length ? ` <small class="muted">(${esc(d.manpower.map((r) => `${tradeLabel(r.trade)} ${r.count}`).join(', '))})</small>` : ''}`)}
       ${row('เครื่องจักร', esc(d.equipment.map((r) => `${r.name} ${r.count}`).join(', ')))}
       ${d.stoppage?.stopped ? row('หยุดงาน', `<b class="is-bad">${esc(`${d.stoppage.hours ? `${d.stoppage.hours} ชั่วโมง ` : ''}${d.stoppage.reason || ''}`)}</b>`) : ''}
     </dl>
-    ${[['งานที่ดำเนินการ', d.work], ['วัสดุเข้าหน่วยงาน', d.materials], ['ความปลอดภัย/อุบัติเหตุ', d.safety], ['ข้อสั่งการ/ข้อแนะนำต่อผู้รับจ้าง', d.instructions]]
+    ${work.length ? `<h3 class="dy-h">งานที่ดำเนินการ</h3>${table(['รายละเอียดของงาน', 'ปริมาณงาน'], work.map(([w, q, u]) => `<tr><td>${esc(w)}</td><td class="r num">${esc(qtyText(q, u))}</td></tr>`))}` : ''}
+    ${boqRows.length ? `<h3 class="dy-h">ปริมาณงานตาม BOQ <small class="muted">บันทึกเป็นความคืบหน้าของวันนี้แล้ว</small></h3>${table(['รายการ BOQ', 'ปริมาณ'], boqRows.map(([it, q]) => `<tr><td>${esc(`${it.no ? `${it.no} ` : ''}${it.desc}`)}</td><td class="r num">${esc(`${(+q).toLocaleString('th-TH', { maximumFractionDigits: 2 })} ${it.unit || ''}`)}</td></tr>`))}` : ''}
+    ${(d.request || []).length ? `<h3 class="dy-h">งานที่ขอทำวันถัดไป (Daily Request)</h3>${table(['รายละเอียดของงาน', 'ปริมาณ', 'ช่าง/คนงาน'], d.request.map((r) => `<tr><td>${esc(r.work)}</td><td class="r num">${esc(qtyText(r.qty, r.unit))}</td><td class="r num">${esc(r.men ?? '')}</td></tr>`))}` : ''}
+    ${mats.length ? `<h3 class="dy-h">วัสดุเข้าหน่วยงาน</h3>${table(['ชนิด', 'ปริมาณ'], mats.map(([w, q, u]) => `<tr><td>${esc(w)}</td><td class="r num">${esc(qtyText(q, u))}</td></tr>`))}` : ''}
+    ${[['ความปลอดภัย/อุบัติเหตุ', d.safety], ['ข้อสั่งการ/ข้อแนะนำต่อผู้รับจ้าง', d.instructions]]
     .filter(([, v]) => v).map(([k, v]) => `<h3 class="dy-h">${esc(k)}</h3><div class="dy-text">${esc(v)}</div>`).join('')}
-    ${files.length ? `<h3 class="dy-h">รูปถ่าย (${files.length})</h3><div class="thumbs dy-thumbs">${files.map((f) => `<button class="fthumb" data-f="${esc(f.id)}" title="${esc(f.name)}"><img alt="" data-thumb="${esc(f.id)}"></button>`).join('')}</div>` : ''}
-
+    ${files.length ? `<h3 class="dy-h">ภาพประกอบ (${files.length})</h3><div class="dy-figs">${files.map((f, i) => `<figure><button class="fthumb" data-f="${esc(f.id)}" title="${esc(f.name)}"><img alt="" data-thumb="${esc(f.id)}"></button><figcaption><b>รูปที่ ${i + 1}</b> ${esc(d.captions?.[f.id] || '')}</figcaption></figure>`).join('')}</div>` : ''}
   </section>`;
   el.querySelector('[data-act="print"]').addEventListener('click', () => openForm('daily', { p, daily: d }));
   el.querySelector('[data-act="instr"]')?.addEventListener('click', () => openForm('instruction', { p, daily: d }));
@@ -161,9 +173,16 @@ function renderView(el, ctx, d) {
   el.querySelector('[data-act="mat"]')?.addEventListener('click', () => openForm('material', { p, date: d.date }));
   el.querySelector('[data-act="mail"]')?.addEventListener('click', () => openReportDialog('daily', { projectId: p.id, date: d.date }));
   el.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => preview(files.find((f) => f.id === b.dataset.f))));
+  loadThumbs(el, files);
+  el.querySelector('[data-act="del"]')?.addEventListener('click', async () => {
+    if (!(await confirmBox({ title: 'ลบรายงานประจำวัน', message: `ลบรายงานวันที่ ${esc(fmt.dateLong(d.date))}?${linked ? ' ปริมาณงานตาม BOQ ที่บันทึกพร้อมรายงานนี้จะถูกลบด้วย' : ''} (รูปถ่ายยังอยู่ในแท็บเอกสาร)`, ok: 'ลบ', danger: true }))) return;
+    try { await store.deleteDaily(d.id); toast('ลบรายงานแล้ว'); location.hash = `#/p/${pid}/daily`; } catch (ex) { toast(ex.message, 'bad'); }
+  });
+}
+/** รูปย่อจากระบบ — ดูไม่ได้ (เช่น ยังไม่ได้ลงชื่อเข้า Google ด้วยอีเมลที่ได้รับแชร์) แสดงไอคอนแทนภาพแตก */
+function loadThumbs(el, files) {
   el.querySelectorAll('[data-thumb]').forEach(async (img) => {
     const f = files.find((x) => x.id === img.dataset.thumb);
-    // 1.0.11: ดูรูปไม่ได้ (เช่น ยังไม่ได้ลงชื่อเข้า Google ด้วยอีเมลที่ได้รับแชร์) → แสดงไอคอนแทนภาพแตก กดเปิดดูได้ตามเดิม
     img.addEventListener('error', () => {
       const ph = document.createElement('span');
       ph.className = 'fthumb-ph';
@@ -172,60 +191,102 @@ function renderView(el, ctx, d) {
     }, { once: true });
     try { const u = await store.thumbUrl(f); if (u) img.src = u; } catch { /* ignore */ }
   });
-  el.querySelector('[data-act="del"]')?.addEventListener('click', async () => {
-    if (!(await confirmBox({ title: 'ลบรายงานประจำวัน', message: `ลบรายงานวันที่ ${esc(fmt.dateLong(d.date))}? (รูปถ่ายยังอยู่ในแท็บเอกสาร)`, ok: 'ลบ', danger: true }))) return;
-    try { await store.deleteDaily(d.id); toast('ลบรายงานแล้ว'); location.hash = `#/p/${pid}/daily`; } catch (ex) { toast(ex.message, 'bad'); }
-  });
 }
 
-// ---------- ฟอร์มบันทึก ----------
-function rowsHTML(list, kind) {
-  const opts = kind === 'manpower' ? TRADES : EQUIP;
-  const key = kind === 'manpower' ? 'trade' : 'name';
-  return list.map((r, i) => `<div class="dy-row" data-row="${i}">
-    <input data-k="${key}" value="${esc(r[key] || '')}" list="dl-${kind}" placeholder="${kind === 'manpower' ? 'ประเภทช่าง/แรงงาน' : 'เครื่องจักร/เครื่องมือ'}" aria-label="${kind === 'manpower' ? 'ประเภทช่าง' : 'เครื่องจักร'}">
-    <input data-k="count" type="number" min="0" step="1" inputmode="numeric" value="${r.count === '' || r.count == null ? '' : esc(r.count)}" placeholder="จำนวน" aria-label="จำนวน">
-    <button type="button" class="icon-btn" data-rm="${i}" aria-label="ลบแถว">${icon('x')}</button></div>`).join('')
-    + `<datalist id="dl-${kind}">${opts.map((o) => `<option value="${esc(o)}">`).join('')}</datalist>`;
+// ---------- ฟอร์มบันทึก (1.0.14: ช่องตรงกับแบบฟอร์ม FM-002 / PT-F07 — กรอกครั้งเดียว แบบฟอร์มดึงไปเอง) ----------
+/** แถวกรอกหลายช่อง: cols = [{ k, ph, w, type, list, label }] */
+function rowsBox(id, cols, rows, addLabel) {
+  const tpl = `minmax(0, 1fr) ${cols.slice(1).map((c) => c.w || '90px').join(' ')} 32px`;
+  return `<div class="dy-rows" id="${id}" style="--dy-cols:${tpl}">${rows.map((r, i) => rowHTML(cols, r, i)).join('')}</div>
+    <button type="button" class="btn btn-sm btn-ghost" data-addrow="${id}">${icon('plus')}${esc(addLabel || 'เพิ่มแถว')}</button>`;
 }
+function rowHTML(cols, r, i) {
+  return `<div class="dy-row" data-row="${i}">${cols.map((c) => c.type === 'select'
+    ? `<select data-k="${c.k}" aria-label="${esc(c.label || c.ph)}">${c.options(r[c.k])}</select>`
+    : `<input data-k="${c.k}" value="${esc(r[c.k] ?? '')}"${c.type ? ` type="${c.type}" min="0" step="any" inputmode="decimal"` : ''}${c.list ? ` list="${c.list}"` : ''} placeholder="${esc(c.ph)}" aria-label="${esc(c.label || c.ph)}" maxlength="${c.max || 300}">`).join('')}
+    <button type="button" class="icon-btn" data-rmrow aria-label="ลบแถว">${icon('x')}</button></div>`;
+}
+const readRowsOf = (box) => [...box.querySelectorAll('.dy-row')].map((r) => {
+  const o = {};
+  r.querySelectorAll('[data-k]').forEach((x) => { o[x.dataset.k] = x.value; });
+  return o;
+});
 
 function renderEditor(el, ctx, date, existing) {
   const { p } = ctx;
   const pid = encodeURIComponent(p.id);
   const key = `${p.id}|${date}|${existing?.id || 'new'}`;
-  if (ed.key !== key) { ed.key = key; ed.photos = []; }
+  const filesById = (id) => store.data.files.find((f) => f.id === id);
+  if (ed.key !== key || !ed.items) {
+    ed.key = key;
+    // รูปเดิม (เรียงตามรายงาน) + รูปใหม่ที่ยังไม่บันทึก — มีคำบรรยายใต้ภาพและย้ายลำดับได้
+    ed.items = (existing?.files || []).filter(filesById).map((id) => ({ id, caption: existing.captions?.[id] || '' }));
+  }
   const last = store.dailyOf(p.id).find((x) => x.date < date);
-  const d = existing || { weather: {}, manpower: [], equipment: [], stoppage: {}, workHours: last?.workHours || '08:00–17:00' };
+  const d = existing || { weather: {}, manpower: [], equipment: [], stoppage: {}, request: [], workHours: last?.workHours || '08:00–17:00' };
   const W = Object.entries(R.WEATHER);
   const notifyTo = R.reportRecipients(p, 'daily', true).filter((e) => e !== R.norm(store.me.email));
-  const state = {
-    manpower: d.manpower.length ? d.manpower.map((r) => ({ ...r })) : [{ trade: '', count: '' }],
-    equipment: d.equipment.length ? d.equipment.map((r) => ({ ...r })) : [{ name: '', count: '' }],
+  const voc = learned(p.id);
+  const sug = (k) => suggestions(p.id, k, voc);
+  const boq = store.boqOf(p.id);
+  const linked = store.dailyUpdate(existing);
+  const outdated = store.serverOutdated('1.0.14');
+  const blank = (o) => [o];
+  const st = {
+    manpower: d.manpower.length ? d.manpower.map((r) => ({ trade: tradeLabel(r.trade), count: r.count })) : blank({ trade: '', count: '' }),
+    equipment: d.equipment.length ? d.equipment.map((r) => ({ ...r })) : blank({ name: '', count: '' }),
+    work: linesOf(d.work).map(splitLine).map(([w, q, u]) => ({ w, q, u })),
+    mats: linesOf(d.materials).map(splitLine).map(([w, q, u]) => ({ w, q, u })),
+    req: (d.request || []).map((r) => ({ w: r.work, q: r.qty, u: r.unit, m: r.men })),
+    boq: Object.entries(linked?.entries || {}).map(([id, q]) => ({ id, q })),
   };
+  if (!st.work.length) st.work = blank({ w: '', q: '', u: '' });
+  if (!st.mats.length) st.mats = blank({ w: '', q: '', u: '' });
+  if (!st.req.length) st.req = blank({ w: '', q: '', u: '', m: '' });
+  if (!st.boq.length) st.boq = blank({ id: '', q: '' });
+  const groups = [...new Set(boq.map((b) => b.group || 'ไม่ระบุหมวด'))];
+  const boqOptions = (sel) => `<option value="">— เลือกรายการ BOQ —</option>${groups.map((g) => `<optgroup label="${esc(g)}">${boq.filter((b) => (b.group || 'ไม่ระบุหมวด') === g).map((b) => `<option value="${esc(b.id)}" ${b.id === sel ? 'selected' : ''}>${esc(`${b.no ? `${b.no} ` : ''}${b.desc}${b.unit ? ` (${b.unit})` : ''}`)}</option>`).join('')}</optgroup>`).join('')}`;
+  const COLS = {
+    'dy-mp': [{ k: 'trade', ph: 'ตำแหน่ง/ประเภทช่าง', list: 'dl-trade', label: 'ตำแหน่ง' }, { k: 'count', ph: 'จำนวน', type: 'number', w: '90px', label: 'จำนวนคน' }],
+    'dy-eq': [{ k: 'name', ph: 'เครื่องจักร/เครื่องมือ', list: 'dl-equip', label: 'เครื่องจักร' }, { k: 'count', ph: 'จำนวน', type: 'number', w: '90px', label: 'จำนวนเครื่อง' }],
+    'dy-work': [{ k: 'w', ph: 'รายละเอียดของงาน เช่น เทคอนกรีตฐานราก F1–F4', list: 'dl-work', label: 'รายละเอียดของงาน' }, { k: 'q', ph: 'ปริมาณ', w: '90px', label: 'ปริมาณ' }, { k: 'u', ph: 'หน่วย', list: 'dl-unit', w: '96px', label: 'หน่วย' }],
+    'dy-boq': [{ k: 'id', ph: 'รายการ BOQ', type: 'select', options: boqOptions, label: 'รายการ BOQ' }, { k: 'q', ph: 'ปริมาณ', type: 'number', w: '110px', label: 'ปริมาณที่ทำได้วันนี้' }],
+    'dy-req': [{ k: 'w', ph: 'งานที่จะทำ', list: 'dl-req', label: 'งานที่ขอทำ' }, { k: 'q', ph: 'ปริมาณ', w: '80px', label: 'ปริมาณ' }, { k: 'u', ph: 'หน่วย', list: 'dl-unit', w: '88px', label: 'หน่วย' }, { k: 'm', ph: 'ช่าง/คน', type: 'number', w: '80px', label: 'ช่างและคนงาน' }],
+    'dy-mat': [{ k: 'w', ph: 'ชนิดวัสดุ', list: 'dl-mat', label: 'ชนิดวัสดุ' }, { k: 'q', ph: 'ปริมาณ', w: '80px', label: 'ปริมาณ' }, { k: 'u', ph: 'หน่วย', list: 'dl-unit', w: '88px', label: 'หน่วย' }],
+  };
+  const STATE = { 'dy-mp': 'manpower', 'dy-eq': 'equipment', 'dy-work': 'work', 'dy-boq': 'boq', 'dy-req': 'req', 'dy-mat': 'mats' };
+  const dl = (id, list) => `<datalist id="${id}">${list.map((o) => `<option value="${esc(o)}">`).join('')}</datalist>`;
   el.innerHTML = `
   <form class="panel upd dy-form" id="dyf" novalidate>
     <header class="upd-head">
-      <div><h2>${existing ? 'แก้ไขรายงานประจำวัน' : 'บันทึกรายงานประจำวัน'}</h2><p class="muted">บันทึกสภาพการปฏิบัติงานของผู้รับจ้างและเหตุการณ์แวดล้อม — สรุปเป็นรายงานประจำสัปดาห์ให้คณะกรรมการตรวจรับพัสดุ</p></div>
+      <div><h2>${existing ? 'แก้ไขรายงานประจำวัน' : 'บันทึกรายงานประจำวัน'}</h2><p class="muted">กรอกครั้งเดียว — ข้อมูลนี้ใช้ในแบบ FM-002 บันทึกการควบคุมงานประจำวัน · PT-F07 Daily Report and Daily Request · รายงานประจำสัปดาห์ และกราฟ S-Curve</p></div>
       <label class="field field-inline"><span>วันที่</span><input type="date" name="date" value="${esc(date)}" max="${esc(R.addDaysIso(today(), 1))}" required></label>
     </header>
+    ${outdated ? `<p class="notice notice-warn">${icon('alert')}<span>Code.gs ยังเป็นเวอร์ชัน ${esc(store.meta.version || 'เก่า')} — คำบรรยายรูป ลำดับรูป และงานที่ขอทำวันถัดไปจะบันทึกได้หลังผู้ดูแลวาง Code.gs 1.0.14</span></p>` : ''}
     <div class="form-grid">
       <div class="field"><span>อากาศช่วงเช้า</span><div class="seg seg-sm dy-wx">${W.map(([k, l]) => `<label><input type="radio" name="am" value="${k}" ${d.weather?.am === k ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div></div>
       <div class="field"><span>อากาศช่วงบ่าย</span><div class="seg seg-sm dy-wx">${W.map(([k, l]) => `<label><input type="radio" name="pm" value="${k}" ${d.weather?.pm === k ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div></div>
+      <div class="field dy-night"><span>กลางคืน (18.00–06.00 น.) และฝุ่น</span><div class="dy-inl">
+        <select name="night" aria-label="อากาศกลางคืน"><option value="">— ไม่ระบุ —</option>${W.map(([k, l]) => `<option value="${k}" ${d.weather?.night === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+        <input name="pm25" type="number" min="0" max="1000" step="1" inputmode="numeric" value="${esc(d.weather?.pm25 ?? '')}" placeholder="PM2.5" aria-label="PM2.5 ไมโครกรัมต่อลูกบาศก์เมตร"><small class="muted">µg/m³</small></div></div>
       <label class="field"><span>เวลาทำงาน</span><input name="workHours" value="${esc(d.workHours || '')}" maxlength="40" placeholder="เช่น 08:00–17:00, OT ถึง 20:00"></label>
-      <div class="field dy-copy">${last && !existing ? `<button type="button" class="btn btn-sm" data-act="copy" title="คัดลอกคนงานและเครื่องจักรจากรายงานวันที่ ${esc(fmt.date(last.date))}">${icon('copy')}คัดลอกคนงาน/เครื่องจักรจาก ${esc(fmt.date(last.date))}</button>` : ''}</div>
-      <div class="field"><span>คนงาน <b id="dy-men" class="num"></b></span><div id="dy-mp" class="dy-rows"></div><button type="button" class="btn btn-sm btn-ghost" data-add="manpower">${icon('plus')}เพิ่มแถว</button></div>
-      <div class="field"><span>เครื่องจักร/เครื่องมือ</span><div id="dy-eq" class="dy-rows"></div><button type="button" class="btn btn-sm btn-ghost" data-add="equipment">${icon('plus')}เพิ่มแถว</button></div>
-      <label class="field span-2"><span>งานที่ดำเนินการ</span><textarea name="work" rows="4" maxlength="4000" placeholder="เช่น เทคอนกรีตฐานราก F1–F4 (12 ลบ.ม.) ผูกเหล็กเสาชั้น 1 แนว A">${esc(d.work || '')}</textarea></label>
-      <label class="field"><span>วัสดุที่นำเข้าหน่วยงาน</span><textarea name="materials" rows="2" maxlength="2000" placeholder="เช่น เหล็ก DB16 2 ตัน (ตรวจใบรับรองแล้ว)">${esc(d.materials || '')}</textarea></label>
+      <div class="field span-2 dy-copy">${last && !existing ? `<button type="button" class="btn btn-sm" data-act="copy" title="คัดลอกคนงานและเครื่องจักรจากรายงานวันที่ ${esc(fmt.date(last.date))}">${icon('copy')}คัดลอกคนงาน/เครื่องจักรจาก ${esc(fmt.date(last.date))}</button>` : ''}</div>
+      <div class="field"><span>ผู้ปฏิบัติงาน/คนงาน <b id="dy-men" class="num"></b></span>${rowsBox('dy-mp', COLS['dy-mp'], st.manpower)}</div>
+      <div class="field"><span>เครื่องจักร/เครื่องมือ</span>${rowsBox('dy-eq', COLS['dy-eq'], st.equipment)}</div>
+      <div class="field span-2"><span>งานที่ดำเนินการ <small class="muted">ทีละรายการ ใส่ปริมาณและหน่วยถ้ามี — ตาราง "รายละเอียดของงาน / ปริมาณงาน" ในแบบฟอร์ม</small></span>${rowsBox('dy-work', COLS['dy-work'], st.work, 'เพิ่มรายการ')}</div>
+      ${boq.length ? `<div class="field span-2"><span>ปริมาณงานตาม BOQ วันนี้ <small class="muted">บันทึกเป็นความคืบหน้าของวันนี้ให้ด้วย — ใช้คิดเปอร์เซ็นต์ผลงาน รายงานประจำสัปดาห์ และ S-Curve (ไม่ต้องพิมพ์ซ้ำในงานที่ดำเนินการ)</small></span>${rowsBox('dy-boq', COLS['dy-boq'], st.boq, 'เพิ่มรายการ BOQ')}</div>` : ''}
+      <div class="field span-2"><span>งานที่ผู้รับจ้างขอทำวันถัดไป <small class="muted">Daily Request ในแบบ PT-F07</small></span>${rowsBox('dy-req', COLS['dy-req'], st.req, 'เพิ่มงาน')}</div>
+      <div class="field"><span>วัสดุที่นำเข้าหน่วยงาน</span>${rowsBox('dy-mat', COLS['dy-mat'], st.mats, 'เพิ่มวัสดุ')}</div>
       <div class="field"><span>การหยุดงาน</span>
         <label class="check"><input type="checkbox" name="stopped" ${d.stoppage?.stopped ? 'checked' : ''}>มีการหยุดงาน/งานล่าช้า</label>
         <div class="dy-stop" ${d.stoppage?.stopped ? '' : 'hidden'}><input name="hours" type="number" min="0" max="24" step="0.5" value="${esc(d.stoppage?.hours || '')}" placeholder="ชั่วโมง" aria-label="จำนวนชั่วโมง"><input name="reason" value="${esc(d.stoppage?.reason || '')}" maxlength="500" placeholder="สาเหตุ เช่น ฝนตกหนัก รอวัสดุ" aria-label="สาเหตุ"></div></div>
       <label class="field"><span>ความปลอดภัย/อุบัติเหตุ</span><textarea name="safety" rows="2" maxlength="2000" placeholder="ถ้าไม่มีให้เว้นว่าง">${esc(d.safety || '')}</textarea></label>
-      <label class="field"><span>ข้อสั่งการ/ข้อแนะนำต่อผู้รับจ้าง</span><textarea name="instructions" rows="2" maxlength="2000" placeholder="พิมพ์เป็นใบสั่งการ (PT-F06) ได้">${esc(d.instructions || '')}</textarea></label>
-      <div class="field span-2"><span>รูปถ่ายหน้างาน <small class="muted">เก็บในหมวด "รูปถ่ายความคืบหน้า"${existing?.files?.length ? ` · มีแล้ว ${existing.files.length} รูป` : ''}</small></span>
+      <label class="field"><span>ข้อสั่งการ/ข้อแนะนำต่อผู้รับจ้าง <small class="muted">ช่อง "การแก้ไข" ใน FM-002</small></span><textarea name="instructions" rows="2" maxlength="2000" placeholder="พิมพ์เป็นใบสั่งการ (PT-F06) ได้">${esc(d.instructions || '')}</textarea></label>
+      <div class="field span-2"><span>ภาพประกอบ <small class="muted">เรียงลำดับและบรรยายใต้ภาพ เช่น "รูปที่ 1 ดำเนินการผูกเหล็ก" · กด "มาร์ค" เพื่อวาดหรือเขียนโน้ตบนรูปใหม่</small></span>
         <label class="drop drop-sm" id="dy-drop">${icon('image')}<b>เลือกรูปหรือลากมาวาง</b><input type="file" accept="image/*" multiple hidden id="dy-photos"></label>
-        <div class="thumbs" id="dy-thumbs"></div></div>
+        <ol class="dy-photos" id="dy-list"></ol></div>
     </div>
+    ${dl('dl-trade', sug('trade'))}${dl('dl-equip', sug('equip'))}${dl('dl-work', sug('work'))}${dl('dl-req', sug('req').concat(sug('work')))}${dl('dl-mat', sug('mat'))}${dl('dl-unit', sug('unit'))}${dl('dl-cap', sug('cap'))}
     <footer class="upd-foot">
       ${notifyTo.length ? `<label class="check upd-notify" title="${esc(notifyTo.map((e) => personName(p, e)).join(', '))}"><input type="checkbox" id="dy-notify">${icon('mail')}ส่งรายงานนี้ทางอีเมลทันที ${notifyTo.length} คน</label>` : ''}
       <a class="btn" href="#/p/${pid}/daily${existing ? `/${existing.date}` : ''}" data-act="cancel">ยกเลิก</a>
@@ -233,39 +294,59 @@ function renderEditor(el, ctx, date, existing) {
     </footer>
   </form>`;
   const form = el.querySelector('#dyf');
-  const readRows = (kind) => {
-    const box = el.querySelector(kind === 'manpower' ? '#dy-mp' : '#dy-eq');
-    state[kind] = [...box.querySelectorAll('.dy-row')].map((r) => {
-      const o = {};
-      r.querySelectorAll('[data-k]').forEach((i) => { o[i.dataset.k] = i.value; });
-      return o;
-    });
-  };
-  const drawRows = (kind) => {
-    const box = el.querySelector(kind === 'manpower' ? '#dy-mp' : '#dy-eq');
-    box.innerHTML = rowsHTML(state[kind], kind);
-    box.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { readRows(kind); state[kind].splice(+b.dataset.rm, 1); drawRows(kind); total(); guard.dirty = true; }));
+  const box = (id) => el.querySelector(`#${id}`);
+  const read = (id) => { if (box(id)) st[STATE[id]] = readRowsOf(box(id)); };
+  const draw = (id) => {
+    const b = box(id);
+    if (!b) return;
+    b.innerHTML = st[STATE[id]].map((r, i) => rowHTML(COLS[id], r, i)).join('');
   };
   const total = () => {
-    readRows('manpower');
-    const n = state.manpower.reduce((s, r) => s + (Math.max(0, Math.round(+r.count || 0))), 0);
+    read('dy-mp');
+    const n = st.manpower.reduce((a, r) => a + Math.max(0, Math.round(+r.count || 0)), 0);
     el.querySelector('#dy-men').textContent = n ? `รวม ${n} คน` : '';
   };
-  drawRows('manpower'); drawRows('equipment'); total();
+  total();
   el.querySelector('#dy-mp').addEventListener('input', total);
-  el.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
-    const kind = b.dataset.add;
-    readRows(kind);
-    state[kind].push(kind === 'manpower' ? { trade: '', count: '' } : { name: '', count: '' });
-    drawRows(kind);
-    el.querySelector(`${kind === 'manpower' ? '#dy-mp' : '#dy-eq'} .dy-row:last-of-type input`)?.focus();
-  }));
+  form.addEventListener('click', (e) => {
+    const rm = e.target.closest('[data-rmrow]');
+    if (rm) {
+      const b = rm.closest('.dy-rows');
+      read(b.id);
+      st[STATE[b.id]].splice(+rm.closest('.dy-row').dataset.row, 1);
+      if (!st[STATE[b.id]].length) st[STATE[b.id]].push({});
+      draw(b.id);
+      if (b.id === 'dy-mp') total();
+      guard.dirty = true;
+      return;
+    }
+    const add = e.target.closest('[data-addrow]');
+    if (add) {
+      const id = add.dataset.addrow;
+      read(id);
+      st[STATE[id]].push({});
+      draw(id);
+      box(id).querySelector('.dy-row:last-of-type [data-k]')?.focus();
+    }
+  });
+  // Enter ในแถวสุดท้าย = เพิ่มแถวใหม่ (กรอกต่อเนื่องได้เร็ว)
+  form.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    const inp = e.target.closest('.dy-row input');
+    if (!inp) return;
+    e.preventDefault();
+    const rowEl = inp.closest('.dy-row');
+    const nextIn = [...rowEl.querySelectorAll('[data-k]')].find((x, i, arr) => arr.indexOf(inp) < i);
+    if (nextIn) { nextIn.focus(); return; }
+    const b = rowEl.closest('.dy-rows');
+    if (rowEl.nextElementSibling) { rowEl.nextElementSibling.querySelector('[data-k]')?.focus(); return; }
+    read(b.id); st[STATE[b.id]].push({}); draw(b.id);
+    b.querySelector('.dy-row:last-of-type [data-k]')?.focus();
+  });
   el.querySelector('[data-act="copy"]')?.addEventListener('click', () => {
-    state.manpower = last.manpower.map((r) => ({ ...r }));
-    state.equipment = last.equipment.map((r) => ({ ...r }));
-    if (!state.manpower.length) state.manpower = [{ trade: '', count: '' }];
-    if (!state.equipment.length) state.equipment = [{ name: '', count: '' }];
-    drawRows('manpower'); drawRows('equipment'); total();
+    st.manpower = last.manpower.length ? last.manpower.map((r) => ({ trade: tradeLabel(r.trade), count: r.count })) : [{}];
+    st.equipment = last.equipment.length ? last.equipment.map((r) => ({ ...r })) : [{}];
+    draw('dy-mp'); draw('dy-eq'); total();
     if (!form.elements.workHours.value) form.elements.workHours.value = last.workHours || '';
     guard.dirty = true;
   });
@@ -276,46 +357,105 @@ function renderEditor(el, ctx, date, existing) {
     const other = v && store.dailyAt(p.id, v);
     if (other && other.id !== existing?.id) toast(`มีรายงานของวันที่ ${fmt.dateLong(v)} แล้ว — เปิดรายงานเดิมเพื่อแก้ไข`, 'bad', 5000);
   });
-  // รูปถ่าย
-  const drawThumbs = () => {
-    const box = el.querySelector('#dy-thumbs');
-    box.innerHTML = ed.photos.map((f, i) => `<figure><img src="${URL.createObjectURL(f)}" alt=""><button type="button" class="icon-btn" data-rmp="${i}" aria-label="เอาออก">${icon('x')}</button><figcaption>${esc(f.name)}</figcaption></figure>`).join('');
-    box.querySelectorAll('[data-rmp]').forEach((b) => b.addEventListener('click', () => { ed.photos.splice(+b.dataset.rmp, 1); drawThumbs(); }));
+
+  // ---------- ภาพประกอบ: ลำดับ คำบรรยาย มาร์ค ----------
+  const list = el.querySelector('#dy-list');
+  const readCaps = () => list.querySelectorAll('[data-cap]').forEach((x) => { if (ed.items[+x.dataset.cap]) ed.items[+x.dataset.cap].caption = x.value; });
+  const urls = new Map();
+  const srcOf = (it) => {
+    if (!it.file) return '';
+    if (!urls.has(it.file)) urls.set(it.file, URL.createObjectURL(it.file));
+    return urls.get(it.file);
   };
-  const addPhotos = (list) => { guard.dirty = true; ed.photos.push(...[...list].filter((f) => f.type.startsWith('image/'))); drawThumbs(); };
+  const drawPhotos = () => {
+    list.innerHTML = ed.items.map((it, i) => `<li class="dy-ph">
+      <div class="dy-ph-img">${it.file ? `<img src="${srcOf(it)}" alt="">` : `<img alt="" data-thumb="${esc(it.id)}">`}</div>
+      <div class="dy-ph-body"><b>รูปที่ ${i + 1}</b>${it.file ? ' <small class="muted">ใหม่</small>' : ''}
+        <input data-cap="${i}" value="${esc(it.caption || '')}" list="dl-cap" maxlength="300" placeholder="คำบรรยายใต้ภาพ เช่น ดำเนินการผูกเหล็ก" aria-label="คำบรรยายรูปที่ ${i + 1}">
+        <div class="dy-ph-tools">
+          <button type="button" class="btn btn-sm btn-ghost" data-mv="${i}" data-d="-1" ${i ? '' : 'disabled'} aria-label="เลื่อนรูปที่ ${i + 1} ขึ้น">${icon('chevL')}ก่อน</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-mv="${i}" data-d="1" ${i < ed.items.length - 1 ? '' : 'disabled'} aria-label="เลื่อนรูปที่ ${i + 1} ลง">หลัง${icon('chevR')}</button>
+          ${it.file ? `<button type="button" class="btn btn-sm" data-mark="${i}">${icon('edit')}มาร์ค</button>` : ''}
+          <button type="button" class="btn btn-sm btn-ghost" data-rmp="${i}" aria-label="เอารูปที่ ${i + 1} ออก">${icon('x')}เอาออก</button>
+        </div></div></li>`).join('');
+    loadThumbs(list, ed.items.filter((x) => !x.file).map((x) => filesById(x.id)).filter(Boolean));
+  };
+  list.addEventListener('input', () => { readCaps(); guard.dirty = true; });
+  list.addEventListener('click', async (e) => {
+    const mv = e.target.closest('[data-mv]');
+    const rmp = e.target.closest('[data-rmp]');
+    const mk = e.target.closest('[data-mark]');
+    readCaps();
+    if (mv) {
+      const i = +mv.dataset.mv, j = i + +mv.dataset.d;
+      if (j < 0 || j >= ed.items.length) return;
+      [ed.items[i], ed.items[j]] = [ed.items[j], ed.items[i]];
+      guard.dirty = true; drawPhotos();
+      list.querySelector(`[data-mv="${j}"][data-d="${mv.dataset.d}"]`)?.focus();
+    } else if (rmp) {
+      ed.items.splice(+rmp.dataset.rmp, 1); guard.dirty = true; drawPhotos();
+    } else if (mk) {
+      const it = ed.items[+mk.dataset.mark];
+      if (!it?.file || !window.PTAnnotate) return;
+      try {
+        const f2 = await window.PTAnnotate.annotateFile(it.file, { title: `มาร์ค/โน้ต รูปที่ ${+mk.dataset.mark + 1}` });
+        if (f2 !== it.file) { it.file = f2; guard.dirty = true; drawPhotos(); }
+      } catch (ex) { toast(ex.message || 'เปิดรูปนี้ไม่ได้', 'bad'); }
+    }
+  });
+  const addPhotos = (fl) => {
+    readCaps();
+    const imgs = [...fl].filter((f) => f.type.startsWith('image/'));
+    if (ed.items.length + imgs.length > 30) toast('แนบรูปได้ไม่เกิน 30 รูปต่อรายงาน', 'bad');
+    imgs.slice(0, Math.max(0, 30 - ed.items.length)).forEach((f) => ed.items.push({ file: f, caption: '' }));
+    guard.dirty = true; drawPhotos();
+  };
   const drop = el.querySelector('#dy-drop');
-  el.querySelector('#dy-photos').addEventListener('change', (e) => addPhotos(e.target.files));
+  el.querySelector('#dy-photos').addEventListener('change', (e) => { addPhotos(e.target.files); e.target.value = ''; });
   drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('is-over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('is-over'));
   drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('is-over'); addPhotos(e.dataTransfer.files); });
-  drawThumbs();
-  el.querySelector('[data-act="cancel"]').addEventListener('click', () => { guard.dirty = false; ed.key = ''; });
+  drawPhotos();
+  el.querySelector('[data-act="cancel"]').addEventListener('click', () => { guard.dirty = false; ed.key = ''; ed.items = null; });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    readRows('manpower'); readRows('equipment');
+    Object.keys(STATE).forEach(read);
+    readCaps();
     const f = form.elements;
+    const newFiles = [];
+    const tokens = ed.items.map((it) => { if (it.file) { newFiles.push(it.file); return `new:${newFiles.length - 1}`; } return it.id; });
+    const captions = {};
+    ed.items.forEach((it, i) => { if (String(it.caption || '').trim()) captions[tokens[i]] = it.caption.trim(); });
+    const boqEntries = {};
+    st.boq.forEach((r) => { if (r.id && +r.q) boqEntries[r.id] = (boqEntries[r.id] || 0) + +r.q; });
     const input = {
       ...(existing || {}), projectId: p.id, date: f.date.value,
-      weather: { am: form.querySelector('[name="am"]:checked')?.value || '', pm: form.querySelector('[name="pm"]:checked')?.value || '' },
-      workHours: f.workHours.value.trim(), manpower: state.manpower.filter((r) => String(r.trade || '').trim()).map((r) => ({ trade: r.trade.trim(), count: r.count })),
-      equipment: state.equipment.filter((r) => String(r.name || '').trim()).map((r) => ({ name: r.name.trim(), count: r.count })),
-      work: f.work.value.trim(), materials: f.materials.value.trim(),
+      weather: { am: form.querySelector('[name="am"]:checked')?.value || '', pm: form.querySelector('[name="pm"]:checked')?.value || '', night: f.night.value, pm25: f.pm25.value.trim() },
+      workHours: f.workHours.value.trim(),
+      manpower: st.manpower.filter((r) => String(r.trade || '').trim()).map((r) => ({ trade: tradeLabel(r.trade), count: r.count })),
+      equipment: st.equipment.filter((r) => String(r.name || '').trim()).map((r) => ({ name: r.name.trim(), count: r.count })),
+      work: st.work.map((r) => joinLine(r.w, r.q, r.u)).filter(Boolean).join('\n'),
+      materials: st.mats.map((r) => joinLine(r.w, r.q, r.u)).filter(Boolean).join('\n'),
+      request: st.req.filter((r) => String(r.w || '').trim()).map((r) => ({ work: r.w.trim(), qty: String(r.q || '').trim(), unit: String(r.u || '').trim(), men: r.m })),
       stoppage: { stopped: f.stopped.checked, hours: f.hours.value, reason: f.reason.value.trim() },
       safety: f.safety.value.trim(), instructions: f.instructions.value.trim(),
-      files: existing?.files || [],
+      files: tokens, captions,
+      ...(boq.length ? { boq: boqEntries } : {}),
     };
     if (!input.date) { toast('กรุณาระบุวันที่', 'bad'); return; }
     const btn = el.querySelector('[data-act="save"]');
     setBusy(btn, true, 'กำลังบันทึก…');
     try {
-      const saved = await store.saveDaily(input, ed.photos, {
+      const saved = await store.saveDaily(input, newFiles, {
         notify: !!el.querySelector('#dy-notify')?.checked,
         onProgress: (label) => { btn.innerHTML = `<span class="spin"></span>${esc(label)}…`; },
       });
       guard.dirty = false;
-      ed.key = ''; ed.photos = [];
-      toast(`บันทึกรายงานประจำวันแล้ว${mailNote(saved._mail, store.mode)}`, saved._mail?.error ? 'bad' : 'ok', 5000);
+      ed.key = ''; ed.items = null;
+      urls.forEach((u) => URL.revokeObjectURL(u));
+      if (saved._boqError) toast(`บันทึกรายงานแล้ว แต่บันทึกปริมาณงาน BOQ ไม่สำเร็จ: ${saved._boqError}`, 'bad', 8000);
+      else toast(`บันทึกรายงานประจำวันแล้ว${mailNote(saved._mail, store.mode)}`, saved._mail?.error ? 'bad' : 'ok', 5000);
       location.hash = `#/p/${pid}/daily/${saved.date}`;
     } catch (ex) {
       toast(ex.message, 'bad', 6000);

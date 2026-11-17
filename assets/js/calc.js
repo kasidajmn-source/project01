@@ -180,7 +180,7 @@ export function itemPlanFrac(p, it, iso) {
   return clamp((dayOf(p, iso) - s + 1) / (e - s + 1));
 }
 
-function weightFn(p, items) {
+export function weightFn(p, items) {
   const method = p.progressMethod || 'boq_value';
   const basis = p.priceBasis || 'total';
   if (method === 'boq_weight' && items.some((i) => num(i.weight) > 0)) return (i) => num(i.weight);

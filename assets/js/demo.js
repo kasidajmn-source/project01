@@ -309,7 +309,7 @@ function addTeam(out, me, today) {
     out.daily.push({
       id: uid('D'), projectId: p.id, date,
       weather: { am: rain ? 'cloudy' : 'clear', pm: rain ? (stop ? 'heavy' : 'rain') : (i % 3 ? 'clear' : 'cloudy') }, workHours: '08:00–17:00',
-      manpower: [{ trade: 'โฟร์แมน', count: 1 }, { trade: 'ช่างเหล็ก', count: 6 + (i % 3) }, { trade: 'ช่างไม้', count: 5 }, { trade: 'กรรมกร', count: rain ? 6 : 10 + (i % 4) }],
+      manpower: [{ trade: 'โฟร์แมน', count: 1 }, { trade: 'ช่างเหล็ก', count: 6 + (i % 3) }, { trade: 'ช่างไม้', count: 5 }, { trade: 'ผู้ปฏิบัติงาน', count: rain ? 6 : 10 + (i % 4) }],
       equipment: [{ name: 'รถเครน', count: i % 2 }, { name: 'เครื่องปั่นไฟ', count: 1 }].filter((x) => x.count),
       work: WORKS[n++ % WORKS.length], materials: i === 2 ? 'เหล็กข้ออ้อย DB16 จำนวน 2.5 ตัน (ตรวจใบ มอก. แล้ว)' : '',
       stoppage: { stopped: stop, hours: stop ? 4 : 0, reason: stop ? 'ฝนตกหนักช่วงบ่าย หยุดงานเทคอนกรีต' : '' },

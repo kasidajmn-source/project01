@@ -81,9 +81,17 @@ export function mountRoom(el, opts) {
     let files = [];
     const showPicked = () => {
       picked.hidden = !files.length;
-      picked.innerHTML = files.map((f, i) => `<span class="chip">${icon('clip')}${esc(f.name)} <button type="button" class="link" data-unpick="${i}" aria-label="เอาออก">×</button></span>`).join('');
+      picked.innerHTML = files.map((f, i) => `<span class="chip">${icon('clip')}${esc(f.name)}${/^image\//.test(f.type || '') && window.PTAnnotate ? ` <button type="button" class="link" data-mark="${i}" title="วาด ลูกศร หรือเขียนโน้ตบนรูปก่อนส่ง">มาร์ค</button>` : ''} <button type="button" class="link" data-unpick="${i}" aria-label="เอาออก">×</button></span>`).join('');
     };
-    picked.addEventListener('click', (e) => { const b = e.target.closest('[data-unpick]'); if (b) { files.splice(+b.dataset.unpick, 1); showPicked(); } });
+    picked.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-unpick]');
+      if (b) { files.splice(+b.dataset.unpick, 1); showPicked(); return; }
+      const mk = e.target.closest('[data-mark]');
+      if (mk && window.PTAnnotate) {
+        const i = +mk.dataset.mark;
+        try { const f2 = await window.PTAnnotate.annotateFile(files[i]); if (f2 !== files[i]) { files[i] = f2; showPicked(); } } catch (ex) { toast(ex.message || 'เปิดรูปนี้ไม่ได้', 'bad'); }
+      }
+    });
     form.querySelector('input[type="file"]')?.addEventListener('change', (e) => {
       for (const f of e.target.files) {
         if (f.size > store.maxUploadBytes()) { toast(`ไฟล์ "${f.name}" ใหญ่เกินกำหนด`, 'bad'); continue; }

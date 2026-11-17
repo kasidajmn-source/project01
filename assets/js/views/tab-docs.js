@@ -178,11 +178,23 @@ function uploadDialog(ctx, files, defaultCat) {
         <label class="field"><span>หมวดเอกสาร</span><select name="cat">${catOptions(cats, defaultCat)}</select></label>
         <label class="field"><span>หมายเหตุ (ใส่ให้ทุกไฟล์)</span><input name="note" placeholder="ไม่บังคับ"></label>
       </div>
-      <ul class="uplist">${files.map((f, i) => `<li data-i="${i}" class="${f.size > max ? 'is-bad' : ''}">${fileBadge({ name: f.name, mime: f.type })}<span>${esc(f.name)}<small>${fmt.size(f.size)}${f.size > max ? ` — ใหญ่เกิน ${Math.round(max / 1048576)} MB จะถูกข้าม` : ''}</small></span><em></em></li>`).join('')}</ul>
+      <ul class="uplist">${files.map((f, i) => `<li data-i="${i}" class="${f.size > max ? 'is-bad' : ''}">${fileBadge({ name: f.name, mime: f.type })}<span>${esc(f.name)}<small>${fmt.size(f.size)}${f.size > max ? ` — ใหญ่เกิน ${Math.round(max / 1048576)} MB จะถูกข้าม` : ''}</small></span>${/^image\//.test(f.type || '') && window.PTAnnotate ? `<button type="button" class="btn btn-sm btn-ghost" data-mark="${i}" title="วาด ลูกศร กรอบ หรือเขียนโน้ตบนรูปก่อนอัปโหลด">${icon('edit')}มาร์ค</button>` : ''}<em></em></li>`).join('')}</ul>
     </form>`,
     footer: '<button class="btn" data-close>ยกเลิก</button><button class="btn btn-primary" data-go>อัปโหลด</button>',
   });
   const go = m.el.querySelector('[data-go]');
+  // 1.0.14 มาร์ค/โน้ตบนรูปก่อนอัปโหลด
+  m.el.querySelectorAll('[data-mark]').forEach((b) => b.addEventListener('click', async () => {
+    const i = +b.dataset.mark;
+    try {
+      const f2 = await window.PTAnnotate.annotateFile(files[i]);
+      if (f2 !== files[i]) {
+        files[i] = f2;
+        const sp = m.el.querySelector(`[data-i="${i}"] span`);
+        if (sp) sp.innerHTML = `${esc(f2.name)}<small>${fmt.size(f2.size)} · มาร์คแล้ว</small>`;
+      }
+    } catch (ex) { toast(ex.message || 'เปิดรูปนี้ไม่ได้', 'bad'); }
+  }));
   go.addEventListener('click', async () => {
     const form = m.el.querySelector('#uf');
     const cat = form.elements.cat.value, note = form.elements.note.value.trim();

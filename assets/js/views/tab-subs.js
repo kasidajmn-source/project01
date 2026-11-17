@@ -253,6 +253,7 @@ function renderDetail(el, ctx, id) {
         <h3 class="sub-h">ไฟล์แนบ <small>${(sub.files || []).length} ไฟล์</small></h3>
         ${fileList(p, sub.files)}
       </section>
+      ${subFormView(sub.form)}
 
       ${votePanelHTML(sub, p, me)}
 
@@ -287,6 +288,7 @@ function renderDetail(el, ctx, id) {
         <p class="hint">เรื่องนี้ไม่ผ่าน — แก้ไขตามเหตุผลแล้วส่งใหม่ ระบบจะเริ่มพิจารณาตั้งแต่ขั้นที่ 1</p>
         <label class="field"><span>ชื่อเรื่อง</span><input id="r-title" value="${esc(sub.title)}"></label>
         <label class="field"><span>รายละเอียด</span><textarea id="r-detail" rows="4">${esc(sub.detail)}</textarea></label>
+        ${subFormHTML('r', sub.form, !!sub.form)}
         <label class="field"><span>สิ่งที่แก้ไข</span><textarea id="r-comment" rows="2" placeholder="เช่น แนบใบ มอก. เพิ่มแล้ว"></textarea></label>
         ${dropHTML('r')}
         <div class="act-btns"><button class="btn btn-primary" data-do="resubmit">${icon('send')}ส่งใหม่</button></div>
@@ -326,6 +328,7 @@ function renderDetail(el, ctx, id) {
   el.querySelector('[data-act="fm001"]')?.addEventListener('click', () => openForm('material', { p, sub }));
   const drops = {};
   for (const k of ['d', 'r', 'c']) if (el.querySelector(`#${k}-drop`)) drops[k] = bindDrop(el, k);
+  const readRf = bindSubForm(el, 'r');
   const ov = canOpenVote ? bindVoteEditor(el, 'ov') : null;
 
   const run = async (btn, action, opts, files) => {
@@ -383,7 +386,7 @@ function renderDetail(el, ctx, id) {
       const title = el.querySelector('#r-title').value.trim();
       if (!title) { toast('กรุณาระบุชื่อเรื่อง', 'bad'); return; }
       const comment = el.querySelector('#r-comment').value.trim();
-      run(btn, 'resubmit', { comment, changes: { title, detail: el.querySelector('#r-detail').value, comment } }, drops.r.files);
+      run(btn, 'resubmit', { comment, changes: { title, detail: el.querySelector('#r-detail').value, comment, form: readRf() } }, drops.r.files);
     } else if (action === 'comment') {
       const comment = el.querySelector('#c-comment').value.trim();
       if (!comment && !drops.c.files.length) { toast('กรุณาพิมพ์ความเห็น', 'bad'); return; }
@@ -395,6 +398,63 @@ function renderDetail(el, ctx, id) {
   }));
 }
 
+// ---------- 1.0.14 ข้อมูลหนังสือขออนุมัติ PT-F01: ตารางสิ่งที่เสนอ เอกสารแนบ ประเภทงาน (กรอกครั้งเดียว แบบฟอร์มดึงไปเอง) ----------
+const SPEC_COLS = [['dwg', 'หมายเลขแบบอ้างอิง (Drawing No.)', 200], ['tech', 'คุณสมบัติ/ข้อกำหนดในสัญญา (Technical Spec.)', 500], ['prop', 'คุณสมบัติ/ข้อกำหนดที่เสนอ (Submitted Spec.)', 500]];
+const specRow = (r = {}, i = 0) => `<div class="sf-row" data-i="${i}"><span class="sf-n">${i + 1}</span>${SPEC_COLS.map(([c, ph, max]) => `<input data-c="${c}" value="${esc(r[c] || '')}" maxlength="${max}" placeholder="${esc(ph)}" aria-label="${esc(ph)} แถวที่ ${i + 1}">`).join('')}<button type="button" class="icon-btn" data-sfrm aria-label="ลบแถวที่ ${i + 1}">${icon('x')}</button></div>`;
+function subFormHTML(k, f, open) {
+  f = f || {};
+  const specs = (f.specs || []).length ? f.specs : [{}];
+  return `<details class="subf" id="${k}-sf" ${open ? 'open' : ''}>
+    <summary>${icon('clipboard')}<b>ข้อมูลหนังสือขออนุมัติ (PT-F01)</b><small>ตารางสิ่งที่เสนอเทียบข้อกำหนดในสัญญา เอกสารแนบ และประเภทงาน — ผู้พิจารณาเห็นในระบบ และแบบฟอร์มกรอกให้เอง</small></summary>
+    <div class="subf-body">
+      <label class="field"><span>เลขที่หนังสือของผู้รับจ้าง</span><input data-sf="ref" value="${esc(f.ref || '')}" maxlength="120" placeholder="เช่น ABC/2569/015 (เว้นว่าง = ใช้เลขที่เรื่องในระบบ)"></label>
+      <div class="field"><span>สิ่งที่ผู้รับจ้างเสนอ</span><div class="sf-rows" data-sfrows>${specs.map((r, i) => specRow(r, i)).join('')}</div>
+        <button type="button" class="btn btn-sm btn-ghost" data-sfadd>${icon('plus')}เพิ่มรายการ</button></div>
+      <div class="field"><span>แนบเอกสาร (จำนวนชุด)</span><div class="sf-att">${Object.entries(R.SUB_ATTACH).map(([a, l]) => `<label><span>${esc(l)}</span><input type="number" min="0" max="999" step="1" inputmode="numeric" data-att="${a}" value="${esc(f.attach?.[a] || '')}" aria-label="${esc(l)} จำนวนชุด"></label>`).join('')}</div></div>
+      <div class="field"><span>ประเภทงาน</span><div class="sf-types">${Object.entries(R.WORK_TYPES).map(([t, l]) => `<label class="check"><input type="checkbox" data-type="${t}" ${(f.types || []).includes(t) ? 'checked' : ''}>${esc(l)}</label>`).join('')}
+        <input data-sf="typeOther" value="${esc(f.typeOther || '')}" maxlength="120" placeholder="งานอื่นๆ ระบุ เช่น งานถนน" aria-label="งานอื่นๆ ระบุ"></div></div>
+    </div></details>`;
+}
+function bindSubForm(el, k) {
+  const root = el.querySelector(`#${k}-sf`);
+  if (!root) return () => null;
+  const rows = root.querySelector('[data-sfrows]');
+  const read = () => [...rows.querySelectorAll('.sf-row')].map((r) => { const o = {}; r.querySelectorAll('[data-c]').forEach((x) => { o[x.dataset.c] = x.value; }); return o; });
+  const draw = (list) => { rows.innerHTML = list.map((r, i) => specRow(r, i)).join(''); };
+  root.addEventListener('click', (e) => {
+    if (e.target.closest('[data-sfadd]')) {
+      const list = read();
+      if (list.length >= 20) { toast('ใส่ได้ไม่เกิน 20 รายการ', 'bad'); return; }
+      list.push({}); draw(list); rows.querySelector('.sf-row:last-child input')?.focus(); guard.dirty = true;
+    }
+    const rm = e.target.closest('[data-sfrm]');
+    if (rm) { const list = read(); list.splice(+rm.closest('.sf-row').dataset.i, 1); draw(list.length ? list : [{}]); guard.dirty = true; }
+  });
+  // ติ๊ก "งานอื่นๆ" ให้เองเมื่อพิมพ์ระบุ
+  const other = root.querySelector('[data-sf="typeOther"]');
+  other.addEventListener('input', () => { const c = root.querySelector('[data-type="other"]'); if (c && other.value.trim()) c.checked = true; });
+  return () => {
+    const attach = {};
+    root.querySelectorAll('[data-att]').forEach((x) => { if (+x.value > 0) attach[x.dataset.att] = Math.round(+x.value); });
+    return R.cleanSubForm({
+      ref: root.querySelector('[data-sf="ref"]').value, specs: read(), attach,
+      types: [...root.querySelectorAll('[data-type]:checked')].map((x) => x.dataset.type), typeOther: other.value,
+    });
+  };
+}
+/** แสดงข้อมูลหนังสือขออนุมัติในหน้าเรื่อง */
+function subFormView(f) {
+  if (!f) return '';
+  const att = Object.entries(f.attach || {}).map(([a, n]) => `${R.SUB_ATTACH[a] || a} ${n} ชุด`);
+  const types = (f.types || []).map((t) => (t === 'other' && f.typeOther ? `งานอื่นๆ (${f.typeOther})` : R.WORK_TYPES[t])).filter(Boolean);
+  return `<section class="panel">
+    <header class="panel-head"><h2>สิ่งที่ผู้รับจ้างเสนอ</h2>${f.ref ? `<span class="muted small">หนังสือเลขที่ ${esc(f.ref)}</span>` : ''}</header>
+    ${(f.specs || []).length ? `<div class="table-wrap"><table class="hist sf-tbl"><thead><tr><th>ลำดับ</th>${SPEC_COLS.map(([, l]) => `<th>${esc(l)}</th>`).join('')}</tr></thead><tbody>
+      ${f.specs.map((r, i) => `<tr><td class="c">${i + 1}</td><td>${esc(r.dwg)}</td><td>${esc(r.tech)}</td><td>${esc(r.prop)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${att.length || types.length ? `<dl class="facts">${att.length ? `<div><dt>แนบเอกสาร</dt><dd>${esc(att.join(' · '))}</dd></div>` : ''}${types.length ? `<div><dt>ประเภทงาน</dt><dd>${esc(types.join(' · '))}</dd></div>` : ''}</dl>` : ''}
+  </section>`;
+}
+
 // ---------- ช่องแนบไฟล์ ----------
 function dropHTML(k) {
   return `<div class="field"><label class="drop drop-sm" id="${k}-drop">${icon('clip')}<b>แนบไฟล์</b><span>เลือกหรือลากมาวาง</span><input type="file" multiple hidden id="${k}-files"></label><ul class="pick-list" id="${k}-list"></ul></div>`;
@@ -404,8 +464,12 @@ function bindDrop(el, k) {
   const drop = el.querySelector(`#${k}-drop`);
   const list = el.querySelector(`#${k}-list`);
   const draw = () => {
-    list.innerHTML = state.files.map((f, i) => `<li>${icon('file')}<span>${esc(f.name)} <small>${fmt.size(f.size)}</small></span><button type="button" class="icon-btn" data-rm="${i}" aria-label="เอาออก">${icon('x')}</button></li>`).join('');
+    list.innerHTML = state.files.map((f, i) => `<li>${icon(/^image\//.test(f.type || '') ? 'image' : 'file')}<span>${esc(f.name)} <small>${fmt.size(f.size)}</small></span>${/^image\//.test(f.type || '') && window.PTAnnotate ? `<button type="button" class="btn btn-sm btn-ghost" data-mark="${i}" title="วาด ลูกศร กรอบ หรือเขียนโน้ตบนรูปก่อนส่ง">${icon('edit')}มาร์ค</button>` : ''}<button type="button" class="icon-btn" data-rm="${i}" aria-label="เอาออก">${icon('x')}</button></li>`).join('');
     list.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { state.files.splice(+b.dataset.rm, 1); draw(); }));
+    list.querySelectorAll('[data-mark]').forEach((b) => b.addEventListener('click', async () => {
+      const i = +b.dataset.mark;
+      try { const f2 = await window.PTAnnotate.annotateFile(state.files[i]); if (f2 !== state.files[i]) { state.files[i] = f2; guard.dirty = true; draw(); } } catch (ex) { toast(ex.message || 'เปิดรูปนี้ไม่ได้', 'bad'); }
+    }));
   };
   const add = (fl) => {
     const max = store.maxUploadBytes();
@@ -457,6 +521,7 @@ function renderNew(el, ctx) {
       <div class="span-2" id="nf-lib"></div>
       <label class="field span-2"><span>ชื่อเรื่อง <em>*</em></span><input name="title" value="${esc(pre?.title || '')}" placeholder="เช่น ขออนุมัติใช้เหล็กเส้น SD40 ยี่ห้อ ..." required maxlength="200"></label>
       <label class="field span-2"><span>รายละเอียด</span><textarea name="detail" rows="5" placeholder="รายละเอียดของเรื่อง เหตุผล ผลกระทบต่องาน หรือสิ่งที่ต้องการให้พิจารณา"></textarea></label>
+      <div class="span-2">${subFormHTML('n', null, /วัสดุ|แบบ|Shop/i.test(preCat))}</div>
       <div class="span-2">${dropHTML('n')}</div>
       <div class="field span-2 vote-toggle">
         <label class="check check-block"><input type="checkbox" id="nf-vote"><span>${icon('users')}ให้คณะกรรมการโหวตเลือกรูปแบบ/สี<small>ใช้เมื่อแบบก่อสร้างไม่ได้กำหนดสีหรือรูปแบบไว้ — เสนอตัวเลือกพร้อมรูปตัวอย่าง ให้กรรมการโหวตตัดสิน</small></span></label>
@@ -472,6 +537,7 @@ function renderNew(el, ctx) {
 
   const form = el.querySelector('#nf');
   const drop = bindDrop(el, 'n');
+  const readSf = bindSubForm(el, 'n');
   const nv = bindVoteEditor(el, 'nv');
   el.querySelector('#nf-vote').addEventListener('change', (e) => nv.show(e.target.checked));
   form.addEventListener('input', () => { guard.dirty = true; });
@@ -495,7 +561,11 @@ function renderNew(el, ctx) {
     bindLibraryBox(lib, forms);
     el.querySelector('#nf-notify').innerHTML = `${icon('mail')}เมื่อส่งแล้ว ระบบจะแจ้งอีเมล${rc.action.length ? ` ถึงผู้พิจารณา: <b>${esc(rc.action.map((e) => personName(p, e)).join(', '))}</b>` : ''}${rc.info.length ? ` และแจ้งเพื่อทราบ: ${esc(rc.info.map((e) => personName(p, e)).join(', '))}` : ''} — คุณจะได้รับอีเมลเมื่อมีผลการพิจารณา`;
   };
-  form.elements.category.addEventListener('change', flow);
+  form.elements.category.addEventListener('change', () => {
+    flow();
+    const det = el.querySelector('#n-sf');
+    if (det && /วัสดุ|แบบ|Shop/i.test(form.elements.category.value)) det.open = true;
+  });
   form.elements.requiredId.addEventListener('change', () => {
     const r = reqs.find((x) => x.r.id === form.elements.requiredId.value)?.r;
     if (!r) return;
@@ -521,7 +591,7 @@ function renderNew(el, ctx) {
     try {
       const res = await store.createSubmission(p.id, {
         category: form.elements.category.value, title, detail: form.elements.detail.value.trim(), requiredId: form.elements.requiredId.value,
-        ...(vote ? { vote } : {}),
+        ...(vote ? { vote } : {}), ...(readSf() ? { form: readSf() } : {}),
       }, files, (msg) => { btn.innerHTML = `<span class="spin"></span>${esc(msg)}`; });
       guard.dirty = false;
       toast(`ส่งเรื่อง ${R.subNo(res.sub)} แล้ว${mailNote(res.mail, store.mode)}`, res.mail?.error ? 'bad' : 'ok', 6000);

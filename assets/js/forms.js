@@ -6,9 +6,10 @@
 //   · ช่องติ๊ก [data-ck] · รูป [data-photo] · จำที่กรอกไว้ในเครื่อง · บันทึก PDF
 //   PT-F01 เปลี่ยนเป็นหนังสือขออนุมัติ + บันทึกการขออนุมัติ/ผลการตรวจสอบ · เพิ่ม PT-F07 Daily Report and Daily Request
 import { store } from './store.js';
-import { analyze } from './calc.js';
+import { analyze, planSeries, actualSeries, cumulative, sortUpdates, weightFn, ratio, weekNo, diffDays } from './calc.js';
 import { download } from './ui.js';
 import { APP_VERSION } from './defaults.js';
+import { splitLine, tradeLabel, allSuggestions } from './vocab.js';
 
 const R = globalThis.PTRules;
 const e = (s) => R.esc(s);
@@ -69,21 +70,24 @@ const qtyTxt = (v) => (v === '' || v == null || Number.isNaN(+v) ? '' : (+v).toL
 
 // ---------- ช่องกรอก (form-editor.js ทำให้พิมพ์ได้) ----------
 /** ช่องข้อความในบรรทัด — ph = ข้อความที่พิมพ์ออกเมื่อว่าง (เช่น จุดไข่ปลา) · hint = คำแนะนำบนจอเท่านั้น */
-const F = (v = '', { cls = '', ph = '', hint = '', l = '', style = '' } = {}) => `<span class="f${cls ? ` ${cls}` : ''}" data-f${ph ? ` data-ph="${e(ph)}"` : ''}${hint ? ` data-hint="${e(hint)}"` : ''}${l ? ` data-l="${e(l)}"` : ''}${style ? ` style="${style}"` : ''}>${e(v ?? '')}</span>`;
+const F = (v = '', { cls = '', ph = '', hint = '', l = '', style = '', bind = '', sug = '' } = {}) => `<span class="f${cls ? ` ${cls}` : ''}" data-f${ph ? ` data-ph="${e(ph)}"` : ''}${hint ? ` data-hint="${e(hint)}"` : ''}${l ? ` data-l="${e(l)}"` : ''}${bind ? ` data-bind="${bind}"` : ''}${sug ? ` data-sug="${sug}"` : ''}${style ? ` style="${style}"` : ''}>${e(v ?? '')}</span>`;
+/** 1.0.14 ช่องลงลายมือชื่อ — คลิกเพื่อวาด เลือกรูป หรือใช้ลายเซ็นที่จำไว้ · ลากรูปลายเซ็นมาวางได้ */
+const SG = (cls = '') => `<span class="sg${cls ? ` ${cls}` : ''}" data-sign></span>`;
 /** ช่องวันที่ — คลิกเพื่อเลือกจากปฏิทิน */
-const FD = (iso = '', fmt = 'short', { cls = '', ph = '……/……/……', id = '', follow = '' } = {}) => `<span class="fd${cls ? ` ${cls}` : ''}" data-date="${e(iso || '')}" data-fmt="${fmt}" data-ph="${e(ph)}"${id ? ` data-id="${id}"` : ''}${follow ? ` data-follow="${follow}"` : ''}>${e(iso ? fmtDate(iso, fmt) : '')}</span>`;
+const FD = (iso = '', fmt = 'short', { cls = '', ph = '……/……/……', id = '', follow = '', bind = '' } = {}) => `<span class="fd${cls ? ` ${cls}` : ''}" data-date="${e(iso || '')}" data-fmt="${fmt}" data-ph="${e(ph)}"${id ? ` data-id="${id}"` : ''}${follow ? ` data-follow="${follow}"` : ''}${bind ? ` data-bind="${bind}"` : ''}>${e(iso ? fmtDate(iso, fmt) : '')}</span>`;
 /** ช่องติ๊ก — g = ชื่อกลุ่ม (ติ๊กได้ข้อเดียวในกลุ่ม) */
 const CK = (on = false, g = '') => `<span class="ck" data-ck="${e(g)}">${on ? '✓' : ''}</span>`;
 /** ช่องตาราง */
 const TD = (v = '', attr = '') => {
   let cls = 'f';
+  // attr รองรับ data-sug="ชนิดคำแนะนำ" ด้วย
   const rest = String(attr).replace(/class="([^"]*)"/, (_, c) => { cls += ` ${c}`; return ''; }).trim();
   return `<td class="${cls}"${rest ? ` ${rest}` : ''} data-f>${e(v ?? '')}</td>`;
 };
 /** บรรทัดเส้นประสำหรับเขียน (บรรทัดละ 1 ช่อง — Enter ไปบรรทัดถัดไป) */
 const LINES = (n, vals = []) => `<div class="lines">${pad(vals, n, '').map((v) => `<div class="f" data-f>${e(v)}</div>`).join('')}</div>`;
 const line = (w = '100%') => `<span class="fill f" data-f style="min-width:${w}"></span>`;
-const val = (v, w) => (v === '' || v == null ? line(w) : `<span class="fill f" data-f>${e(v)}</span>`);
+const val = (v, w, bind = '') => (v === '' || v == null ? `<span class="fill f" data-f${bind ? ` data-bind="${bind}"` : ''} style="min-width:${w || '100%'}"></span>` : `<span class="fill f" data-f${bind ? ` data-bind="${bind}"` : ''}>${e(v)}</span>`);
 
 /** รายการแบบฟอร์ม: code, ชื่อ, ใช้เมื่อไร, ต้องมีอะไร */
 export const FORMS = {
@@ -119,6 +123,7 @@ body { font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: 
 .bar button.ghost { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.45); font-weight: 400; }
 .bar button:focus-visible { outline: 2px solid #F2A900; outline-offset: 2px; }
 .bar .bar-msg { flex: 1 1 280px; opacity: .88; line-height: 1.4; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 header.fh { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 6px; margin-bottom: 10px; }
 header.fh .org { font-weight: 700; font-size: 15px; }
 header.fh .code { text-align: right; font-size: 12px; color: #444; }
@@ -148,8 +153,6 @@ span.f:empty { display: inline-block; min-width: 3em; min-height: 1.2em; vertica
 [data-ph]:empty::before { content: attr(data-ph); }
 [data-date] { cursor: pointer; white-space: nowrap; }
 [data-ck] { cursor: pointer; }
-.fd-input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
-.fd-input.vis { width: auto; height: auto; opacity: 1; pointer-events: auto; z-index: 8; font-size: 15px; padding: 4px 6px; border: 2px solid #1D4F91; border-radius: 3px; background: #fff; }
 .ph-input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 @media screen {
   body.ed [data-f], body.ed [data-date] { background-color: #EEF4FC; }
@@ -160,7 +163,7 @@ span.f:empty { display: inline-block; min-width: 3em; min-height: 1.2em; vertica
   body.preview [data-hint]:empty::after, body.preview .ph-hint { visibility: hidden; }
 }
 @media print {
-  body { background: #fff; } .bar, .fd-input, .ph-input, .ph-hint, .ph-x { display: none !important; }
+  body { background: #fff; } .bar, .ph-input, .ph-hint, .ph-x, .ph-mk { display: none !important; }
   .sheet { box-shadow: none; margin: 0; width: auto; min-height: 0; padding: 0; }
   .sheet + .sheet { break-before: page; page-break-before: always; }
   [data-f], [data-date] { background: none !important; outline: none !important; }
@@ -170,7 +173,7 @@ span.f:empty { display: inline-block; min-width: 3em; min-height: 1.2em; vertica
 function head(kind, p) {
   const f = FORMS[kind];
   const org = store.settings.orgName || 'การไฟฟ้าฝ่ายผลิตแห่งประเทศไทย';
-  return `<header class="fh"><div><div class="org">${e(org)}</div><div class="small muted">${F(p ? `${p.code ? `${p.code} ` : ''}${p.name}` : '', { ph: 'โครงการ ……………………………………………' })}</div></div>
+  return `<header class="fh"><div><div class="org">${e(org)}</div><div class="small muted">${F(p ? `${p.code ? `${p.code} ` : ''}${p.name}` : '', { ph: 'โครงการ ……………………………………………', bind: 'proj' })}</div></div>
     <div class="code">แบบ ${f.code}<br>ระบบติดตามโครงการ</div></header><h1>${e(f.title)}</h1>`;
 }
 function foot(kind) {
@@ -184,10 +187,11 @@ function projectInfo(p, extra = []) {
     ['ระยะเวลาสัญญา', { html: `${FD(p?.startDate || '', 'short')} – ${FD(p?.endDate || '', 'short')}` }],
     ...extra,
   ];
-  return `<table class="info">${rows.map(([k, v]) => `<tr><td class="k">${e(k)}</td><td>${typeof v === 'object' && v?.html ? v.html : val(v, '70%')}</td></tr>`).join('')}</table>`;
+  const BIND = { 'โครงการ': 'proj', 'เลขที่สัญญา': 'contractNo', 'ผู้รับจ้าง': 'contractor' };
+  return `<table class="info">${rows.map(([k, v]) => `<tr><td class="k">${e(k)}</td><td>${typeof v === 'object' && v?.html ? v.html : val(v, '70%', BIND[k] || '')}</td></tr>`).join('')}</table>`;
 }
 const DOTS = '……………………………………';
-const sign = (role, name = '', date = '') => `<div class="sign"><div class="ln"></div>(${F(name, { cls: 'nm', ph: DOTS })})<small>${e(role)}</small><small>วันที่ ${FD(isoTh(date))}</small></div>`;
+const sign = (role, name = '', date = '') => `<div class="sign"><div class="ln">${SG()}</div>(${F(name, { cls: 'nm', ph: DOTS })})<small>${e(role)}</small><small>วันที่ ${FD(isoTh(date))}</small></div>`;
 const signs = (list) => `<div class="signs">${list.join('')}</div>`;
 const nameOf = (p, email) => (p ? R.memberName(p, email) : '') || email || '';
 const supervisors = (p) => (p ? R.members(p).filter((m) => m.role === 'supervisor' || (m.role === 'owner' && R.ownerActsAs(p) === 'supervisor')) : []);
@@ -233,27 +237,21 @@ table.of-foot td { border: 1px solid #000; padding: 4px 8px; text-align: center;
 @media print { body.official .sheet { margin: 0; box-shadow: none; } body.official:not(.of-long) .sheet { height: 297mm; } body.official.of-long .sheet { min-height: 0; } }
 `;
 /** ช่อง "หัวข้อ......" แบบ FM-001: มีค่า = แสดงค่า · ไม่มีค่า = เส้นประยาวถึงขอบช่อง */
-const lf = (label, v) => `<div class="lf"><span>${e(label)}</span><span class="dl f${v === '' || v == null ? '' : ' has'}" data-f>${v === '' || v == null ? '' : e(v)}</span></div>`;
+const lf = (label, v, bind = '') => `<div class="lf"><span>${e(label)}</span><span class="dl f${v === '' || v == null ? '' : ' has'}" data-f${bind ? ` data-bind="${bind}"` : ''}>${v === '' || v == null ? '' : e(v)}</span></div>`;
 const lfd = (label, iso) => `<div class="lf"><span>${e(label)}</span>${FD(iso, 'short', { cls: `dl${iso ? ' has' : ''}`, ph: '' })}</div>`;
 /** ช่องแบบ FM-002: หัวข้อแล้วตามด้วยค่า (ต้นฉบับไม่มีเส้นประ) — w = ความกว้างเมื่อมีหลายช่องในแถวเดียว */
-const pv = (label, v, w = '') => `<span class="sp"${w ? ` style="width:${w}"` : ''}><span>${e(label)}</span><span class="v f" data-f>${e(v ?? '')}</span></span>`;
+const pv = (label, v, w = '', bind = '') => `<span class="sp"${w ? ` style="width:${w}"` : ''}><span>${e(label)}</span><span class="v f" data-f${bind ? ` data-bind="${bind}"` : ''}>${e(v ?? '')}</span></span>`;
 const pvd = (label, iso, w = '') => `<span class="sp"${w ? ` style="width:${w}"` : ''}><span>${e(label)}</span>${FD(iso, 'short', { cls: 'v', ph: '' })}</span>`;
 /** ท้ายกระดาษตามต้นฉบับ (รหัสเอกสารและครั้งที่แก้ไข) */
 const ofFoot = (kind) => `<table class="of-foot"><tr><td style="width:40%">รองผู้ว่าการธุรกิจเกี่ยวเนื่อง</td><td>รหัสเอกสาร ${e(FORMS[kind].code)}</td><td style="width:20%">แก้ไขครั้งที่ 00</td></tr></table>`;
 const ORG = 'การไฟฟ้าฝ่ายผลิตแห่งประเทศไทย';
 /** แยก "ขุดดินฐานราก 45 ลบ.ม." → [รายการ, ปริมาณ] — รับเฉพาะตัวเลขที่ตามด้วยหน่วยงานก่อสร้าง (กัน "ชั้น 2" ถูกนับเป็นปริมาณ) */
-const UNIT = '(?:ลบ\\.?ม\\.?|ตร\\.?ม\\.?|ม\\.|เมตร|ตารางเมตร|ลูกบาศก์เมตร|คิว|กก\\.?|กิโลกรัม|ตัน|ต้น|จุด|ชุด|เส้น|แผ่น|ท่อน|ลิตร|คัน|ถุง|ก้อน|อัน|ตัว|ชิ้น|หลุม|ช่อง|บาน|ม้วน|กล่อง|ถัง|เที่ยว|งาน|แห่ง|m3|m2|m|kg|ton|pcs|set|lot|%)';
-const QTY_RE = new RegExp(`^(.+?)[\\s:]+((?:จำนวน\\s*)?\\d[\\d,]*(?:\\.\\d+)?\\s*${UNIT})$`, 'i');
 function splitQty(text) {
   const t = String(text || '').replace(/^\s*(?:\d+[.)]|[-•·])\s+/, '').trim();
-  const m = t.match(QTY_RE);
-  return m && m[1].length > 1 ? [m[1].trim(), m[2].trim()] : [t, ''];
+  // 1.0.14 แยกด้วย vocab.splitLine ("รายการ<TAB>ปริมาณ หน่วย" หรือ "รายการ 45 ลบ.ม.")
+  const [w, q, u] = splitLine(t);
+  return [w, q ? `${q} ${u}`.trim() : (t.includes('\t') ? u : '')];
 }
-/** "45 ลบ.ม." → ["45", "ลบ.ม."] */
-const numUnit = (q) => {
-  const m = String(q || '').match(/^(?:จำนวน\s*)?(\d[\d,]*(?:\.\d+)?)\s*(.*)$/);
-  return m ? [m[1], m[2].trim()] : [String(q || ''), ''];
-};
 const linesOf = (text) => String(text || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
 const pad = (list, n, blank) => { const out = list.slice(); while (out.length < n) out.push(blank); return out; };
 const contractorRep = (p) => p?.contractorRep || (p ? (R.members(p).find((m) => m.role === 'contractor')?.name || '') : '');
@@ -282,9 +280,9 @@ function formMaterial({ p, sub, date, today }) {
   <div class="of-title">${e(ORG)}</div>
   <table class="of">
     <colgroup><col style="width:33.3%"><col style="width:30.8%"><col style="width:35.9%"></colgroup>
-    <tr><td colspan="3">${lf('งานก่อสร้าง', p ? `${p.code ? `${p.code} ` : ''}${p.name}` : '')}</td></tr>
-    <tr><td colspan="2">${lf('สถานที่', p?.location)}</td><td>${lf('เลขที่งาน (PM-Orderกอง)', p?.pmOrder)}</td></tr>
-    <tr><td colspan="2">${lf('ผู้รับจ้าง', p?.contractor)}</td><td>${lf('สัญญาเลขที่', p?.contractNo)}</td></tr>
+    <tr><td colspan="3">${lf('งานก่อสร้าง', p ? `${p.code ? `${p.code} ` : ''}${p.name}` : '', 'proj')}</td></tr>
+    <tr><td colspan="2">${lf('สถานที่', p?.location, 'location')}</td><td>${lf('เลขที่งาน (PM-Orderกอง)', p?.pmOrder, 'pmOrder')}</td></tr>
+    <tr><td colspan="2">${lf('ผู้รับจ้าง', p?.contractor, 'contractor')}</td><td>${lf('สัญญาเลขที่', p?.contractNo, 'contractNo')}</td></tr>
     <tr class="big"><td colspan="3">รายละเอียดผลการตรวจวัสดุก่อสร้าง</td></tr>
     <tr><td colspan="2">${lf('วัสดุ', mat)}</td><td>${lfd('วันที่', when)}</td></tr>
     <tr><td>${lf('จำนวนนำเข้าใช้งาน', '')}</td><td>${lf('จำนวนสุ่มตรวจ', '')}</td><td>${lf('มาตรฐานของวัสดุ', '')}</td></tr>
@@ -296,7 +294,7 @@ function formMaterial({ p, sub, date, today }) {
     <tr class="head2"><th>ตัวอย่าง</th><th>มาตรฐาน</th></tr>
     ${rows}
   </table>
-  <div class="of-sign"><span class="ln"></span><span class="nm">(<span class="dl f${sup ? ' has' : ''}" data-f>${e(sup)}</span>)</span><br>ผู้ควบคุมงาน</div>
+  <div class="of-sign"><span class="ln">${SG()}</span><span class="nm">(<span class="dl f${sup ? ' has' : ''}" data-f>${e(sup)}</span>)</span><br>ผู้ควบคุมงาน</div>
   <div class="of-notes">หมายเหตุ
     <ol>
       <li>มาตรฐานที่ใช้อ้างอิง เป็นมาตรฐานของผู้ออกแบบ หรือมาตรฐานของผู้ผลิต หรือมาตรฐานสากลที่สามารถยอมรับได้</li>
@@ -311,12 +309,12 @@ function formDaily({ p, daily: dy, date, today }) {
   const day = dy?.date || date || today || '';
   const W = R.WEATHER;
   const wx = dy ? [dy.weather?.am && `เช้า ${W[dy.weather.am] || ''}`, dy.weather?.pm && `บ่าย ${W[dy.weather.pm] || ''}`].filter(Boolean).join(' · ') : '';
-  const [from, to] = String(dy?.workHours || '').split(/\s*(?:–|-|—|ถึง)\s*/).concat(['', '']);
+  const [from, to] = String(dy?.workHours || '').slice(0, 60).split(/–|-|—|ถึง/).map((x) => x.trim()).concat(['', '']);
   // รายละเอียดของงาน: งานที่บันทึก + ปริมาณงานจากบันทึกความคืบหน้าวันเดียวกัน (ถ้ามี)
   const work = linesOf(dy?.work).map(splitQty);
   const up = p && day ? store.updatesOf(p.id).find((u) => u.date === day) : null;
   if (dy || date) boqDone(p, day).forEach(([w, q, u]) => work.push([w, `${q} ${u}`.trim()]));
-  const workRows = pad(work.map(([w, q], i) => `<tr>${TD(String(i + 1), 'class="c"')}${TD(w)}${TD(q)}</tr>`), 11, `<tr>${TD('', 'class="c"')}${TD()}${TD()}</tr>`).join('');
+  const workRows = pad(work.map(([w, q], i) => `<tr>${TD(String(i + 1), 'class="c"')}${TD(w, 'data-sug="work"')}${TD(q)}</tr>`), 11, `<tr>${TD('', 'class="c"')}${TD('', 'data-sug="work"')}${TD()}</tr>`).join('');
   // ปัญหา / การแก้ไข
   const probs = [
     ...(dy?.stoppage?.stopped ? [`หยุดงาน${dy.stoppage.hours ? ` ${dy.stoppage.hours} ชั่วโมง` : ''}${dy.stoppage.reason ? ` — ${dy.stoppage.reason}` : ''}`] : []),
@@ -330,15 +328,15 @@ function formDaily({ p, daily: dy, date, today }) {
   const men = dy?.manpower || [];
   const eq = dy?.equipment || [];
   const n = Math.max(5, mats.length, men.length, eq.length);
-  const resRows = Array.from({ length: n }, (_, i) => `<tr>${TD(mats[i]?.[0] || '')}${TD(mats[i]?.[1] || '')}${TD(men[i]?.trade || '')}${TD(men[i]?.count ?? '', 'class="c"')}${TD(eq[i]?.name || '')}${TD(eq[i]?.count ?? '', 'class="c"')}</tr>`).join('');
+  const resRows = Array.from({ length: n }, (_, i) => `<tr>${TD(mats[i]?.[0] || '', 'data-sug="mat"')}${TD(mats[i]?.[1] || '')}${TD(men[i] ? tradeLabel(men[i].trade) : '', 'data-sug="trade"')}${TD(men[i]?.count ?? '', 'class="c"')}${TD(eq[i]?.name || '', 'data-sug="equip"')}${TD(eq[i]?.count ?? '', 'class="c"')}</tr>`).join('');
   return `<div class="of-main">
   <div class="of-title">${e(ORG)}</div>
   <div class="of-sub">บันทึกการควบคุมงานประจำวัน</div>
   <table class="of">
     <colgroup><col style="width:50.4%"><col style="width:49.6%"></colgroup>
     <tr><td colspan="2">${pv('แผนก', p?.orgSection, '36%')}${pv('กอง', p?.orgDivision, '33%')}${pv('ฝ่าย', p?.orgDept, '31%')}</td></tr>
-    <tr><td>${pv('งาน', p?.name)}</td><td>${pv('ผู้รับจ้าง', p?.contractor)}</td></tr>
-    <tr><td>${pv('สถานที่', p?.location)}</td><td>${pv('ผู้แทนผู้รับจ้าง', contractorRep(p))}</td></tr>
+    <tr><td>${pv('งาน', p?.name)}</td><td>${pv('ผู้รับจ้าง', p?.contractor, '', 'contractor')}</td></tr>
+    <tr><td>${pv('สถานที่', p?.location, '', 'location')}</td><td>${pv('ผู้แทนผู้รับจ้าง', contractorRep(p), '', 'rep')}</td></tr>
     <tr><td>${pvd('วันที่', day, '38%')}${pv('เวลา จาก', from, '34%')}${pv('ถึง', to, '28%')}</td><td>${pv('สภาพอากาศ', wx)}</td></tr>
     <tr class="blank">${TD('', 'colspan="2"')}</tr>
   </table>
@@ -359,11 +357,46 @@ function formDaily({ p, daily: dy, date, today }) {
     ${resRows}
   </table>
   <div class="of-gap"></div>
-  <table class="of"><tr><td style="height:28px">${pv('ผู้ควบคุมงาน', dy?.createdBy || supervisorName(p))}</td></tr></table>
-  ${dy?.files?.length ? `<p class="small" style="margin-top:2mm">รูปถ่ายประกอบ ${dy.files.length} รูป (เก็บในระบบ หมวดรูปถ่ายความคืบหน้า)</p>` : ''}
+  <table class="of"><tr><td style="height:30px;overflow:visible">${pv('ผู้ควบคุมงาน', dy?.createdBy || supervisorName(p), '60%')}<span class="sp" style="width:40%"><span>ลงชื่อ</span>${SG('sg-in')}</span></td></tr></table>
+  ${dy?.files?.length ? `<p class="small" style="margin-top:2mm">ภาพประกอบ ${dy.files.length} รูป (แนบท้าย)</p>` : ''}
   </div>
   ${ofFoot('daily')}`;
 }
+/** 1.0.14 หน้าภาพประกอบ (เรียงตามรายงาน + "รูปที่ n คำบรรยาย") — หน้าละ 6 รูป · รูปจากระบบใส่ให้หลังเปิดแบบฟอร์ม */
+function photoPages(dy, title, { min = 0, cls = 'ph' } = {}) {
+  const ids = (dy?.files || []);
+  const n = Math.max(min, Math.ceil(ids.length / 6) * 6);
+  const pages = [];
+  for (let s = 0; s < n; s += 6) {
+    const cell = (i) => `<td class="ph-cell" data-photo="${i}"><span class="ph-hint">คลิกเพื่อเลือกรูป หรือลากรูปมาวาง</span><button type="button" class="ph-x" aria-label="เอารูปออก">×</button><button type="button" class="ph-mk" aria-label="มาร์ค/โน้ตบนรูป">มาร์ค</button></td>`;
+    const cap = (i) => {
+      const id = ids[i];
+      const c = id ? `รูปที่ ${i + 1}${dy.captions?.[id] ? ` ${dy.captions[id]}` : ''}` : '';
+      return TD(c, 'class="cap" data-sug="cap"');
+    };
+    pages.push({ cls, html: `<table class="phg">
+      <tr><th colspan="2">${e(title)}${n > 6 ? ` (${s / 6 + 1}/${n / 6})` : ''}</th></tr>
+      ${[0, 2, 4].map((k) => `<tr>${cell(s + k)}${cell(s + k + 1)}</tr><tr>${cap(s + k)}${cap(s + k + 1)}</tr>`).join('')}
+    </table>` });
+  }
+  return pages;
+}
+const PHOTO_CSS = `
+.sheet.ph { padding: 10mm 14mm; font-size: 13px; font-family: 'Sarabun', Tahoma, sans-serif; }
+table.phg { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.phg th { border: 1px solid #000; font-size: 15px; padding: 3px; }
+table.phg td { border: 1px solid #000; padding: 3px; text-align: center; }
+table.phg td.ph-cell { height: 72mm; position: relative; cursor: pointer; }
+table.phg td.ph-cell img { max-width: 100%; max-height: 70mm; object-fit: contain; display: block; margin: 0 auto; }
+table.phg td.cap { height: 7mm; font-weight: 600; }
+.ph-hint { color: #7A8496; font-size: 12px; }
+.ph-cell.has-img .ph-hint { display: none; }
+.ph-x, .ph-mk { position: absolute; top: 4px; display: none; height: 24px; border-radius: 12px; border: 0; background: rgba(0,0,0,.62); color: #fff; font-size: 12px; line-height: 24px; cursor: pointer; }
+.ph-x { right: 4px; width: 24px; font-size: 15px; } .ph-mk { right: 32px; padding: 0 10px; font-family: inherit; }
+.ph-cell.has-img:hover .ph-x, .ph-cell.has-img:focus-within .ph-x, .ph-cell.has-img:hover .ph-mk, .ph-cell.has-img:focus-within .ph-mk { display: block; }
+body.official .sheet.ph { height: auto; min-height: 297mm; display: block; padding: 14mm 14mm; }
+@media print { .sheet.ph { padding: 0; } body.official .sheet.ph { padding: 12mm; min-height: 0; } .ph-x, .ph-mk { display: none !important; } }
+`;
 
 // ---------- PT-F01 หนังสือขออนุมัติ + บันทึกการขออนุมัติ/ผลการตรวจสอบการขออนุมัติ ----------
 const SUB_CSS = `
@@ -419,12 +452,12 @@ function formSub({ p, sub, today }) {
   const firm = /^บริษัท/.test(contractor) ? 'บริษัทฯ' : /^ห้าง/.test(contractor) ? 'ห้างฯ' : 'ผู้รับจ้าง';
   const files = sub ? (sub.files || []).map((id) => store.data.files.find((f) => f.id === id)).filter(Boolean) : [];
   const steps = sub?.steps || [];
-  const no = sub ? `${R.subNo(sub)}${+sub.rev > 1 ? ` (ส่งครั้งที่ ${sub.rev})` : ''}` : '';
+  const no = sub ? (sub.form?.ref || `${R.subNo(sub)}${+sub.rev > 1 ? ` (ส่งครั้งที่ ${sub.rev})` : ''}`) : '';
   const title = sub?.title || '';
   const date = sub ? isoTh(sub.submittedAt) : today;
   const value = p?.contractValue !== '' && p?.contractValue != null && +p.contractValue > 0 ? +p.contractValue : 0;
   const days = p?.startDate && p?.endDate ? Math.round((Date.parse(p.endDate) - Date.parse(p.startDate)) / 864e5) + 1 : 0;
-  const detail = String(sub?.detail || '').replace(/\s*\n+\s*/g, ' ').trim().slice(0, 600);
+  const detail = String(sub?.detail || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean).join(' ').slice(0, 600);
   const P1 = `ตามที่ ${contractor || '………………………………'} ได้เป็นผู้รับจ้างทำ${p?.name || '………………………………………………'} มูลค่างาน ${value ? `${money(value)} บาท (${bahtText(value)})` : '……………………… บาท (………………………………)'} รวมภาษีมูลค่าเพิ่ม ระยะเวลาทำงาน ${days ? days.toLocaleString('th-TH') : '………'} วัน ตามสัญญาที่อ้างถึงนั้น`;
   const P2 = `ทาง${firm} มีความประสงค์${title ? `${title.replace(/^ขอ/, 'ขอ')}` : 'ขออนุมัติใช้วัสดุ ………………………………………………'}${detail ? ` ${detail}` : ''} เพื่อประกอบการดำเนินงานในโครงการฯ โดยมีรายละเอียดตามเอกสารแนบท้าย`;
   const P3 = `ในการนี้ ${firm} ขอความอนุเคราะห์จากท่าน โปรดพิจารณาอนุมัติตามที่เสนอ เพื่อให้การดำเนินโครงการเป็นไปอย่างต่อเนื่องและแล้วเสร็จตามแผนที่กำหนด`;
@@ -435,25 +468,32 @@ function formSub({ p, sub, today }) {
   ];
   while (atts.length < 3) atts.push(`<div class="att-row">${F('', { cls: 'att-t', hint: `${atts.length + 1}. เอกสารแนบเพิ่ม (ถ้ามี)` })}</div>`);
   const letter = `
-  <div class="lh">${F(contractor, { cls: 'lh-name', hint: 'ชื่อผู้รับจ้าง' })}${F('', { cls: 'lh-addr', hint: 'ที่อยู่ / โทรศัพท์ของผู้รับจ้าง (ถ้ามี)' })}</div>
+  <div class="lh">${F(contractor, { cls: 'lh-name', hint: 'ชื่อผู้รับจ้าง', bind: 'contractor' })}${F('', { cls: 'lh-addr', hint: 'ที่อยู่ / โทรศัพท์ของผู้รับจ้าง (ถ้ามี)' })}</div>
   <div class="lt-date">วันที่ ${FD(date, 'long', { ph: '…………………………………' })}</div>
   <table class="lt-info">
     <tr><td class="k">เลขที่</td><td>: ${F(no, { ph: DOTS })}</td></tr>
     <tr><td class="k">เรื่อง</td><td>: ${F(title, { ph: DOTS })}</td></tr>
     <tr><td class="k">เรียน</td><td>: ${F('ผู้ควบคุมงาน')}</td></tr>
-    <tr><td class="k">อ้างถึง</td><td>: สัญญาเลขที่ ${F(p?.contractNo || '', { ph: '…………………' })} ลงวันที่ ${FD(p?.contractDate || '', 'long', { ph: '…………………………' })}</td></tr>
+    <tr><td class="k">อ้างถึง</td><td>: สัญญาเลขที่ ${F(p?.contractNo || '', { ph: '…………………', bind: 'contractNo' })} ลงวันที่ ${FD(p?.contractDate || '', 'long', { ph: '…………………………', bind: 'contractDate' })}</td></tr>
     <tr><td class="k">สิ่งที่แนบมาด้วย</td><td>${atts.join('')}</td></tr>
   </table>
   <p class="para f multi" data-f>${e(P1)}</p>
   <p class="para f multi" data-f>${e(P2)}</p>
   <p class="para f multi" data-f>${e(P3)}</p>
   <p class="lt-close">จึงเรียนมาเพื่อโปรดพิจารณา</p>
-  <div class="lt-sign">ขอแสดงความนับถือ<br>${F(contractor, { ph: DOTS })}<div class="sg-space"></div>(${F(submitter, { ph: DOTS })})<br>${F('', { hint: 'ตำแหน่ง' })}</div>`;
+  <div class="lt-sign">ขอแสดงความนับถือ<br>${F(contractor, { ph: DOTS, bind: 'contractor' })}<div class="sg-space">${SG('sg-big')}</div>(${F(submitter, { ph: DOTS })})<br>${F('', { hint: 'ตำแหน่ง' })}</div>`;
 
   // หน้า 2 บันทึกการขออนุมัติ
   const vote = sub?.vote?.status === 'closed' ? (sub.vote.options || []).find((o) => o.id === sub.vote.result)?.label || '' : '';
   const ck = (on, label, q = null) => `<span>${CK(on)}${e(label)}${q != null ? `จำนวน${F(q, { cls: 'q' })}ชุด` : ''}</span>`;
-  const items = pad([], 8, `<tr>${TD()}${TD()}${TD()}${TD()}${TD()}${TD()}${TD()}</tr>`).join('');
+  // 1.0.14 ข้อมูลที่ผู้รับจ้างกรอกตอนส่งเรื่อง (ตารางสิ่งที่เสนอ เอกสารแนบ ประเภทงาน)
+  const sf = sub?.form || {};
+  const at = sf.attach || {};
+  const tp = (k) => (sf.types || []).includes(k);
+  const attQ = (k) => (at[k] ? String(at[k]) : '');
+  const docsN = at.docs ? String(at.docs) : (files.length ? String(files.length) : '');
+  const specRows = (sf.specs || []).map((r, i) => `<tr>${TD(String(i + 1))}${TD(r.dwg)}${TD(r.tech)}${TD(r.prop)}${TD()}${TD()}${TD()}</tr>`);
+  const items = pad(specRows, Math.max(8, specRows.length), `<tr>${TD()}${TD()}${TD()}${TD()}${TD()}${TD()}${TD()}</tr>`).join('');
   const record = `
   <table class="rec">
     <tr><th class="rec-t">บันทึกการขออนุมัติ/ผลการตรวจสอบการขออนุมัติ</th></tr>
@@ -464,23 +504,23 @@ function formSub({ p, sub, today }) {
           <div class="kv"><span class="k">เรื่อง :</span>${F(title)}</div>
           <div class="kv"><span class="k">วันที่ :</span>${FD(date, 'long', { ph: '' })}</div>
           <div class="kv"><span class="k">โครงการ :</span>${F(p?.name || '')}</div>
-          <div class="kv"><span class="k">ผู้รับจ้าง :</span>${F(contractor)}</div>
+          <div class="kv"><span class="k">ผู้รับจ้าง :</span>${F(contractor, { bind: 'contractor' })}</div>
         </div>
         <div class="rh-r">
           <div class="kv"><span class="k">เรียน</span>${F('คณะกรรมการตรวจรับ ผ่านผู้ควบคุมงาน')}</div>
-          <div class="kv"><span class="k">ตามสัญญาเลขที่ :</span>${F(p?.contractNo || '')}</div>
+          <div class="kv"><span class="k">ตามสัญญาเลขที่ :</span>${F(p?.contractNo || '', { bind: 'contractNo' })}</div>
         </div>
       </div>
       <div class="rh-gap"></div>
     </td></tr>
     <tr><td>
       <div class="ckgrid g3">
-        <span class="lbl">แนบเอกสาร</span>${ck(false, 'แค็ตตาล็อก', '')}${ck(false, 'ตัวอย่างวัสดุ', '')}${ck(!!files.length, 'เอกสารประกอบ', files.length ? String(files.length) : '')}
-        <span class="lbl"></span>${ck(false, 'Shop Drawing ', '')}${ck(false, 'อื่น', '')}<span></span>
+        <span class="lbl">แนบเอกสาร</span>${ck(!!at.catalog, 'แค็ตตาล็อก', attQ('catalog'))}${ck(!!at.sample, 'ตัวอย่างวัสดุ', attQ('sample'))}${ck(!!docsN, 'เอกสารประกอบ', docsN)}
+        <span class="lbl"></span>${ck(!!at.shop, 'Shop Drawing ', attQ('shop'))}${ck(!!at.other, 'อื่น', attQ('other'))}<span></span>
       </div>
       <div class="ckgrid g5">
-        <span class="lbl">ประเภทงาน</span>${ck(false, 'งานโครงสร้าง')}${ck(false, 'งานสถาปัตยกรรม')}${ck(false, 'งานระบบสุขาภิบาล')}${ck(false, 'งานระบบไฟฟ้า')}${ck(false, 'งานระบบเครื่องกล')}
-        <span class="lbl"></span>${ck(false, 'งานระบบประปา')}<span style="grid-column:span 3">${CK(false)}งานอื่นๆ ${F('', { ph: '……………………………………………' })}</span><span></span>
+        <span class="lbl">ประเภทงาน</span>${ck(tp('structure'), 'งานโครงสร้าง')}${ck(tp('arch'), 'งานสถาปัตยกรรม')}${ck(tp('sanitary'), 'งานระบบสุขาภิบาล')}${ck(tp('electric'), 'งานระบบไฟฟ้า')}${ck(tp('mech'), 'งานระบบเครื่องกล')}
+        <span class="lbl"></span>${ck(tp('water'), 'งานระบบประปา')}<span style="grid-column:span 3">${CK(tp('other'))}งานอื่นๆ ${F(sf.typeOther || '', { ph: '……………………………………………' })}</span><span></span>
       </div>
     </td></tr>
   </table>
@@ -506,7 +546,7 @@ function formSub({ p, sub, today }) {
   const who = (s, m) => (decided(s) ? s.byName || nameOf(p, s.by) : '') || (m ? nameOf(p, m.email) : '');
   const when = (s) => (decided(s) ? isoTh(s.at) : '');
   const dl = (label, v, opts = {}) => `<div class="dline"><span>${e(label)}</span>${F(v, opts)}</div>`;
-  const signBlock = (name, date, role = '', { dept = false } = {}) => `<span class="sgl"></span>
+  const signBlock = (name, date, role = '', { dept = false } = {}) => `<span class="sgl">${SG()}</span>
     <div class="cen">(${F(name, { cls: 'nm', ph: DOTS })})</div>
     ${dept ? `<div class="dline ind" style="justify-content:center"><span>แผนก/หมวด</span>${F('', { style: 'flex:0 1 46%' })}</div>` : ''}
     <div class="cen">วันที่ ${FD(date, 'slash', { ph: '…………/…………/…………' })}</div>
@@ -564,18 +604,7 @@ table.cd td.c, table.cd th.c { text-align: center; } table.cd td.r { text-align:
 .cd .fdrow { display: flex; justify-content: center; gap: 22px; }
 .cd .g { font-weight: 600; } .cd .g1 { padding-left: 10px !important; } .cd .g2 { padding-left: 18px !important; } .cd .g3 { padding-left: 26px !important; }
 .cd .gap { height: 4px; }
-.cd .sg td { height: 17px; } .cd .sg .lbl { width: 50px; white-space: nowrap; } .cd .sg .ln { border-bottom: 1px dotted #000; }
-.sheet.ph { padding: 10mm 14mm; font-size: 13px; }
-table.phg { width: 100%; border-collapse: collapse; table-layout: fixed; }
-table.phg th { border: 1px solid #000; font-size: 15px; padding: 3px; }
-table.phg td { border: 1px solid #000; padding: 3px; text-align: center; }
-table.phg td.ph-cell { height: 72mm; position: relative; cursor: pointer; }
-table.phg td.ph-cell img { max-width: 100%; max-height: 70mm; object-fit: contain; display: block; margin: 0 auto; }
-table.phg td.cap { height: 7mm; font-weight: 600; }
-.ph-hint { color: #7A8496; font-size: 12px; }
-.ph-cell.has-img .ph-hint { display: none; }
-.ph-x { position: absolute; top: 4px; right: 4px; display: none; width: 24px; height: 24px; border-radius: 12px; border: 0; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; line-height: 24px; cursor: pointer; }
-.ph-cell.has-img:hover .ph-x, .ph-cell.has-img:focus-within .ph-x { display: block; }
+.cd .sgt td { height: 17px; } .cd .sgt .lbl { width: 50px; white-space: nowrap; } .cd .sgt .ln { border-bottom: 1px dotted #000; position: relative; }
 @media print { .sheet.cd, .sheet.ph { padding: 0; } }
 `;
 const MP_DEFAULT = ['Project Manager', 'Site Engineer', 'Office Engineer', 'Supervisor', 'Foreman', 'Operator/Driver', 'M&E technician', 'Safety', 'Headman', 'Worker', 'Welder'];
@@ -587,12 +616,14 @@ function formCDaily({ p, daily: dy, date, today }) {
   const W = R.WEATHER;
   const contractor = p?.contractor || '';
   // งานที่ทำได้ (รายงาน) — จากรายงานประจำวัน + บันทึกความคืบหน้า BOQ ของวันนั้น
-  const done = linesOf(dy?.work).map(splitQty).map(([w, q]) => [w, ...numUnit(q)]);
+  const done = linesOf(dy?.work).map((ln) => splitLine(ln.replace(/^\s*(?:\d+[.)]|[-•·])\s+/, '')));
   if (p) boqDone(p, rep).forEach((x) => done.push(x));
-  const nRows = Math.max(14, done.length);
+  // งานที่ขอทำวันถัดไป (Daily Request) — กรอกในรายงานประจำวัน 1.0.14
+  const reqs = (dy?.request || []);
+  const nRows = Math.max(14, done.length, reqs.length);
   const dRows = Array.from({ length: nRows }, (_, i) => {
-    const x = done[i];
-    return `<tr>${TD(x ? String(i + 1) : '', 'class="c"')}${TD(x?.[0] || '')}${TD(x?.[1] || '', 'class="c"')}${TD(x?.[2] || '', 'class="c"')}${TD('', 'class="c"')}${TD()}${TD('', 'class="c"')}${TD('', 'class="c"')}</tr>`;
+    const x = done[i], r = reqs[i];
+    return `<tr>${TD(x ? String(i + 1) : '', 'class="c"')}${TD(x?.[0] || '', 'data-sug="work"')}${TD(x?.[1] || '', 'class="c"')}${TD(x?.[2] || '', 'class="c" data-sug="unit"')}${TD(r ? String(i + 1) : '', 'class="c"')}${TD(r?.work || '', 'data-sug="req"')}${TD(r ? `${r.qty || ''}${r.unit ? ` ${r.unit}` : ''}`.trim() : '', 'class="c"')}${TD(r && r.men !== '' && r.men != null ? String(r.men) : '', 'class="c"')}</tr>`;
   }).join('');
   // ความคืบหน้าตาม BOQ ณ วันที่รายงาน
   const items = p ? store.boqOf(p.id) : [];
@@ -629,9 +660,10 @@ function formCDaily({ p, daily: dy, date, today }) {
   const dys = p ? store.dailyOf(p.id).filter((x) => x.date <= rep) : (dy ? [dy] : []);
   const trades = [];
   const upto = Object.create(null), now = Object.create(null);
-  [...(dy ? [dy] : []), ...dys].forEach((x) => (x.manpower || []).forEach((m) => { const t = String(m.trade || '').trim(); if (t && !trades.includes(t)) trades.push(t); }));
-  dys.filter((x) => x.date < rep).forEach((x) => (x.manpower || []).forEach((m) => { const t = String(m.trade || '').trim(); upto[t] = (upto[t] || 0) + (+m.count || 0); }));
-  (dy?.manpower || []).forEach((m) => { const t = String(m.trade || '').trim(); now[t] = (now[t] || 0) + (+m.count || 0); });
+  // ชื่อตำแหน่งเดียวกัน (รวม "กรรมกร" = "ผู้ปฏิบัติงาน") นับเป็นแถวเดียว
+  [...(dy ? [dy] : []), ...dys].forEach((x) => (x.manpower || []).forEach((m) => { const t = tradeLabel(m.trade); if (t && !trades.includes(t)) trades.push(t); }));
+  dys.filter((x) => x.date < rep).forEach((x) => (x.manpower || []).forEach((m) => { const t = tradeLabel(m.trade); upto[t] = (upto[t] || 0) + (+m.count || 0); }));
+  (dy?.manpower || []).forEach((m) => { const t = tradeLabel(m.trade); now[t] = (now[t] || 0) + (+m.count || 0); });
   const mpList = trades.length ? trades : MP_DEFAULT;
   const eq = (dy?.equipment || []).filter((x) => x.name);
   const half = Math.max(15, Math.ceil(eq.length / 2));
@@ -642,27 +674,29 @@ function formCDaily({ p, daily: dy, date, today }) {
     const u = t && trades.length ? qtyTxt(upto[t] || 0) : '';
     const n = t && trades.length ? qtyTxt(now[t] || 0) : '';
     const a = eq[i], b = eq[i + nMp];
-    return `<tr>${TD(t ? `${i + 1}. ${t}` : '')}${TD(u, 'class="r" data-col="ud"')}${TD('', 'class="r" data-col="uo"')}${TD(n, 'class="r" data-col="dd"')}${TD('', 'class="r" data-col="do"')}<td class="r" data-calc="ud+dd" data-col="ad"></td><td class="r" data-calc="uo+do" data-col="ao"></td>`
-      + `${TD(a ? `${i + 1}. ${a.name}` : '')}${TD(a ? qtyTxt(a.count) : '', 'class="c" data-col="eq"')}${TD()}${TD(b ? `${i + nMp + 1}. ${b.name}` : '')}${TD(b ? qtyTxt(b.count) : '', 'class="c" data-col="eq"')}${TD()}</tr>`;
+    return `<tr>${TD(t ? `${i + 1}. ${t}` : '', 'data-sug="trade"')}${TD(u, 'class="r" data-col="ud"')}${TD('', 'class="r" data-col="uo"')}${TD(n, 'class="r" data-col="dd"')}${TD('', 'class="r" data-col="do"')}<td class="r" data-calc="ud+dd" data-col="ad"></td><td class="r" data-calc="uo+do" data-col="ao"></td>`
+      + `${TD(a ? `${i + 1}. ${a.name}` : '', 'data-sug="equip"')}${TD(a ? qtyTxt(a.count) : '', 'class="c" data-col="eq"')}${TD()}${TD(b ? `${i + nMp + 1}. ${b.name}` : '', 'data-sug="equip"')}${TD(b ? qtyTxt(b.count) : '', 'class="c" data-col="eq"')}${TD()}</tr>`;
   }).join('');
   const wx = dy ? [dy.weather?.am && W[dy.weather.am], dy.weather?.pm && W[dy.weather.pm]].filter(Boolean).join(' / ') : '';
-  const sgCell = (name, role, dateIso) => `<td style="padding:2px 4px;vertical-align:top"><table class="cd sg"><colgroup><col style="width:50px"><col></colgroup>
-    <tr><td class="lbl" style="border:0">Signature :</td><td style="border:0" class="ln"></td></tr>
+  const wxNight = dy?.weather?.night ? W[dy.weather.night] || '' : '';
+  const pm25 = dy?.weather?.pm25 !== '' && dy?.weather?.pm25 != null ? String(dy.weather.pm25) : '';
+  const sgCell = (name, role, dateIso) => `<td style="padding:2px 4px;vertical-align:top"><table class="cd sgt"><colgroup><col style="width:50px"><col></colgroup>
+    <tr><td class="lbl" style="border:0">Signature :</td><td style="border:0" class="ln">${SG()}</td></tr>
     <tr><td class="lbl" style="border:0">Name :</td><td style="border:0">${F(name, { ph: '…………………………' })}</td></tr>
     <tr><td class="lbl" style="border:0">Date :</td><td style="border:0">${FD(dateIso, 'med', { ph: '……………………………' })}</td></tr>
     <tr><td style="border:0"></td><td style="border:0" class="c">${F(role, { hint: 'ตำแหน่ง' })}</td></tr></table></td>`;
   const page1 = `
   <table class="cd">
     <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
-    <tr><td class="hd-t">Daily Report and Daily Request</td><td class="hd-t">${F(contractor, { hint: 'ชื่อผู้รับจ้าง' })}</td></tr>
+    <tr><td class="hd-t">Daily Report and Daily Request</td><td class="hd-t">${F(contractor, { hint: 'ชื่อผู้รับจ้าง', bind: 'contractor' })}</td></tr>
     <tr><td style="padding:3px 4px">
-        <div class="kv"><span class="k">Project :</span>${F(p ? `${p.code ? `${p.code} ` : ''}${p.name}` : '')}</div>
+        <div class="kv"><span class="k">Project :</span>${F(p ? `${p.code ? `${p.code} ` : ''}${p.name}` : '', { bind: 'proj' })}</div>
         <div class="kv"><span class="k">Owner :</span>${F(ORG)}</div>
-        <div class="kv"><span class="k">Contractor :</span>${F(contractor)}</div>
-        <div class="wx"><span>สภาพอากาศ 06.00–18.00 น. ${F(wx)}</span><span>18.00–06.00 น. ${F('')}</span><span>PM 2.5 ${F('')} µg/m³</span></div>
+        <div class="kv"><span class="k">Contractor :</span>${F(contractor, { bind: 'contractor' })}</div>
+        <div class="wx"><span>สภาพอากาศ 06.00–18.00 น. ${F(wx)}</span><span>18.00–06.00 น. ${F(wxNight)}</span><span>PM 2.5 ${F(pm25)} µg/m³</span></div>
       </td>
       <td style="padding:3px 6px">
-        <div class="rt">สัญญาเลขที่ ${F(p?.contractNo || '', { ph: '……………………' })} ลงวันที่ ${FD(p?.contractDate || '', 'long', { ph: '……………………' })}</div>
+        <div class="rt">สัญญาเลขที่ ${F(p?.contractNo || '', { ph: '……………………', bind: 'contractNo' })} ลงวันที่ ${FD(p?.contractDate || '', 'long', { ph: '……………………', bind: 'contractDate' })}</div>
         <div class="rt" style="margin-top:14px">Date: <span class="red">${FD(doc, 'long')}</span></div>
       </td></tr>
   </table>
@@ -696,45 +730,126 @@ function formCDaily({ p, daily: dy, date, today }) {
     <tr><th colspan="3">ผู้รับจ้าง</th><th>ผู้ควบคุมงาน</th></tr>
     <tr>${sgCell(contractorRep(p), 'วิศวกรโครงการ', doc)}${sgCell('', 'วิศวกรสนาม', doc)}${sgCell('', 'เจ้าหน้าที่ความปลอดภัย', doc)}${sgCell(supervisorName(p), 'ผู้ควบคุมงาน', '')}</tr>
   </table>`;
-  const cell = (i) => `<td class="ph-cell" data-photo="${i}"><span class="ph-hint">คลิกเพื่อเลือกรูป หรือลากรูปมาวาง</span><button type="button" class="ph-x" aria-label="เอารูปออก">×</button></td>`;
-  const page2 = `
-  <table class="phg">
-    <tr><th colspan="2">ภาพประกอบการทำงาน</th></tr>
-    ${[0, 2, 4].map((i) => `<tr>${cell(i)}${cell(i + 1)}</tr><tr>${TD('', 'class="cap"')}${TD('', 'class="cap"')}</tr>`).join('')}
-  </table>`;
-  return [{ cls: 'cd', html: page1 }, { cls: 'ph', html: page2 }];
+  return [{ cls: 'cd', html: page1 }, ...photoPages(dy, 'ภาพประกอบการทำงาน', { min: 6 })];
 }
 
-// ---------- F03 รายงานประจำสัปดาห์ ----------
-function formWeekly({ p, to, today }) {
-  to = to || today || todayTh();
-  const from = R.addDaysIso(to, -6);
+// ---------- F03 รายงานประจำสัปดาห์ (1.0.14: เลือกสัปดาห์ที่ · เปอร์เซ็นต์งานตาม BOQ · S-Curve · ดึงจากรายงานประจำวัน) ----------
+/** ช่วงวันของสัปดาห์ที่ N ของสัญญา (ตรงกับ weekNo: สัปดาห์ที่ 1 เริ่มวันเริ่มสัญญา) */
+export function weekRange(p, week, to) {
+  if (p?.startDate && week >= 1) {
+    const from = week === 1 ? p.startDate : R.addDaysIso(p.startDate, 7 * (week - 1) + 1);
+    return { from, to: R.addDaysIso(p.startDate, 7 * week), week };
+  }
+  return { from: R.addDaysIso(to, -6), to, week: null };
+}
+/** สัปดาห์ที่เลือกได้ (ตั้งแต่เริ่มสัญญาถึงสัปดาห์ปัจจุบันหรือสิ้นสัญญา) */
+export function weekOptions(p, today) {
+  if (!p?.startDate) return [];
+  const last = Math.max(1, Math.min(weekNo(p, today) || 1, p.endDate ? weekNo(p, p.endDate) || 1 : 9999));
+  const out = [];
+  for (let w = last; w >= 1 && out.length < 400; w--) { const r = weekRange(p, w); out.push({ week: w, label: `สัปดาห์ที่ ${w} (${fmtDate(r.from)} – ${fmtDate(r.to)})` }); }
+  return out;
+}
+function sCurveSvg(p, items, ups, from, to, week) {
+  const plan = planSeries(p, 80, items);
+  const act = actualSeries(p, items, ups, to);
+  if (!p?.startDate || !p?.endDate || (!plan.length && !act.length)) return '<p class="muted small">ใส่วันเริ่ม/สิ้นสุดสัญญาที่ตั้งค่าโครงการ เพื่อแสดง S-Curve</p>';
+  const s = p.startDate, e = p.endDate > to ? p.endDate : to;
+  const span = Math.max(1, diffDays(s, e));
+  const W = 660, H = 236, L = 40, Rm = 12, T = 12, B = 30;
+  const top = Math.max(1, ...plan.map((x) => x.v), ...act.map((x) => x.v));
+  const x = (d) => L + (Math.min(span, Math.max(0, diffDays(s, d))) / span) * (W - L - Rm);
+  const y = (v) => T + (1 - v / top) * (H - T - B);
+  const path = (pts) => pts.map((pt, i) => `${i ? 'L' : 'M'}${x(pt.date).toFixed(1)},${y(pt.v).toFixed(1)}`).join('');
+  const grid = [0, 0.25, 0.5, 0.75, 1].map((g) => `<line x1="${L}" x2="${W - Rm}" y1="${y(g).toFixed(1)}" y2="${y(g).toFixed(1)}" stroke="#D5DAE3" stroke-width="1"/><text x="${L - 4}" y="${(y(g) + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="#5B6577">${g * 100}%</text>`).join('');
+  const ticks = [s, R.addDaysIso(s, Math.round(span / 2)), e].map((d, i) => `<text x="${x(d).toFixed(1)}" y="${H - 10}" text-anchor="${['start', 'middle', 'end'][i]}" font-size="10" fill="#5B6577">${e2(fmtDate(d))}</text>`).join('');
+  const band = `<rect x="${x(from).toFixed(1)}" y="${T}" width="${Math.max(2, x(to) - x(from)).toFixed(1)}" height="${H - T - B}" fill="#F2A900" fill-opacity=".14"/>`;
+  const last = act.length ? act[act.length - 1] : null;
+  return `<svg class="scurve" viewBox="0 0 ${W} ${H}" role="img" aria-label="S-Curve แผนงานเทียบผลงานสะสม">
+    ${grid}${band}
+    <line x1="${x(to).toFixed(1)}" x2="${x(to).toFixed(1)}" y1="${T}" y2="${H - B}" stroke="#E8590C" stroke-width="1.2" stroke-dasharray="3 3"/>
+    <text x="${(x(to) + 4).toFixed(1)}" y="${T + 10}" font-size="10" fill="#B4430A">${week ? `สัปดาห์ที่ ${week}` : e2(fmtDate(to))}</text>
+    ${plan.length ? `<path d="${path(plan)}" fill="none" stroke="#7A8496" stroke-width="2" stroke-dasharray="6 4"/>` : ''}
+    ${act.length ? `<path d="${path(act)}" fill="none" stroke="#1D4F91" stroke-width="2.6"/>` : ''}
+    ${last ? `<circle cx="${x(last.date).toFixed(1)}" cy="${y(last.v).toFixed(1)}" r="3.5" fill="#1D4F91"/>` : ''}
+    ${ticks}
+    <g font-size="10.5" fill="#333"><line x1="${L + 8}" x2="${L + 30}" y1="${T + 6}" y2="${T + 6}" stroke="#7A8496" stroke-width="2" stroke-dasharray="6 4"/><text x="${L + 34}" y="${T + 10}">แผนงานสะสม</text>
+    <line x1="${L + 112}" x2="${L + 134}" y1="${T + 6}" y2="${T + 6}" stroke="#1D4F91" stroke-width="2.6"/><text x="${L + 138}" y="${T + 10}">ผลงานสะสม</text></g>
+  </svg>`;
+}
+const e2 = (t) => e(t);
+function formWeekly({ p, to, today, week }) {
+  const t0 = to || today || todayTh();
+  const wk = week || (p?.startDate ? weekNo(p, t0) : null);
+  const rng = weekRange(p, wk, t0);
+  const from = rng.from;
+  to = rng.to;
   const days = [];
-  for (let i = 0; i < 7; i++) days.push(R.addDaysIso(from, i));
+  for (let d = from; d <= to; d = R.addDaysIso(d, 1)) days.push(d);
   const dys = p ? store.dailyOf(p.id) : [];
-  const a = p ? analyze(p, store.boqOf(p.id), store.updatesOf(p.id), store.settings, to) : null;
-  const prev = p ? analyze(p, store.boqOf(p.id), store.updatesOf(p.id), store.settings, R.addDaysIso(to, -7)) : null;
+  const items = p ? store.boqOf(p.id) : [];
+  const ups = p ? sortUpdates(store.updatesOf(p.id)) : [];
+  const a = p ? analyze(p, items, ups, store.settings, to) : null;
+  const prev = p ? analyze(p, items, ups, store.settings, R.addDaysIso(from, -1)) : null;
   const subs = p ? store.subsOf(p.id) : [];
   const inWeek = (iso) => String(iso || '').slice(0, 10) >= from && String(iso || '').slice(0, 10) <= to;
-  const issues = p ? store.updatesOf(p.id).filter((u) => inWeek(u.date) && u.issues) : [];
+  const weekDys = dys.filter((x) => inWeek(x.date));
+  const issues = [
+    ...ups.filter((u) => inWeek(u.date) && u.issues).map((u) => `${d(u.date)}: ${u.issues}`),
+    ...weekDys.filter((x) => x.stoppage?.stopped).map((x) => `${d(x.date)}: หยุดงาน${x.stoppage.hours ? ` ${x.stoppage.hours} ชม.` : ''}${x.stoppage.reason ? ` — ${x.stoppage.reason}` : ''}`),
+  ];
   const pend = subs.filter((s) => s.status === 'pending');
   const closed = subs.filter((s) => s.status !== 'pending' && inWeek(s.closedAt));
+  // ปริมาณ BOQ: สะสมถึงก่อนสัปดาห์ / ในสัปดาห์ / สะสมถึงสิ้นสัปดาห์
+  const cumPrev = cumulative(ups.filter((u) => u.date && u.date < from));
+  const cumTo = cumulative(ups.filter((u) => u.date && u.date <= to));
+  const wf = p ? weightFn(p, items) : () => 0;
+  const tw = items.reduce((s, it) => s + (+wf(it) || 0), 0);
+  const ao = !!p?.allowOver;
+  const pctOf = (x) => `${(x * 100).toFixed(2)}%`;
+  const groups = [];
+  items.forEach((it) => {
+    const g = String(it.group || 'ไม่ระบุหมวด').split(' › ')[0];
+    let o = groups.find((x) => x.g === g);
+    if (!o) { o = { g, w: 0, pre: 0, now: 0 }; groups.push(o); }
+    const w = +wf(it) || 0;
+    o.w += w;
+    o.pre += w * ratio(cumPrev[it.id] || 0, it.qty, ao);
+    o.now += w * ratio(cumTo[it.id] || 0, it.qty, ao);
+  });
+  const groupRows = groups.map((o) => `<tr><td>${e(o.g)}</td><td class="r">${tw ? pctOf(o.w / tw) : ''}</td><td class="r">${o.w ? pctOf(o.pre / o.w) : ''}</td><td class="r">${o.w ? pctOf((o.now - o.pre) / o.w) : ''}</td><td class="r"><b>${o.w ? pctOf(o.now / o.w) : ''}</b></td><td class="r">${tw ? pctOf(o.now / tw) : ''}</td></tr>`).join('');
+  const moved = items.filter((it) => Math.abs((cumTo[it.id] || 0) - (cumPrev[it.id] || 0)) > 1e-9);
+  const showItems = moved.length ? moved : [];
+  const itemRows = showItems.map((it) => {
+    const q = +it.qty || 0, wkq = (cumTo[it.id] || 0) - (cumPrev[it.id] || 0), c = cumTo[it.id] || 0;
+    return `<tr><td>${e(`${it.no ? `${it.no} ` : ''}${it.desc}`)}</td><td class="r">${e(qtyTxt(q))}</td><td class="c">${e(it.unit || '')}</td><td class="r">${e(qtyTxt(wkq))}</td><td class="r">${e(qtyTxt(c))}</td><td class="r">${q > 0 ? pctOf(c / q) : ''}</td></tr>`;
+  }).join('');
   const rowOf = (iso) => {
     const x = dys.find((y) => y.date === iso);
     const w = x ? [x.weather?.am, x.weather?.pm].map((k) => R.WEATHER[k]).filter(Boolean).join('/') : '';
-    return `<tr><td class="nowrap">${e(d(iso))}</td>${TD(w)}${TD(x ? String(R.manpowerTotal(x)) : '', 'class="r"')}${TD(x ? String(x.work || '').slice(0, 160) : '')}${TD(x?.stoppage?.stopped ? `${x.stoppage.hours ? `${x.stoppage.hours} ชม. ` : ''}${x.stoppage.reason || ''}` : '')}</tr>`;
+    const work = x ? linesOf(x.work).map((ln) => { const [ww, q, u] = splitLine(ln); return `${ww}${q ? ` ${q}${u ? ` ${u}` : ''}` : ''}`; }).join(' · ') : '';
+    return `<tr><td class="nowrap">${e(d(iso))}</td>${TD(w)}${TD(x ? String(R.manpowerTotal(x)) : '', 'class="r"')}${TD(work.slice(0, 240))}${TD(x?.stoppage?.stopped ? `${x.stoppage.hours ? `${x.stoppage.hours} ชม. ` : ''}${x.stoppage.reason || ''}` : '')}</tr>`;
   };
+  const menDays = weekDys.reduce((s, x) => s + R.manpowerTotal(x), 0);
   return `${head('weekly', p)}
-  ${projectInfo(p, [['ระหว่างวันที่', { html: `${FD(from)} – ${FD(to)}` }], ['สัปดาห์ที่ของสัญญา', a?.week ? String(a.week) : '']])}
+  ${projectInfo(p, [['สัปดาห์ที่ของสัญญา', rng.week ? String(rng.week) : (a?.week ? String(a.week) : '')], ['ระหว่างวันที่', { html: `${FD(from)} – ${FD(to)}` }]])}
   <h2>ผลงาน</h2>
-  <table class="grid small"><tr><th>ผลงานสะสม</th><th>แผนงานสะสม</th><th>เทียบแผน</th><th>เพิ่มขึ้นในสัปดาห์</th><th>ระยะเวลาคงเหลือ</th></tr>
-    <tr>${TD(pct(a?.actual), 'class="c"')}${TD(pct(a?.plan), 'class="c"')}${TD(a ? `${((a.actual - a.plan) * 100).toFixed(2)}%` : '', 'class="c"')}${TD(a && prev ? `${((a.actual - prev.actual) * 100).toFixed(2)}%` : '', 'class="c"')}${TD(a?.daysLeft != null ? (a.daysLeft >= 0 ? `${a.daysLeft} วัน` : `เกินสัญญา ${-a.daysLeft} วัน`) : '', 'class="c"')}</tr></table>
-  <h2>สรุปรายวัน</h2>
-  <table class="grid small"><tr><th style="width:13%">วันที่</th><th style="width:13%">อากาศ</th><th class="r" style="width:8%">คนงาน</th><th>งานที่ดำเนินการ</th><th style="width:20%">หยุดงาน</th></tr>${days.map(rowOf).join('')}</table>
-  <h2>ปัญหาและอุปสรรค</h2>${LINES(Math.max(3, issues.length), issues.map((u) => `${d(u.date)}: ${u.issues}`))}
+  <table class="grid small"><tr><th>ผลงานสะสมสัปดาห์ก่อน</th><th>ผลงานสัปดาห์นี้</th><th>ผลงานสะสม</th><th>แผนงานสะสม</th><th>เทียบแผน</th><th>ระยะเวลาคงเหลือ</th></tr>
+    <tr>${TD(pct(prev?.actual), 'class="c"')}${TD(a && prev ? `${((a.actual - prev.actual) * 100).toFixed(2)}%` : '', 'class="c"')}${TD(pct(a?.actual), 'class="c"')}${TD(pct(a?.plan), 'class="c"')}${TD(a ? `${((a.actual - a.plan) * 100).toFixed(2)}%` : '', 'class="c"')}${TD(a?.daysLeft != null ? (a.daysLeft >= 0 ? `${a.daysLeft} วัน` : `เกินสัญญา ${-a.daysLeft} วัน`) : '', 'class="c"')}</tr></table>
+  <h2>S-Curve แผนงานเทียบผลงานสะสม</h2>
+  <div class="nb">${p ? sCurveSvg(p, items, ups, from, to, rng.week) : '<p class="muted small">เลือกโครงการเพื่อแสดง S-Curve</p>'}</div>
+  ${groups.length ? `<h2>ผลงานตามหมวดงาน (เทียบ BOQ)</h2>
+  <table class="grid small nb"><tr><th>หมวดงาน</th><th class="r">น้ำหนัก</th><th class="r">สะสมถึงสัปดาห์ก่อน</th><th class="r">สัปดาห์นี้</th><th class="r">สะสม</th><th class="r">คิดเป็นของงานทั้งหมด</th></tr>${groupRows}
+    <tr><td><b>รวม</b></td><td class="r">100.00%</td><td class="r">${tw ? pctOf(groups.reduce((s0, o) => s0 + o.pre, 0) / tw) : ''}</td><td class="r">${tw ? pctOf(groups.reduce((s0, o) => s0 + o.now - o.pre, 0) / tw) : ''}</td><td class="r"><b>${tw ? pctOf(groups.reduce((s0, o) => s0 + o.now, 0) / tw) : ''}</b></td><td class="r">${tw ? pctOf(groups.reduce((s0, o) => s0 + o.now, 0) / tw) : ''}</td></tr></table>
+  <p class="small muted">น้ำหนักตามวิธีคิดความคืบหน้าของโครงการ (${e(({ boq_value: 'มูลค่างาน', boq_qty: 'จำนวนรายการ', boq_weight: 'น้ำหนักที่กำหนด' })[p?.progressMethod || 'boq_value'] || 'มูลค่างาน')}) · ข้อมูลจากปริมาณงานที่บันทึกในรายงานประจำวันและบันทึกความคืบหน้า</p>` : ''}
+  ${showItems.length ? `<h2>รายการ BOQ ที่มีผลงานในสัปดาห์นี้</h2>
+  <table class="grid small"><tr><th>รายการ</th><th class="r">ปริมาณตามสัญญา</th><th class="c">หน่วย</th><th class="r">สัปดาห์นี้</th><th class="r">สะสม</th><th class="r">% ของรายการ</th></tr>${itemRows}</table>` : ''}
+  <h2>สรุปรายวัน <small class="muted">จากรายงานประจำวัน ${weekDys.length}/${days.length} วัน · แรงงานรวม ${menDays.toLocaleString('th-TH')} คน-วัน</small></h2>
+  <table class="grid small"><tr><th style="width:13%">วันที่</th><th style="width:12%">อากาศ</th><th class="r" style="width:8%">คนงาน</th><th>งานที่ดำเนินการ</th><th style="width:20%">หยุดงาน</th></tr>${days.map(rowOf).join('')}</table>
+  <h2>ปัญหาและอุปสรรค</h2>${LINES(Math.max(3, issues.length), issues)}
   <h2>เรื่องขออนุมัติ</h2>
   <p class="small">ปิดเรื่องในสัปดาห์ ${closed.length} เรื่อง · ค้างพิจารณา ${pend.length} เรื่อง</p>
-  ${pend.length ? `<table class="grid small"><tr><th style="width:10%">เลขที่</th><th>เรื่อง</th><th style="width:28%">ขั้นตอนปัจจุบัน</th><th class="r" style="width:12%">ค้าง (วัน)</th></tr>${pend.map((s) => `<tr><td>${e(R.subNo(s))}</td><td>${e(s.title)}</td><td>${e(s.steps?.[s.currentStep || 0]?.label || '')}</td><td class="r">${Math.floor(R.subSla(s, p, store.settings).age)}</td></tr>`).join('')}</table>` : ''}
+  ${pend.length ? `<table class="grid small"><tr><th style="width:10%">เลขที่</th><th>เรื่อง</th><th style="width:28%">ขั้นตอนปัจจุบัน</th><th class="r" style="width:12%">ค้าง (วัน)</th></tr>${pend.map((s0) => `<tr><td>${e(R.subNo(s0))}</td><td>${e(s0.title)}</td><td>${e(s0.steps?.[s0.currentStep || 0]?.label || '')}</td><td class="r">${Math.floor(R.subSla(s0, p, store.settings).age)}</td></tr>`).join('')}</table>` : ''}
   <h2>ความเห็นของผู้ควบคุมงาน</h2>${LINES(3)}
   ${signs([sign('ผู้ควบคุมงาน', supervisors(p)[0] ? nameOf(p, supervisors(p)[0].email) : '', to), ...committee(p).slice(0, 1).map((m) => sign(`${R.seatLabel(m.seat)}ตรวจรับพัสดุ (รับทราบ)`, nameOf(p, m.email)))])}
   ${foot('weekly')}`;
@@ -797,72 +912,146 @@ function formInstruction({ p, daily: dy, date, today }) {
   ${foot('instruction')}`;
 }
 
-const BUILD = { sub: formSub, material: formMaterial, daily: formDaily, cdaily: formCDaily, weekly: formWeekly, meeting: formMeeting, inspect: formInspect, instruction: formInstruction };
-const EXTRA_CSS = { sub: SUB_CSS, cdaily: CDAILY_CSS };
+function formDailyAll(ctx) {
+  const pages = [{ cls: '', html: formDaily(ctx) }];
+  if (ctx.daily?.files?.length) photoPages(ctx.daily, `ภาพประกอบบันทึกการควบคุมงานประจำวัน วันที่ ${fmtDate(ctx.daily.date, 'long')}`).forEach((pg) => pages.push(pg));
+  return pages;
+}
+const BUILD = { sub: formSub, material: formMaterial, daily: formDailyAll, cdaily: formCDaily, weekly: formWeekly, meeting: formMeeting, inspect: formInspect, instruction: formInstruction };
+const EXTRA_CSS = { sub: SUB_CSS, cdaily: CDAILY_CSS + PHOTO_CSS, daily: PHOTO_CSS };
 
-/** คีย์จำร่างที่กรอก: แบบฟอร์ม + โครงการ + เรื่อง/รายงาน/วันที่ */
+/** คีย์จำร่างที่กรอก: แบบฟอร์ม + โครงการ + เรื่อง/รายงาน/วันที่ (รายงานประจำสัปดาห์: สัปดาห์ที่) */
 function draftKey(kind, ctx) {
-  const rec = ctx.sub?.id || ctx.daily?.id || ctx.m?.id || ctx.date || ctx.to || 'blank';
+  const rec = ctx.sub?.id || ctx.daily?.id || ctx.m?.id || (kind === 'weekly' && ctx.week ? `w${ctx.week}` : '') || ctx.date || ctx.to || 'blank';
   return `${kind}|${ctx.p?.id || '-'}|${rec}`;
 }
-const HINT = 'คลิกช่องสีฟ้าอ่อนเพื่อพิมพ์ · Enter = ช่องถัดไป · คลิกวันที่เพื่อเลือกจากปฏิทิน · ช่องสี่เหลี่ยมคลิกเพื่อติ๊ก · ที่กรอกจำไว้ในเครื่องนี้';
+const HINT = 'คลิกช่องสีฟ้าอ่อนเพื่อพิมพ์ · Enter = ช่องถัดไป · คลิกวันที่เพื่อเลือกจากปฏิทิน · คลิกช่องลงชื่อเพื่อเซ็น · ที่กรอกจำไว้ในเครื่องนี้';
+// ปฏิทิน ลายมือชื่อ คำแนะนำ (หน้าต่างแบบฟอร์ม — แสดงบนจอเท่านั้น)
+const EDIT_CSS = `
+.ptcal, .ptsig, .ptsug { position: fixed; z-index: 50; background: #fff; color: #111; border: 1px solid #C9D3E3; border-radius: 6px; box-shadow: 0 8px 28px rgba(15,27,45,.22); font-family: Tahoma, 'Sarabun', sans-serif; font-size: 13px; line-height: 1.4; }
+.ptcal { width: 280px; padding: 8px; }
+.ptcal-h { display: flex; gap: 4px; align-items: center; margin-bottom: 6px; }
+.ptcal-h select { flex: 1; min-width: 0; font: inherit; padding: 4px 2px; border: 1px solid #C9D3E3; border-radius: 4px; background: #fff; }
+.ptcal-h button, .ptcal-f button { font: inherit; border: 1px solid #C9D3E3; background: #fff; border-radius: 4px; cursor: pointer; padding: 4px 9px; color: #1D4F91; }
+.ptcal-g { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.ptcal-wd { text-align: center; font-size: 11.5px; color: #5B6577; padding: 2px 0; }
+.ptcal-g button { font: inherit; border: 0; background: transparent; border-radius: 4px; height: 32px; cursor: pointer; color: #111; }
+.ptcal-g button:hover { background: #EEF4FC; }
+.ptcal-g button.is-today { box-shadow: inset 0 0 0 1px #1D4F91; }
+.ptcal-g button.is-sel { background: #1D4F91; color: #fff; }
+.ptcal button:focus-visible, .ptcal select:focus-visible, .ptsig button:focus-visible { outline: 2px solid #F2A900; outline-offset: 1px; }
+.ptcal-f { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+.ptsig { width: 270px; padding: 8px; display: grid; gap: 6px; }
+.ptsig-h { font-weight: 700; color: #1D4F91; }
+.ptsig button { font: inherit; text-align: left; padding: 7px 10px; border: 1px solid #C9D3E3; background: #fff; border-radius: 4px; cursor: pointer; color: #111; }
+.ptsig button:hover { background: #EEF4FC; }
+.ptsig-saved { display: flex !important; align-items: center; gap: 8px; } .ptsig-saved img { height: 28px; max-width: 110px; object-fit: contain; }
+.ptsig-rem { font-size: 12px; display: flex; gap: 6px; align-items: flex-start; }
+.ptsig-tip { margin: 0; font-size: 11.5px; color: #5B6577; }
+.ptsig .ptsig-forget { color: #B42318; font-size: 12px; }
+.ptsug { list-style: none; margin: 0; padding: 4px; max-height: 240px; overflow: auto; }
+.ptsug li { padding: 6px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ptsug li:hover, .ptsug li.is-on { background: #EEF4FC; }
+/* ลายมือชื่อ: รูปวางทับเส้นลงชื่อ */
+.sg { position: relative; display: block; width: 100%; height: 100%; min-height: 1.1em; cursor: pointer; }
+.sg-img { position: absolute; left: 50%; bottom: -2mm; transform: translateX(-50%); max-height: 15mm; max-width: 120%; pointer-events: none; }
+.sg.sg-in { display: inline-block; flex: 1; min-width: 30mm; height: 1.3em; border-bottom: 1px dotted #000; }
+.sg.sg-in .sg-img { max-height: 10mm; bottom: -1mm; }
+.sg.sg-big { height: 46px; }
+.sig-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; background: #fff; color: #1D4F91; border-radius: 3px; cursor: grab; font-weight: 600; }
+.sig-chip img { height: 22px; max-width: 70px; object-fit: contain; }
+.bar select { font: inherit; padding: 5px 6px; border-radius: 3px; border: 0; max-width: 260px; }
+svg.scurve { width: 100%; height: auto; display: block; }
+@media screen {
+  body.ed .sg:not(.has)::after { content: '✎ คลิกเพื่อลงชื่อ'; position: absolute; left: 0; right: 0; bottom: 1px; text-align: center; font-size: 11px; color: #7A8496; font-family: Tahoma, sans-serif; white-space: nowrap; }
+  body.ed .sg:hover, body.ed .sg.is-over, body.ed .sg:focus { background: rgba(29,79,145,.08); outline: none; }
+  body.preview .sg::after { content: none !important; }
+  [data-photo].is-over { outline: 2px dashed #1D4F91; outline-offset: -2px; }
+}
+@media print { .ptcal, .ptsig, .ptsug, .sig-chip { display: none !important; } .sg.sg-in { border-bottom-style: dotted; } }
+`;
 
-/** HTML ของแบบฟอร์ม (ใช้ทดสอบและพิมพ์) — editor = URL ของ form-editor.js */
-export function formHtml(kind, ctx = {}, { inline = false, editor = '' } = {}) {
+/** หน้า + ข้อมูลประกอบของแบบฟอร์ม */
+function renderPages(kind, ctx) {
   const f = FORMS[kind];
-  if (!f) throw new Error(`ไม่รู้จักแบบฟอร์ม ${kind}`);
-  ctx = { today: todayTh(), ...ctx };
   const out = BUILD[kind](ctx);
   const pages = (Array.isArray(out) ? out : [{ cls: '', html: out }]);
-  const body = pages.map((pg) => pg.html).join('');
   // แบบฟอร์มทางการที่ข้อมูลยาวเกิน 1 หน้า → ให้ขึ้นหน้าใหม่ได้ (ปกติพอดี A4 หน้าเดียวเหมือนต้นฉบับ)
-  const long = f.official && (body.match(/<tr/g) || []).length > 60;
-  const dateKey = ctx.sub ? isoTh(ctx.sub.submittedAt) : ctx.daily?.date || ctx.date || ctx.to || ctx.today;
+  const long = f.official && (pages[0].html.match(/<tr/g) || []).length > 60;
+  let dateKey = ctx.sub ? isoTh(ctx.sub.submittedAt) : ctx.daily?.date || ctx.date || ctx.to || ctx.today;
+  if (kind === 'weekly' && ctx.p?.startDate) {
+    const wk = ctx.week || weekNo(ctx.p, ctx.to || ctx.today);
+    if (wk) dateKey = `สัปดาห์ที่ ${wk}`;
+  }
   const title = `${f.short || f.code} ${f.title}${ctx.p ? ` ${ctx.p.code || ctx.p.name}` : ''} ${dateKey || ''}`.trim();
-  const cls = [f.official ? 'official' : '', long ? 'of-long' : ''].filter(Boolean).join(' ');
-  const fallback = inline ? `<script>if(document.body.getAttribute('data-ed')!=='1'){document.querySelector('[data-pt="print"]').onclick=function(){window.print()};document.querySelector('[data-pt="close"]').onclick=function(){window.close()};}</script>` : '';
-  return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><title>${e(title)}</title><style>${CSS}${f.official ? OFFICIAL_CSS : ''}${EXTRA_CSS[kind] || ''}</style></head>
-  <body${cls ? ` class="${cls}"` : ''}${long ? ' data-long="1"' : ''} data-form="${kind}" data-key="${e(draftKey(kind, ctx))}"><div class="bar" role="toolbar" aria-label="แบบฟอร์ม"><button type="button" data-pt="print">บันทึก PDF / พิมพ์</button><button type="button" class="ghost" data-pt="preview" aria-pressed="false">ดูแบบพิมพ์</button><button type="button" class="ghost" data-pt="reset" hidden>ล้างที่กรอก</button><button type="button" class="ghost" data-pt="close">ปิด</button><span class="bar-msg" data-pt="msg" role="status">${e(f.code)} · ${ctx.p ? 'กรอกข้อมูลจากระบบแล้ว ตรวจทานและแก้ได้ก่อนพิมพ์' : 'แบบเปล่า'} — ${HINT}${f.official ? ' · ตอนพิมพ์ตั้งระยะขอบกระดาษเป็น "ไม่มี"' : ''}</span></div>
-  <div class="sheets">${pages.map((pg) => `<div class="sheet${pg.cls ? ` ${pg.cls}` : ''}">${pg.html}</div>`).join('')}</div>
-  ${editor ? `<script src="${e(editor)}"></script>` : ''}${fallback}<link rel="stylesheet" href="${FONTS_URL}"></body></html>`;
+  const sheets = pages.map((pg) => `<div class="sheet${pg.cls ? ` ${pg.cls}` : ''}">${pg.html}</div>`).join('');
+  return { f, pages, long, title, sheets, key: draftKey(kind, ctx) };
 }
 
-/** ไฟล์รูปภาพในรายงานประจำวัน (ใส่ในหน้า "ภาพประกอบการทำงาน" ของ PT-F07) */
+/** HTML ของแบบฟอร์ม (ใช้ทดสอบและพิมพ์) — editor/annotate = URL ของสคริปต์กรอกแบบฟอร์ม */
+export function formHtml(kind, ctx = {}, { inline = false, editor = '', annotate = '' } = {}) {
+  if (!FORMS[kind]) throw new Error(`ไม่รู้จักแบบฟอร์ม ${kind}`);
+  ctx = { today: todayTh(), ...ctx };
+  const { f, long, title, sheets, key } = renderPages(kind, ctx);
+  const cls = [f.official ? 'official' : '', long ? 'of-long' : ''].filter(Boolean).join(' ');
+  const fallback = inline ? `<script>if(document.body.getAttribute('data-ed')!=='1'){document.querySelector('[data-pt="print"]').onclick=function(){window.print()};document.querySelector('[data-pt="close"]').onclick=function(){window.close()};}</script>` : '';
+  // รายงานประจำสัปดาห์: เลือกสัปดาห์ที่ในแถบด้านบน (ดึงข้อมูลสัปดาห์นั้นจากรายงานประจำวันใหม่)
+  const weeks = kind === 'weekly' && ctx.p ? weekOptions(ctx.p, ctx.today) : [];
+  const curWeek = kind === 'weekly' && ctx.p?.startDate ? (ctx.week || weekNo(ctx.p, ctx.to || ctx.today)) : null;
+  const weekSel = weeks.length ? `<label class="bar-week"><span class="sr">เลือกสัปดาห์</span><select data-pt="week" aria-label="เลือกสัปดาห์ที่">${weeks.map((w) => `<option value="${w.week}" ${w.week === curWeek ? 'selected' : ''}>${e(w.label)}</option>`).join('')}</select></label>` : '';
+  return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><title>${e(title)}</title><style>${CSS}${f.official ? OFFICIAL_CSS : ''}${EXTRA_CSS[kind] || ''}${EDIT_CSS}</style></head>
+  <body${cls ? ` class="${cls}"` : ''}${long ? ' data-long="1"' : ''} data-form="${kind}" data-key="${e(key)}"><div class="bar" role="toolbar" aria-label="แบบฟอร์ม"><button type="button" data-pt="print">บันทึก PDF / พิมพ์</button><button type="button" class="ghost" data-pt="preview" aria-pressed="false">ดูแบบพิมพ์</button><button type="button" class="ghost" data-pt="reset" hidden>ล้างที่กรอก</button><button type="button" class="ghost" data-pt="close">ปิด</button>${weekSel}<span class="bar-msg" data-pt="msg" role="status">${e(f.code)} · ${ctx.p ? 'กรอกข้อมูลจากระบบแล้ว ตรวจทานและแก้ได้ก่อนพิมพ์' : 'แบบเปล่า'} — ${HINT}${f.official ? ' · ตอนพิมพ์ตั้งระยะขอบกระดาษเป็น "ไม่มี"' : ''}</span></div>
+  <div class="sheets">${sheets}</div>
+  ${annotate ? `<script src="${e(annotate)}"></script>` : ''}${editor ? `<script src="${e(editor)}"></script>` : ''}${fallback}<link rel="stylesheet" href="${FONTS_URL}"></body></html>`;
+}
+
+/** รูปภาพในรายงานประจำวัน → ช่องภาพประกอบตามลำดับ (ลำดับเดียวกับ files ของรายงาน) */
 function dailyPhotos(dy) {
-  return (dy?.files || []).map((id) => store.data.files.find((f) => f.id === id)).filter((f) => f && (/^image\//.test(f.mime || '') || /\.(jpe?g|png|gif|webp|heic)$/i.test(f.name || ''))).slice(0, 6);
+  return (dy?.files || []).map((id, i) => [i, store.data.files.find((f) => f.id === id)])
+    .filter(([, f]) => f && (/^image\//.test(f.mime || '') || /\.(jpe?g|png|gif|webp|heic)$/i.test(f.name || '')));
 }
 
 /** เปิดแบบฟอร์มในแท็บใหม่ (ถ้าเบราว์เซอร์กันหน้าต่างใหม่ จะดาวน์โหลดเป็นไฟล์ .html แทน) */
 export function openForm(kind, ctx = {}) {
   ctx = { today: todayTh(), ...ctx };
   const editor = new URL(`assets/js/form-editor.js?v=${APP_VERSION}`, location.href).href;
+  const annotate = new URL(`assets/js/annotate.js?v=${APP_VERSION}`, location.href).href;
   const w = window.open('', '_blank');
   if (!w) {
-    download(`${(FORMS[kind].short || FORMS[kind].code).replace(/[^A-Za-z0-9-]/g, '-')}${ctx.p ? `-${ctx.p.code || 'project'}` : ''}.html`, formHtml(kind, ctx, { inline: true, editor }), 'text/html;charset=utf-8');
+    download(`${(FORMS[kind].short || FORMS[kind].code).replace(/[^A-Za-z0-9-]/g, '-')}${ctx.p ? `-${ctx.p.code || 'project'}` : ''}.html`, formHtml(kind, ctx, { inline: true, editor, annotate }), 'text/html;charset=utf-8');
     return null;
   }
+  // คำแนะนำในช่องกรอก (คำของหน่วยงาน + คำที่โครงการใช้ครบ 3 วัน) และสร้างหน้าสัปดาห์อื่น — หน้าต่างแบบฟอร์มเรียกใช้
+  try { w.ptSug = allSuggestions(ctx.p?.id); } catch { /* ไม่มีคำแนะนำก็กรอกได้ */ }
+  if (kind === 'weekly') {
+    w.ptRebuild = ({ week } = {}) => {
+      const r = renderPages(kind, { ...ctx, week: +week || null, to: null });
+      return { html: r.sheets, key: r.key, title: r.title, msg: `สัปดาห์ที่ ${week} — ดึงข้อมูลจากรายงานประจำวันและความคืบหน้าแล้ว` };
+    };
+  }
   w.document.open();
-  w.document.write(formHtml(kind, ctx, { editor }));
+  w.document.write(formHtml(kind, ctx, { editor, annotate }));
   w.document.close();
   // ปุ่มพิมพ์/ปิดสำรอง — ใช้เมื่อสคริปต์กรอกแบบฟอร์มยังโหลดไม่เสร็จหรือโหลดไม่ได้ (ถ้าโหลดแล้ว สคริปต์นั้นจัดการเอง)
   const doc0 = w.document;
   const fb = (act) => () => { if (doc0.body?.getAttribute('data-ed') !== '1') act(); };
   doc0.querySelector('[data-pt="print"]')?.addEventListener('click', fb(() => w.print()));
   doc0.querySelector('[data-pt="close"]')?.addEventListener('click', fb(() => w.close()));
-  const photos = kind === 'cdaily' ? dailyPhotos(ctx.daily) : [];
-  const fillPhotos = () => photos.forEach(async (f, i) => {
+  const photos = kind === 'cdaily' || kind === 'daily' ? dailyPhotos(ctx.daily) : [];
+  const fillPhotos = () => photos.forEach(async ([i, f]) => {
     try { const u = await store.thumbUrl(f); if (u && w.ptForm) w.ptForm.setPhoto(i, u); } catch { /* ไม่มีรูปก็กรอกเองได้ */ }
   });
   let done = false;
   const ready = () => {
     if (done || w.closed) return;
-    done = true;
     if (w.document.body?.getAttribute('data-ed') !== '1') return;
+    done = true;
     fillPhotos();
     w.addEventListener('pt-form-reset', fillPhotos);
   };
   w.addEventListener('load', ready);
+  w.addEventListener('pt-form-ready', ready);
   // บางเบราว์เซอร์ไม่ส่ง load ให้หน้าที่เขียนด้วย document.write — ตรวจซ้ำเมื่อสคริปต์พร้อมแล้ว
-  setTimeout(() => { if (!w.closed && w.document.body?.getAttribute('data-ed') === '1') ready(); }, 6000);
+  setTimeout(ready, 6000);
   return w;
 }

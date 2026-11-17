@@ -287,8 +287,12 @@ function renderEditor(el, ctx, id) {
   // รูปถ่าย
   const drawThumbs = () => {
     const box = el.querySelector('#u-thumbs');
-    box.innerHTML = ed.photos.map((f, i) => `<figure><img src="${URL.createObjectURL(f)}" alt=""><button type="button" class="icon-btn" data-rm="${i}" aria-label="เอาออก">${icon('x')}</button><figcaption>${esc(f.name)}</figcaption></figure>`).join('');
+    box.innerHTML = ed.photos.map((f, i) => `<figure><img src="${URL.createObjectURL(f)}" alt=""><button type="button" class="icon-btn" data-rm="${i}" aria-label="เอาออก">${icon('x')}</button><figcaption>${esc(f.name)}</figcaption>${window.PTAnnotate ? `<button type="button" class="btn btn-sm btn-ghost th-mark" data-mark="${i}">${icon('edit')}มาร์ค</button>` : ''}</figure>`).join('');
     box.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => { ed.photos.splice(+b.dataset.rm, 1); drawThumbs(); }));
+    box.querySelectorAll('[data-mark]').forEach((b) => b.addEventListener('click', async () => {
+      const i = +b.dataset.mark;
+      try { const f2 = await window.PTAnnotate.annotateFile(ed.photos[i]); if (f2 !== ed.photos[i]) { ed.photos[i] = f2; guard.dirty = true; drawThumbs(); } } catch (ex) { toast(ex.message || 'เปิดรูปนี้ไม่ได้', 'bad'); }
+    }));
   };
   const addPhotos = (list) => { guard.dirty = true; ed.photos.push(...[...list].filter((f) => f.type.startsWith('image/'))); drawThumbs(); };
   const drop = el.querySelector('#u-drop');

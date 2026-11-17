@@ -957,7 +957,14 @@ export const store = {
     return this.data.daily.filter((d) => d.projectId === pid).sort((a, b) => String(b.date).localeCompare(String(a.date)));
   },
   dailyAt(pid, date) { return this.data.daily.find((d) => d.projectId === pid && d.date === date) || null; },
-  /** บันทึกรายงานประจำวัน + รูปถ่าย — notify = ส่งอีเมลรายงานถึงผู้รับระดับ "ทุกเรื่อง" ทันที */
+  /** 1.0.14 บันทึกความคืบหน้า BOQ ที่กรอกพร้อมรายงานประจำวัน (รหัสผูกกับรายงาน) */
+  dailyUpdateId(dailyId) { return `UD${String(dailyId || '').replace(/[^\w-]/g, '')}`.slice(0, 60); },
+  dailyUpdate(d) { return d ? this.data.updates.find((u) => u.id === this.dailyUpdateId(d.id)) || null : null; },
+  /**
+   * บันทึกรายงานประจำวัน + รูปถ่าย — notify = ส่งอีเมลรายงานถึงผู้รับระดับ "ทุกเรื่อง" ทันที
+   * 1.0.14: input.files เรียงลำดับรูปได้ — รูปใหม่ใช้ "new:<ลำดับใน files>" · input.captions = { รหัสรูป|new:i: คำบรรยาย }
+   *         input.boq = { รหัสรายการ BOQ: ปริมาณ } → บันทึกความคืบหน้าของวันนั้น (ว่าง = ลบที่เคยบันทึกพร้อมรายงานนี้)
+   */
   async saveDaily(input, files = [], { notify = false, onProgress } = {}) {
     this._assertNew('daily', 'รายงานประจำวัน');
     const p = this.project(input.projectId);
@@ -969,15 +976,24 @@ export const store = {
       throw new Error('มีรายงานประจำวันของวันที่นี้แล้ว — เปิดรายงานเดิมเพื่อแก้ไข');
     }
     const id = old ? old.id : uid('D');
-    const fileIds = [...(input.files || [])];
+    const tokens = [...(input.files || [])];
+    const usesTokens = tokens.some((t) => /^new:\d+$/.test(String(t)));
+    const newIds = [];
     let i = 0;
     for (const f of files) {
       i++;
       const n = i;
       const rec = await this.uploadFile(p.id, DAILY_FILE_CATEGORY, f, { dailyId: id, note: `รายงานประจำวัน ${input.date}`,
         onProgress: (x) => onProgress?.(`กำลังอัปโหลดรูป ${n}/${files.length}`, (n - 1 + x) / files.length) });
-      fileIds.push(rec.id);
+      newIds.push(rec.id);
     }
+    const realId = (t) => { const m = /^new:(\d+)$/.exec(String(t)); return m ? newIds[+m[1]] : t; };
+    const fileIds = usesTokens ? tokens.map(realId).filter(Boolean) : tokens.concat(newIds);
+    const captions = {};
+    Object.entries(input.captions || {}).forEach(([k, v]) => { const rid = realId(k); if (rid && String(v || '').trim()) captions[rid] = String(v).trim(); });
+    const boq = input.boq;
+    input = { ...input, captions };
+    delete input.boq;
     let saved;
     if (this.serverRules) {
       saved = detachMail(await this.backend.saveDaily({ ...input, id, files: fileIds }, { notify }));
@@ -995,6 +1011,21 @@ export const store = {
     }
     this._upsert('daily', saved);
     this._commit();
+    if (boq && typeof boq === 'object') {
+      // ปริมาณงานตาม BOQ ของวันนั้น → บันทึกความคืบหน้า (กราฟ S-Curve รายงานประจำสัปดาห์ และแบบฟอร์มใช้ข้อมูลเดียวกัน)
+      const uidLink = this.dailyUpdateId(saved.id);
+      const prev = this.data.updates.find((u) => u.id === uidLink);
+      const entries = R.cleanEntries(boq, this.data.boq.filter((b) => b.projectId === p.id).map((b) => b.id));
+      try {
+        if (Object.keys(entries).length) {
+          await this.saveUpdate({ ...(prev || {}), id: uidLink, projectId: p.id, date: saved.date, entries, note: prev?.note || `บันทึกพร้อมรายงานประจำวัน ${saved.date}`, issues: prev?.issues || '' });
+        } else if (prev) {
+          await this.deleteUpdate(uidLink);
+        }
+      } catch (ex) {
+        saved._boqError = ex.message || String(ex);
+      }
+    }
     return saved;
   },
   async deleteDaily(id) {
@@ -1002,6 +1033,8 @@ export const store = {
     if (!d) return;
     this._assertNew('daily', 'รายงานประจำวัน');
     this._need(d.projectId, 'recordProgress', 'คุณไม่มีสิทธิ์ลบรายงานประจำวันของโครงการนี้');
+    const linked = this.dailyUpdate(d);
+    if (linked) await this.deleteUpdate(linked.id);
     if (this.cloud) await this.backend.deleteDaily(id, d.projectId);
     this.data.daily = this.data.daily.filter((x) => x.id !== id);
     this._commit();

@@ -56,7 +56,7 @@ var CONFIG = {
   MAIL_RESERVE: 15,
 };
 
-var VERSION = '1.0.13';
+var VERSION = '1.0.14';
 var LIBRARY_FOLDER = 'คลังแบบฟอร์มและระเบียบ';
 var DAILY_FILE_CATEGORY = 'รูปถ่ายความคืบหน้า';
 var SUB_FILE_CATEGORY = 'เอกสารแนบเรื่องขออนุมัติ';
@@ -72,13 +72,13 @@ var SCHEMA = {
   Updates: ['id', 'projectId', 'date', 'week', 'entries', 'manualPct', 'note', 'issues', 'createdBy', 'createdAt', 'updatedAt', 'createdByEmail'],
   Files: ['id', 'projectId', 'category', 'name', 'mime', 'size', 'driveId', 'url', 'note', 'updateId', 'uploadedBy', 'uploadedAt', 'subId', 'uploadedByEmail'],
   Submissions: ['id', 'projectId', 'no', 'rev', 'category', 'title', 'detail', 'requiredId', 'files', 'submittedBy', 'submittedByName',
-    'submittedAt', 'status', 'currentStep', 'stepStartedAt', 'steps', 'history', 'closedAt', 'updatedAt', 'vote'],
+    'submittedAt', 'status', 'currentStep', 'stepStartedAt', 'steps', 'history', 'closedAt', 'updatedAt', 'vote', 'form'],
   Required: ['id', 'projectId', 'title', 'category', 'dueType', 'dueDays', 'dueDate', 'note', 'order', 'doneDate'],
   Messages: ['id', 'projectId', 'channel', 'refId', 'by', 'byName', 'at', 'text', 'files', 'deleted', 'editedAt'],
   Meetings: ['id', 'projectId', 'audience', 'title', 'startAt', 'durationMin', 'place', 'link', 'attendees', 'agenda', 'minutes', 'actions',
     'status', 'createdBy', 'createdByName', 'createdAt', 'updatedAt', 'updatedBy', 'updatedByName'],
   Daily: ['id', 'projectId', 'date', 'weather', 'workHours', 'manpower', 'equipment', 'work', 'materials', 'stoppage', 'safety', 'instructions',
-    'files', 'createdBy', 'createdByEmail', 'createdAt', 'updatedAt'],
+    'files', 'createdBy', 'createdByEmail', 'createdAt', 'updatedAt', 'captions', 'request'],
   Library: ['id', 'title', 'kind', 'workType', 'category', 'uses', 'version', 'effective', 'note', 'url', 'file', 'active', 'order', 'audience',
     'updatedBy', 'updatedAt', 'createdAt'],
   Settings: ['key', 'value'],
@@ -87,9 +87,9 @@ var SCHEMA = {
 };
 var JSON_FIELDS = {
   Projects: ['tags', 'planPoints', 'docCategories', 'members', 'rolePerms', 'workflow'],
-  Updates: ['entries'], Settings: ['value'], Submissions: ['files', 'steps', 'history', 'vote'],
+  Updates: ['entries'], Settings: ['value'], Submissions: ['files', 'steps', 'history', 'vote', 'form'],
   Messages: ['files'], Meetings: ['attendees', 'actions'],
-  Daily: ['weather', 'manpower', 'equipment', 'stoppage', 'files'], Library: ['uses', 'file'],
+  Daily: ['weather', 'manpower', 'equipment', 'stoppage', 'files', 'captions', 'request'], Library: ['uses', 'file'],
 };
 var NUM_FIELDS = {
   Projects: ['contractValue', 'slaWarnDays', 'slaLateDays'], BOQ: ['qty', 'mat', 'labor', 'weight', 'order', 'ps', 'pe'],
@@ -594,7 +594,7 @@ var ACTIONS = {
     }
     var out = R.createSubmission(p, {
       id: id, category: input.category, title: input.title, detail: input.detail, requiredId: input.requiredId, files: files,
-      vote: input.vote || null,
+      vote: input.vote || null, form: input.form || null,
     }, me, nowIso_(), readTable_('Submissions'));
     upsert_('Submissions', out.sub);
     var mail = notifySub_(p, out.event, out.sub, me, b, ctx);
@@ -2025,7 +2025,7 @@ function portfolio(rows) {
   };
 }
 
-return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STATUS: STATUS, STATUS_ORDER: STATUS_ORDER, parseISO: parseISO, toISO: toISO, todayISO: todayISO, addDays: addDays, diffDays: diffDays, num: num, timeFraction: timeFraction, weekNo: weekNo, unitPrice: unitPrice, amount: amount, boqTotal: boqTotal, sortUpdates: sortUpdates, cumulative: cumulative, ratio: ratio, progressFromCum: progressFromCum, progressAt: progressAt, dayOf: dayOf, dayToIso: dayToIso, contractDays: contractDays, hasPlan: hasPlan, hasSchedule: hasSchedule, itemPlanFrac: itemPlanFrac, schedulePlan: schedulePlan, planAt: planAt, planSeries: planSeries, actualSeries: actualSeries, groupBreakdown: groupBreakdown, analyze: analyze, portfolio: portfolio };
+return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STATUS: STATUS, STATUS_ORDER: STATUS_ORDER, parseISO: parseISO, toISO: toISO, todayISO: todayISO, addDays: addDays, diffDays: diffDays, num: num, timeFraction: timeFraction, weekNo: weekNo, unitPrice: unitPrice, amount: amount, boqTotal: boqTotal, sortUpdates: sortUpdates, cumulative: cumulative, ratio: ratio, progressFromCum: progressFromCum, progressAt: progressAt, dayOf: dayOf, dayToIso: dayToIso, contractDays: contractDays, hasPlan: hasPlan, hasSchedule: hasSchedule, itemPlanFrac: itemPlanFrac, weightFn: weightFn, schedulePlan: schedulePlan, planAt: planAt, planSeries: planSeries, actualSeries: actualSeries, groupBreakdown: groupBreakdown, analyze: analyze, portfolio: portfolio };
 })();
 // ===================== CALC END =====================
 
@@ -2305,7 +2305,7 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     return ((ROLES[step.role] || {}).label || step.role) + 'พิจารณา';
   }
   /** บทบาทในงานของเจ้าของโครงการ (ค่าเริ่มต้น: ผู้ควบคุมงาน) — ใช้หาผู้พิจารณา */
-  function ownerActsAs(p) { return (p && OWNER_ACTS[p.ownerRole]) ? p.ownerRole : 'supervisor'; }
+  function ownerActsAs(p) { return (p && ownKey(OWNER_ACTS, p.ownerRole)) ? p.ownerRole : 'supervisor'; }
   /** ผู้มีสิทธิ์พิจารณาขั้นนี้: สมาชิกบทบาทนั้นที่มีสิทธิ์ approve (ไม่นับผู้ส่ง) — ถ้าไม่มี ให้เจ้าของโครงการ */
   function approversFor(p, step, submitterEmail) {
     if (!step) return [];
@@ -2408,8 +2408,34 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
       history: [],
     };
     if (vote) sub.vote = vote;
+    var sf = cleanSubForm(input.form);
+    if (sf) sub.form = sf;
     sub.history.push(hist(actor, 'submit', { at: nowIso, step: 0, comment: '', files: sub.files.slice(), rev: 1 }));
     return { sub: sub, event: 'submitted' };
+  }
+
+  /** 1.0.14 ข้อมูลหนังสือขออนุมัติ PT-F01 ที่กรอกตอนส่งเรื่อง: ตารางสิ่งที่เสนอ เอกสารแนบ ประเภทงาน */
+  var SUB_ATTACH = { catalog: 'แค็ตตาล็อก', sample: 'ตัวอย่างวัสดุ', docs: 'เอกสารประกอบ', shop: 'Shop Drawing', other: 'อื่น' };
+  var WORK_TYPES = { structure: 'งานโครงสร้าง', arch: 'งานสถาปัตยกรรม', sanitary: 'งานระบบสุขาภิบาล', electric: 'งานระบบไฟฟ้า', mech: 'งานระบบเครื่องกล', water: 'งานระบบประปา', other: 'งานอื่นๆ' };
+  function cleanSubForm(f) {
+    if (!isPlainObj(f)) return null;
+    var att = {};
+    var a = isPlainObj(f.attach) ? f.attach : {};
+    Object.keys(SUB_ATTACH).forEach(function (k) {
+      var n = a[k];
+      if (n !== '' && n != null && isFinite(+n) && +n > 0) att[k] = Math.min(999, Math.round(+n));
+    });
+    var out = {
+      ref: cut(f.ref, 120),
+      specs: (Array.isArray(f.specs) ? f.specs : []).slice(0, 20).map(function (r) {
+        r = isPlainObj(r) ? r : {};
+        return { dwg: cut(r.dwg, 200), tech: cut(r.tech, 500), prop: cut(r.prop, 500) };
+      }).filter(function (r) { return r.dwg || r.tech || r.prop; }),
+      attach: att,
+      types: (Array.isArray(f.types) ? f.types : []).filter(function (k, i, arr) { return Object.prototype.hasOwnProperty.call(WORK_TYPES, k) && arr.indexOf(k) === i; }),
+      typeOther: cut(f.typeOther, 120),
+    };
+    return out.ref || out.specs.length || Object.keys(att).length || out.types.length || out.typeOther ? out : null;
   }
 
   /** พิจารณา: decision = 'approve' | 'reject' */
@@ -2448,6 +2474,7 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     changes = changes || {};
     if (changes.title != null && String(changes.title).trim()) sub.title = cut(changes.title, MAX_TITLE);
     if (changes.detail != null) sub.detail = cut(changes.detail, MAX_DETAIL);
+    if (changes.form !== undefined) { var cf = cleanSubForm(changes.form); if (cf) sub.form = cf; else delete sub.form; }
     sub.rev = (+sub.rev || 1) + 1;
     sub.steps = snapshotSteps(p, sub.category, sub.submittedBy);
     if (files && files.length) sub.files = (sub.files || []).concat(files);
@@ -2517,6 +2544,8 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     return typeof id === 'string' && id.length >= min && id.length <= 60 && /^[A-Za-z0-9][\w-]*$/.test(id) && safeKey(id);
   }
   function isPlainObj(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
+  /** ค่าที่เลือกจากรายการคงที่ — ต้องเป็นคีย์ของรายการนั้นเอง (กัน "__proto__", "constructor" ฯลฯ) (1.0.14) */
+  function ownKey(map, k) { return typeof k === 'string' && Object.prototype.hasOwnProperty.call(map, k); }
   /** ปริมาณงานที่บันทึกในแต่ละรายการ BOQ: { boqId: จำนวน } — คีย์ต้องเป็นรหัสที่ปลอดภัย (และอยู่ใน allow ถ้าระบุ) ค่าต้องเป็นตัวเลขจริง */
   function cleanEntries(e, allow) {
     var out = {};
@@ -2566,7 +2595,7 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
       if (seen[e] || e === norm(ownerEmail)) return;
       seen[e] = true;
       var role = MEMBER_ROLES.indexOf(m.role) >= 0 ? m.role : 'viewer';
-      var rec = { email: e, name: String(m.name || '').trim().slice(0, 120), role: role, notify: NOTIFY[m.notify] ? m.notify : DEFAULT_NOTIFY[role] };
+      var rec = { email: e, name: String(m.name || '').trim().slice(0, 120), role: role, notify: ownKey(NOTIFY, m.notify) ? m.notify : DEFAULT_NOTIFY[role] };
       if (role === 'committee') {
         var st = seatOf_(m.seat);
         if (st !== '' && seats[st]) throw fail('ลำดับกรรมการ "' + seatLabel(st) + '" ซ้ำกัน', 'invalid');
@@ -3274,13 +3303,23 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     if (input.date > addDaysIso(todayTh, 1)) throw fail('บันทึกรายงานประจำวันล่วงหน้าไม่ได้', 'invalid');
     var w = input.weather || {};
     var st = input.stoppage || {};
+    var files = (Array.isArray(input.files) ? input.files : []).filter(function (x) { return typeof x === 'string' && safeKey(x); }).slice(0, 30);
+    var caps = {};
+    var capIn = isPlainObj(input.captions) ? input.captions : {};
+    files.forEach(function (fid) { if (Object.prototype.hasOwnProperty.call(capIn, fid) && String(capIn[fid] || '').trim()) caps[fid] = cut(capIn[fid], 300); });
+    var pm = w.pm25 === '' || w.pm25 == null || !isFinite(+w.pm25) ? '' : Math.max(0, Math.min(1000, Math.round(+w.pm25)));
     var d = {
       id: existing ? existing.id : input.id, projectId: p.id, date: input.date,
-      weather: { am: WEATHER[w.am] ? w.am : '', pm: WEATHER[w.pm] ? w.pm : '' },
+      weather: { am: ownKey(WEATHER, w.am) ? w.am : '', pm: ownKey(WEATHER, w.pm) ? w.pm : '', night: ownKey(WEATHER, w.night) ? w.night : '', pm25: pm },
       workHours: cut(input.workHours, 40), manpower: rows_(input.manpower, ['trade', 'count'], 40), equipment: rows_(input.equipment, ['name', 'count'], 40),
       work: cut(input.work, 4000), materials: cut(input.materials, 2000),
       stoppage: { stopped: !!st.stopped, hours: Math.max(0, Math.min(24, +st.hours || 0)), reason: cut(st.reason, 500) },
-      safety: cut(input.safety, 2000), instructions: cut(input.instructions, 2000), files: (input.files || []).slice(0, 30),
+      safety: cut(input.safety, 2000), instructions: cut(input.instructions, 2000), files: files, captions: caps,
+      // 1.0.14 งานที่ผู้รับจ้างขอทำวันถัดไป (Daily Request) — ใช้ในแบบ PT-F07
+      request: (Array.isArray(input.request) ? input.request : []).slice(0, 30).map(function (r) {
+        r = isPlainObj(r) ? r : {};
+        return { work: cut(r.work, 300), qty: cut(r.qty, 40), unit: cut(r.unit, 40), men: r.men === '' || r.men == null || !isFinite(+r.men) ? '' : Math.max(0, Math.min(9999, Math.round(+r.men))) };
+      }).filter(function (r) { return r.work; }),
       createdBy: existing ? existing.createdBy : (actor.name || ''), createdByEmail: existing ? existing.createdByEmail : norm(actor.email),
       createdAt: existing ? existing.createdAt : nowIso, updatedAt: nowIso,
     };
@@ -3302,9 +3341,9 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
       localBlob: !!input.file.localBlob, id: cut(input.file.id, 80),
     } : null;
     if (!url && !(file && (file.driveId || file.url || file.localBlob))) throw fail('กรุณาแนบไฟล์หรือใส่ลิงก์', 'invalid');
-    var uses = (Array.isArray(input.uses) ? input.uses : []).filter(function (u) { return LIB_USE[u]; });
+    var uses = (Array.isArray(input.uses) ? input.uses : []).filter(function (u) { return ownKey(LIB_USE, u); });
     return {
-      id: existing ? existing.id : input.id, title: title, kind: LIB_KINDS[input.kind] ? input.kind : 'form',
+      id: existing ? existing.id : input.id, title: title, kind: ownKey(LIB_KINDS, input.kind) ? input.kind : 'form',
       workType: cut(input.workType, 120), category: cut(input.category, 120), uses: uses.length ? uses : ['all'],
       version: cut(input.version, 40), effective: /^\d{4}-\d{2}-\d{2}$/.test(String(input.effective || '')) ? input.effective : '',
       note: cut(input.note, 1000), url: url, file: file, active: input.active !== false, order: +input.order || 0,
@@ -3356,13 +3395,14 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
   }
   function dailyHtml(d) {
     if (!d) return '';
-    var w = [d.weather && WEATHER[d.weather.am] ? 'เช้า: ' + WEATHER[d.weather.am] : '', d.weather && WEATHER[d.weather.pm] ? 'บ่าย: ' + WEATHER[d.weather.pm] : ''].filter(Boolean).join(' · ');
-    var rows = [['สภาพอากาศ', esc(w || '–')], ['คนงาน', esc(manpowerTotal(d) + ' คน') + (d.manpower.length ? ' <span style="color:#737D90">(' + esc(d.manpower.map(function (r) { return r.trade + ' ' + r.count; }).join(', ')) + ')</span>' : '')]];
+    var w = [d.weather && WEATHER[d.weather.am] ? 'เช้า: ' + WEATHER[d.weather.am] : '', d.weather && WEATHER[d.weather.pm] ? 'บ่าย: ' + WEATHER[d.weather.pm] : '', d.weather && WEATHER[d.weather.night] ? 'กลางคืน: ' + WEATHER[d.weather.night] : '', d.weather && d.weather.pm25 !== '' && d.weather.pm25 != null ? 'PM2.5 ' + d.weather.pm25 + ' µg/m³' : ''].filter(Boolean).join(' · ');
+    var rows = [['สภาพอากาศ', esc(w || '–')], ['คนงาน', esc(manpowerTotal(d) + ' คน') + (d.manpower.length ? ' <span style="color:#737D90">(' + esc(d.manpower.map(function (r) { return (String(r.trade).trim() === 'กรรมกร' ? 'ผู้ปฏิบัติงาน' : r.trade) + ' ' + r.count; }).join(', ')) + ')</span>' : '')]];
     if (d.equipment.length) rows.push(['เครื่องจักร', esc(d.equipment.map(function (r) { return r.name + ' ' + r.count; }).join(', '))]);
     if (d.stoppage.stopped) rows.push(['หยุดงาน', '<b style="color:#C23B2E">' + esc((d.stoppage.hours ? d.stoppage.hours + ' ชม. ' : '') + (d.stoppage.reason || '')) + '</b>']);
     var html = table(['', ''], rows.map(function (r) { return ['<span style="color:#737D90">' + r[0] + '</span>', r[1]]; }));
-    if (d.work) html += box('งานที่ดำเนินการ', '<div style="white-space:pre-wrap">' + esc(d.work) + '</div>');
-    if (d.materials) html += box('วัสดุเข้าหน่วยงาน', '<div style="white-space:pre-wrap">' + esc(d.materials) + '</div>');
+    if (d.work) html += box('งานที่ดำเนินการ', '<div style="white-space:pre-wrap">' + esc(String(d.work).replace(/\t/g, ' — ')) + '</div>');
+    if ((d.request || []).length) html += box('งานที่ขอทำวันถัดไป', ul(d.request.map(function (r) { return esc(r.work + (r.qty ? ' ' + r.qty + (r.unit ? ' ' + r.unit : '') : '') + (r.men !== '' && r.men != null ? ' · ช่าง/คนงาน ' + r.men + ' คน' : '')); })));
+    if (d.materials) html += box('วัสดุเข้าหน่วยงาน', '<div style="white-space:pre-wrap">' + esc(String(d.materials).replace(/\t/g, ' — ')) + '</div>');
     if (d.safety) html += box('ความปลอดภัย/อุบัติเหตุ', '<div style="white-space:pre-wrap">' + esc(d.safety) + '</div>');
     if (d.instructions) html += box('ข้อสั่งการ/ข้อแนะนำต่อผู้รับจ้าง', '<div style="white-space:pre-wrap">' + esc(d.instructions) + '</div>');
     if ((d.files || []).length) html += '<p style="color:#737D90">รูปถ่าย/ไฟล์แนบ ' + d.files.length + ' ไฟล์ — เปิดดูในระบบ</p>';
@@ -3681,7 +3721,7 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     canReadChannel: canReadChannel, canPostChannel: canPostChannel, canSeeMeeting: canSeeMeeting, canCreateMeeting: canCreateMeeting,
     canEditMeeting: canEditMeeting, canToggleAction: canToggleAction, newMessage: newMessage, canDeleteMessage: canDeleteMessage,
     cleanMeeting: cleanMeeting, toggleAction: toggleAction, meetingWhen: meetingWhen, meetingEmail: meetingEmail, validLocalDT: validLocalDT,
-    WEATHER: WEATHER, LIB_KINDS: LIB_KINDS, LIB_USE: LIB_USE, cleanDaily: cleanDaily, manpowerTotal: manpowerTotal, cleanLibrary: cleanLibrary, libraryFor: libraryFor,
+    WEATHER: WEATHER, SUB_ATTACH: SUB_ATTACH, WORK_TYPES: WORK_TYPES, cleanSubForm: cleanSubForm, LIB_KINDS: LIB_KINDS, LIB_USE: LIB_USE, cleanDaily: cleanDaily, manpowerTotal: manpowerTotal, cleanLibrary: cleanLibrary, libraryFor: libraryFor,
     statusOf: statusOf, dailyReportEmail: dailyReportEmail, weeklyReportEmail: weeklyReportEmail, monthlyReportEmail: monthlyReportEmail, reportRecipients: reportRecipients,
     canSeeDaily: canSeeDaily, canSeeLibrary: canSeeLibrary, projectActive: projectActive, WEEKDAYS: WEEKDAYS, jobSettings: jobSettings, dueJobs: dueJobs,
     prevMonth: prevMonth, monthEnd: monthEnd, reminderPlan: reminderPlan, dailyPlan: dailyPlan, weeklyPlan: weeklyPlan, monthRow: monthRow, monthlyPlan: monthlyPlan,

@@ -461,6 +461,7 @@ dd { margin: 0; }
 .thumbs { display: flex; flex-wrap: wrap; gap: 10px; }
 .thumbs:empty { display: none; }
 .thumbs figure { position: relative; margin: 0; width: 112px; }
+.thumbs .th-mark { margin-top: 4px; width: 100%; justify-content: center; }
 .thumbs img { width: 112px; height: 80px; object-fit: cover; border-radius: 2px; display: block; border: 1px solid var(--line); }
 .thumbs figcaption { font-size: 11.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .thumbs .icon-btn { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; background: rgba(0, 0, 0, .55); color: #fff; }
@@ -1422,7 +1423,24 @@ a.dy-day:hover { border-color: var(--line-strong); }
 .dy-side { display: grid; gap: 12px; position: sticky; top: 12px; }
 .dy-side .hint { margin: 0; }
 .dy-rows { display: grid; gap: 6px; margin-bottom: 4px; }
-.dy-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 32px; gap: 6px; align-items: center; }
+.dy-row { display: grid; grid-template-columns: var(--dy-cols, minmax(0, 1fr) 90px 32px); gap: 6px; align-items: center; }
+.dy-row select { min-width: 0; width: 100%; }
+.dy-inl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; } .field .dy-inl select { flex: 1 1 140px; width: auto; min-width: 0; } .field .dy-inl input { flex: 0 1 110px; width: 110px; min-width: 70px; }
+/* 1.0.14 ภาพประกอบเรียงลำดับ + คำบรรยายใต้ภาพ */
+.dy-photos { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.dy-photos:empty { display: none; }
+.dy-ph { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.dy-ph-img { width: 128px; height: 92px; border-radius: 3px; overflow: hidden; background: var(--surface-2); display: grid; place-items: center; }
+.dy-ph-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dy-ph-body { display: grid; gap: 6px; min-width: 0; }
+.dy-ph-body input { width: 100%; }
+.dy-ph-tools { display: flex; flex-wrap: wrap; gap: 4px; }
+.dy-figs { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.dy-figs figure { margin: 0; display: grid; gap: 4px; }
+.dy-figs .fthumb { width: 100%; height: 136px; padding: 0; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; background: var(--surface-2); cursor: pointer; }
+.dy-figs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dy-figs figcaption { font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.dy-tbl td { vertical-align: top; } .dy-tbl td.r, .dy-tbl th.r { white-space: nowrap; }
 .dy-wx { flex-wrap: wrap; }
 .dy-wx label { padding: 6px 10px; font-size: 13px; }
 .dy-wx input { margin: 0; }
@@ -1459,6 +1477,11 @@ a.dy-day:hover { border-color: var(--line-strong); }
   .lib-proj select { min-width: 0; width: 100%; }
   .panel-head .lib-proj, .panel-head .lib-day { flex-direction: column; align-items: stretch; }
   .lib-ctx { width: 100%; flex-direction: column; align-items: stretch; }
+  .dy-row { display: flex; flex-wrap: wrap; }
+  .dy-row > [data-k] { flex: 1 1 70px; min-width: 0; }
+  .dy-row > [data-k]:first-child { flex: 1 0 calc(100% - 40px); }
+  .dy-row > .icon-btn { flex: none; }
+  .dy-ph { grid-template-columns: 96px minmax(0, 1fr); } .dy-ph-img { width: 96px; height: 72px; }
   .lib-day { width: 100%; } .lib-day input { width: 100%; }
   .jobs-table thead { display: none; }
   .jobs-table tr { display: grid; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -2229,3 +2252,24 @@ body:has(.rm-compose) #toasts { bottom: 96px; }
 .lib-code.is-official { align-self: flex-start; width: fit-content; padding: 1px 6px; border: 1px solid #F5C9A4; border-radius: 3px; background: #FFF3E6; color: #9A3412; }
 [data-theme="dark"] .lib-code.is-official { background: rgba(232, 89, 12, .16); color: #FDBA74; border-color: rgba(232, 89, 12, .4); }
 .ph-acts { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* 1.0.14 ข้อมูลหนังสือขออนุมัติ PT-F01 ในหน้าส่งเรื่อง */
+.subf { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.subf > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 10px 14px; cursor: pointer; }
+.subf > summary small { color: var(--ink-3); flex-basis: 100%; padding-left: 26px; }
+.subf[open] > summary { border-bottom: 1px solid var(--line); }
+.subf-body { display: grid; gap: 12px; padding: 12px 14px 14px; }
+.sf-rows { display: grid; gap: 6px; margin-bottom: 4px; }
+.sf-row { display: grid; grid-template-columns: 24px minmax(0, .8fr) minmax(0, 1.1fr) minmax(0, 1.1fr) 32px; gap: 6px; align-items: center; }
+.sf-n { text-align: center; color: var(--ink-3); font-size: 13px; }
+.sf-att { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.sf-att label { display: flex; align-items: center; gap: 6px; font-size: 13.5px; }
+.sf-att input { width: 72px; }
+.sf-types { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.sf-types input[data-sf] { flex: 1 1 200px; min-width: 0; }
+.sf-tbl td { vertical-align: top; }
+@media (max-width: 720px) {
+  .sf-row { grid-template-columns: 24px minmax(0, 1fr) 32px; }
+  .sf-row input { grid-column: 2; }
+  .sf-row .icon-btn { grid-column: 3; grid-row: 1; }
+}

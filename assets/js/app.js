@@ -1,4 +1,5 @@
 // จุดเริ่มต้นของแอป: โครงหน้าจอ, เส้นทาง (hash router), การเชื่อมต่อ
+import './annotate.js'; // 1.0.14 มาร์ค/โน้ตบนรูป และลายมือชื่อ (window.PTAnnotate)
 import { store, conf, saveConf, testConnection, backendFor, gasUrlProblem, spSiteProblem, msIdProblem } from './store.js';
 import { icon, esc, toast, runCleanups, guard, openModal, setBusy, emptyArt } from './ui.js';
 import { renderDashboard } from './views/dashboard.js';
