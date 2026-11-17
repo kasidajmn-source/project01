@@ -556,7 +556,7 @@
     if (p.description != null) p.description = cut(p.description, 5000);
     if (p.tags != null) p.tags = (Array.isArray(p.tags) ? p.tags : []).map(function (t) { return cut(t, 40); }).filter(Boolean).slice(0, 20);
     if (p.docCategories != null) p.docCategories = (Array.isArray(p.docCategories) ? p.docCategories : []).map(function (t) { return cut(t, 80); }).filter(Boolean).slice(0, 60);
-    ['startDate', 'endDate'].forEach(function (k) { if (p[k] && !validIsoDate(p[k])) p[k] = ''; });
+    ['startDate', 'endDate', 'contractDate'].forEach(function (k) { if (p[k] && !validIsoDate(p[k])) p[k] = ''; });
     if (p.startDate && p.endDate && p.endDate < p.startDate) throw fail('วันสิ้นสุดสัญญาต้องไม่ก่อนวันเริ่มสัญญา', 'invalid');
     if (p.contractValue !== '' && p.contractValue != null) {
       var v = Number(String(p.contractValue).replace(/,/g, ''));

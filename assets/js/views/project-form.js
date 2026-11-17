@@ -35,11 +35,12 @@ export function projectFieldsHTML(p, { full = true } = {}) {
     <label class="field"><span>สถานที่</span><input name="location" value="${esc(p.location)}"></label>
     <label class="field"><span>ป้ายกำกับ</span><input name="tags" value="${esc((p.tags || []).join(', '))}" placeholder="คั่นด้วยจุลภาค เช่น งบลงทุน, ด่วน"></label>
     <label class="field span-2"><span>รายละเอียดโครงการ</span><textarea name="description" rows="3">${esc(p.description)}</textarea></label>
-    <h3 class="sub-h span-2">ข้อมูลหัวแบบฟอร์ม กฟผ. <small class="muted">ใช้ในแบบ FM-001 ผลการตรวจวัสดุ และ FM-002 บันทึกการควบคุมงานประจำวัน</small></h3>
+    <h3 class="sub-h span-2">ข้อมูลหัวแบบฟอร์ม <small class="muted">ใช้ในแบบ FM-001 · FM-002 · หนังสือขออนุมัติ PT-F01 · Daily Report PT-F07</small></h3>
     <label class="field"><span>แผนก</span><input name="orgSection" value="${esc(p.orgSection || '')}" list="dl-osec" maxlength="120"></label>
     <label class="field"><span>กอง</span><input name="orgDivision" value="${esc(p.orgDivision || '')}" list="dl-odiv" maxlength="120"></label>
     <label class="field"><span>ฝ่าย</span><input name="orgDept" value="${esc(p.orgDept || '')}" list="dl-odep" maxlength="120"></label>
     <label class="field"><span>เลขที่งาน (PM-Order กอง)</span><input name="pmOrder" value="${esc(p.pmOrder || '')}" maxlength="120"></label>
+    <label class="field"><span>วันที่ลงนามสัญญา</span><input type="date" name="contractDate" value="${esc(p.contractDate || '')}"></label>
     <label class="field span-2"><span>ผู้แทนผู้รับจ้าง <small class="muted">เว้นว่าง = ใช้ชื่อผู้รับจ้างคนแรกในแท็บสมาชิก</small></span><input name="contractorRep" value="${esc(p.contractorRep || '')}" maxlength="200"></label>
     ${['orgSection', 'orgDivision', 'orgDept'].map((k, i) => `<datalist id="${['dl-osec', 'dl-odiv', 'dl-odep'][i]}">${[...new Set(store.data.projects.map((x) => x[k]).filter(Boolean))].map((v) => `<option value="${esc(v)}">`).join('')}</datalist>`).join('')}
     ` : `
@@ -66,7 +67,7 @@ export function readProjectFields(form, base) {
   const f = form.elements;
   const v = (n) => (f[n] ? f[n].value.trim() : base[n]);
   const out = { ...base };
-  for (const k of ['name', 'code', 'type', 'contractor', 'contractNo', 'startDate', 'endDate', 'manager', 'status', 'owner', 'location', 'description', 'progressMethod', 'orgSection', 'orgDivision', 'orgDept', 'pmOrder', 'contractorRep']) {
+  for (const k of ['name', 'code', 'type', 'contractor', 'contractNo', 'startDate', 'endDate', 'manager', 'status', 'owner', 'location', 'description', 'progressMethod', 'orgSection', 'orgDivision', 'orgDept', 'pmOrder', 'contractorRep', 'contractDate']) {
     if (f[k]) out[k] = v(k);
   }
   if (f.contractValue) out.contractValue = f.contractValue.value.trim() === '' ? '' : num(f.contractValue.value);

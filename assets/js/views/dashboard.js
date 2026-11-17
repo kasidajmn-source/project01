@@ -96,7 +96,7 @@ export function renderDashboard(el) {
     <div class="dash-side">
       ${myWork('mw-side')}
       ${pendingPanel(current)}
-      <a class="panel lib-link" href="#/library">${icon('clipboard')}<span><b>แบบฟอร์มและระเบียบ</b><small>แบบ กฟผ. FM-001/002 · PT-F01–F06${store.libraryItems().length ? ` · เอกสารในคลัง ${store.libraryItems().length} รายการ` : ''}</small></span>${icon('chevR')}</a>
+      <a class="panel lib-link" href="#/library">${icon('clipboard')}<span><b>แบบฟอร์มและระเบียบ</b><small>แบบ กฟผ. FM-001/002 · PT-F01–F07 กรอกบนเว็บได้${store.libraryItems().length ? ` · เอกสารในคลัง ${store.libraryItems().length} รายการ` : ''}</small></span>${icon('chevR')}</a>
       <section class="panel">
         <header class="panel-head"><h2>ต้องติดตาม</h2><span class="count">${watch.length}</span></header>
         ${watch.length ? `<ul class="watch">${watch.map((w) => `

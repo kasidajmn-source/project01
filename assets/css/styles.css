@@ -1377,6 +1377,8 @@ button.sk:hover { border-color: var(--ink-3); }
 .lib-form footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .lib-code { font-family: var(--font-num); font-size: 12.5px; letter-spacing: .04em; color: var(--amber-ink); font-weight: 600; }
 .lib-proj select { min-width: 220px; max-width: 100%; }
+.lib-ctx { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: flex-end; }
+.lib-day input { min-width: 150px; }
 .lib-group { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 18px 0 4px; color: var(--ink-2); }
 .lib-group:first-child { margin-top: 4px; }
 .lib-list li { grid-template-columns: 38px minmax(0, 1fr) auto auto; }
@@ -1455,7 +1457,9 @@ a.dy-day:hover { border-color: var(--line-strong); }
   .lib-list li .row-tools [data-open] { display: none; }
   .lib-proj { width: 100%; }
   .lib-proj select { min-width: 0; width: 100%; }
-  .panel-head .lib-proj { flex-direction: column; align-items: stretch; }
+  .panel-head .lib-proj, .panel-head .lib-day { flex-direction: column; align-items: stretch; }
+  .lib-ctx { width: 100%; flex-direction: column; align-items: stretch; }
+  .lib-day { width: 100%; } .lib-day input { width: 100%; }
   .jobs-table thead { display: none; }
   .jobs-table tr { display: grid; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .jobs-table td { border: 0 !important; padding: 0 4px !important; }

@@ -63,6 +63,7 @@ function renderList(el, ctx) {
   const canSend = store.canSendReport('daily', p.id);
   const forms = [
     ['daily', 'บันทึกการควบคุมงานประจำวัน (เปล่า)', { p, date: t }],
+    ['cdaily', 'Daily Report & Request ของผู้รับจ้าง', () => ({ p, date: t, daily: store.dailyAt(p.id, t) })],
     ['material', 'ผลการตรวจวัสดุก่อสร้าง (เปล่า)', { p, date: t }],
     ['weekly', 'รายงานประจำสัปดาห์', () => ({ p, to: t })],
     ['instruction', 'ใบสั่งการ', { p }],
@@ -129,6 +130,7 @@ function renderView(el, ctx, d) {
       ${nextD ? `<a class="btn btn-sm" href="#/p/${pid}/daily/${nextD.date}" title="วันถัดไป">${fmt.date(nextD.date)}${icon('chevR')}</a>` : ''}
       ${menu({ items: [
         { act: 'print', icon: 'print', label: 'พิมพ์บันทึกการควบคุมงานประจำวัน FM-002' },
+        { act: 'cdaily', icon: 'print', label: 'Daily Report and Daily Request PT-F07' },
         d.materials && { act: 'mat', icon: 'print', label: 'พิมพ์ผลการตรวจวัสดุ FM-001' },
         d.instructions && { act: 'instr', icon: 'print', label: 'พิมพ์ใบสั่งการ PT-F06' },
         store.canSendReport('daily', p.id) && { act: 'mail', icon: 'mail', label: 'ส่งรายงานนี้ทางอีเมล' },
@@ -155,6 +157,7 @@ function renderView(el, ctx, d) {
   </section>`;
   el.querySelector('[data-act="print"]').addEventListener('click', () => openForm('daily', { p, daily: d }));
   el.querySelector('[data-act="instr"]')?.addEventListener('click', () => openForm('instruction', { p, daily: d }));
+  el.querySelector('[data-act="cdaily"]')?.addEventListener('click', () => openForm('cdaily', { p, daily: d }));
   el.querySelector('[data-act="mat"]')?.addEventListener('click', () => openForm('material', { p, date: d.date }));
   el.querySelector('[data-act="mail"]')?.addEventListener('click', () => openReportDialog('daily', { projectId: p.id, date: d.date }));
   el.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => preview(files.find((f) => f.id === b.dataset.f))));

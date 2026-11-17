@@ -1,6 +1,6 @@
 // ค่าเริ่มต้นของระบบ — แก้ไขได้จากหน้า "ตั้งค่า" ในแอป
 
-export const APP_VERSION = '1.0.12';
+export const APP_VERSION = '1.0.13';
 
 /** หมวดในคลังเอกสารสำหรับไฟล์แนบของเรื่องขออนุมัติ */
 export const SUB_FILE_CATEGORY = 'เอกสารแนบเรื่องขออนุมัติ';
@@ -79,6 +79,7 @@ export function newProject(settings) {
     contractNo: '',
     location: '',
     orgSection: '', orgDivision: '', orgDept: '', pmOrder: '', contractorRep: '', // 1.0.12 หัวแบบฟอร์ม กฟผ. (FM-001/FM-002)
+    contractDate: '', // 1.0.13 วันที่ลงนามสัญญา (PT-F01 หนังสือขออนุมัติ · PT-F07)
     startDate: '',
     endDate: '',
     contractValue: '',

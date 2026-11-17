@@ -56,7 +56,7 @@ var CONFIG = {
   MAIL_RESERVE: 15,
 };
 
-var VERSION = '1.0.12';
+var VERSION = '1.0.13';
 var LIBRARY_FOLDER = 'คลังแบบฟอร์มและระเบียบ';
 var DAILY_FILE_CATEGORY = 'รูปถ่ายความคืบหน้า';
 var SUB_FILE_CATEGORY = 'เอกสารแนบเรื่องขออนุมัติ';
@@ -67,7 +67,7 @@ var SCHEMA = {
     'startDate', 'endDate', 'contractValue', 'description', 'progressMethod', 'priceBasis', 'allowOver', 'planMode',
     'planPoints', 'docCategories', 'folderId', 'folderUrl', 'createdBy', 'createdAt', 'updatedAt',
     'ownerEmail', 'ownerName', 'ownerRole', 'members', 'rolePerms', 'workflow', 'slaWarnDays', 'slaLateDays', 'ownerSeat',
-    'orgSection', 'orgDivision', 'orgDept', 'pmOrder', 'contractorRep'],
+    'orgSection', 'orgDivision', 'orgDept', 'pmOrder', 'contractorRep', 'contractDate'],
   BOQ: ['id', 'projectId', 'group', 'no', 'desc', 'unit', 'qty', 'mat', 'labor', 'weight', 'order', 'ps', 'pe'],
   Updates: ['id', 'projectId', 'date', 'week', 'entries', 'manualPct', 'note', 'issues', 'createdBy', 'createdAt', 'updatedAt', 'createdByEmail'],
   Files: ['id', 'projectId', 'category', 'name', 'mime', 'size', 'driveId', 'url', 'note', 'updateId', 'uploadedBy', 'uploadedAt', 'subId', 'uploadedByEmail'],
@@ -2588,7 +2588,7 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     if (p.description != null) p.description = cut(p.description, 5000);
     if (p.tags != null) p.tags = (Array.isArray(p.tags) ? p.tags : []).map(function (t) { return cut(t, 40); }).filter(Boolean).slice(0, 20);
     if (p.docCategories != null) p.docCategories = (Array.isArray(p.docCategories) ? p.docCategories : []).map(function (t) { return cut(t, 80); }).filter(Boolean).slice(0, 60);
-    ['startDate', 'endDate'].forEach(function (k) { if (p[k] && !validIsoDate(p[k])) p[k] = ''; });
+    ['startDate', 'endDate', 'contractDate'].forEach(function (k) { if (p[k] && !validIsoDate(p[k])) p[k] = ''; });
     if (p.startDate && p.endDate && p.endDate < p.startDate) throw fail('วันสิ้นสุดสัญญาต้องไม่ก่อนวันเริ่มสัญญา', 'invalid');
     if (p.contractValue !== '' && p.contractValue != null) {
       var v = Number(String(p.contractValue).replace(/,/g, ''));
