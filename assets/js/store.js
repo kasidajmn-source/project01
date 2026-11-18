@@ -64,8 +64,17 @@ export async function testConnection(url, key) {
 }
 
 const TABLES = ['projects', 'boq', 'updates', 'files', 'subs', 'reqs', 'msgs', 'meetings', 'daily', 'library'];
-const emptyData = () => ({ projects: [], boq: [], updates: [], files: [], subs: [], reqs: [], msgs: [], meetings: [], daily: [], library: [], settings: {} });
+const emptyData = () => ({ projects: [], boq: [], updates: [], files: [], subs: [], reqs: [], msgs: [], meetings: [], daily: [], library: [], settings: {}, attend: {}, access: [] });
 const DAILY_FILE_CATEGORY = 'รูปถ่ายความคืบหน้า';
+/** 1.0.15 ไฟล์ PDF ของรายงานประจำวันเก็บในหมวดนี้ของแท็บเอกสาร */
+export const DAILY_DOC_CATEGORY = 'รายงานประจำวัน/สัปดาห์';
+/** "รายละเอียด<TAB>ปริมาณ หน่วย" — รูปแบบเดียวกับ vocab.joinLine (ข้อความงานที่ทำในรายงานประจำวัน) */
+const joinWork = (desc, qty, unit) => {
+  const d = String(desc || '').replace(/\s+/g, ' ').trim();
+  const q = String(qty || '').trim();
+  if (!d) return '';
+  return q ? `${d}\t${q}${String(unit || '').trim() ? ` ${String(unit).trim()}` : ''}` : d;
+};
 /** วันที่และชั่วโมงตามเวลาประเทศไทย */
 const thaiNow = () => { const d = new Date(Date.now() + 7 * 3600e3); return { date: d.toISOString().slice(0, 10), hour: d.getUTCHours() }; };
 const K_READ = 'pt.read.v1';
@@ -117,12 +126,17 @@ const idb = {
 // ---------- store ----------
 let version = 0;
 const analysisCache = new Map();
+const attendCache = new Map();
+/** รูปที่อัปโหลดในเครื่องนี้ระหว่างใช้งาน (รหัสไฟล์ → Blob) — ใช้ใส่รูปในไฟล์ PDF โดยไม่ต้องดาวน์โหลดกลับ */
+const blobCache = new Map();
 
 export const store = {
   data: emptyData(),
   meta: { rootFolderUrl: '', maxUploadMB: 25 },
   online: true,
   lastSync: null,
+  /** 1.0.15 ข้อผิดพลาดล่าสุดตอนดึงข้อมูลจากระบบหลังบ้าน { message, code } */
+  lastError: null,
   /** อีเมลที่ระบบสร้างในโหมดทดลอง (กล่องจดหมายจำลอง) */
   outbox: readJSON(K_MAIL, []),
 
@@ -140,7 +154,8 @@ export const store = {
   get msConf() { return this.mode === 'onedrive' ? conf.od : conf.sp; },
 
   /** Apps Script รุ่นเก่า (1.0.0) ที่ยังไม่รองรับผู้ใช้ สิทธิ์ และเรื่องขออนุมัติ */
-  get legacy() { return this.mode === 'gas' && !this.meta.me && !this.needLogin; },
+  // 1.0.15 เซิร์ฟเวอร์รุ่น 1.0.0 = ดึงข้อมูลสำเร็จแต่ไม่มีข้อมูลผู้ใช้ (ดึงไม่สำเร็จไม่ถือว่าเป็นรุ่นเก่า)
+  get legacy() { return this.mode === 'gas' && !!this.meta.loaded && !this.meta.me && !this.needLogin; },
   /** Google 1.0.1: ยังไม่ได้เข้าสู่ระบบ */
   needLogin: false,
   /** เซิร์ฟเวอร์ตรวจสิทธิ์และส่งอีเมลเอง (Google Apps Script 1.0.1 ขึ้นไป) */
@@ -215,11 +230,18 @@ export const store = {
 
   async refresh() {
     if (!this.cloud) return;
-    const d = await this.backend.getAll();
+    let d;
+    try { d = await this.backend.getAll(); } catch (e) {
+      if (e.code !== 'login') this.lastError = { message: e.message, code: e.code || '' };
+      throw e;
+    }
     this.data = emptyData();
     for (const t of TABLES) this.data[t] = d[t] || [];
     this.data.settings = d.settings || {};
-    this.meta = { rootFolderUrl: '', maxUploadMB: this.meta.maxUploadMB, ...(d.meta || {}) };
+    this.data.attend = d.attend && typeof d.attend === 'object' && !Array.isArray(d.attend) ? d.attend : {};
+    this.data.access = Array.isArray(d.access) ? d.access.filter((x) => x && typeof x === 'object' && typeof x.id === 'string') : [];
+    this.meta = { rootFolderUrl: '', maxUploadMB: this.meta.maxUploadMB, ...(d.meta || {}), loaded: true };
+    this.lastError = null;
     if (this.direct) {
       const want = !!this.data.settings.spMail;
       if (this.msConf.mail !== want) { this.msConf.mail = want; saveConf(); }
@@ -245,7 +267,7 @@ export const store = {
     this.touch();
   },
 
-  touch() { version++; analysisCache.clear(); },
+  touch() { version++; analysisCache.clear(); attendCache.clear(); },
 
   // ---------- สิทธิ์ ----------
   canView(p) {
@@ -300,11 +322,31 @@ export const store = {
     if (!analysisCache.has(pid)) {
       const p = this.project(pid);
       if (!p) return null;
-      analysisCache.set(pid, analyze(p, this.boqOf(pid), this.updatesOf(pid), this.settings));
+      analysisCache.set(pid, analyze(p, this.boqOf(pid), this.updatesOf(pid), this.settings, undefined, this.attendanceOf(pid)));
     }
     return analysisCache.get(pid);
   },
   rows() { return this.visibleProjects().map((p) => ({ p, a: this.analysis(p.id) })); },
+  /**
+   * 1.0.15 วันที่มีคนเข้างาน (จากรายงานประจำวันทุกชนิด) — ใช้คิดรายการค่าที่พัก/ค่าเดินทางใน BOQ
+   * null = โครงการยังไม่มีรายงานประจำวันเลย (ระบบใช้เวลาที่ผ่านไปของสัญญาแทน)
+   */
+  attendanceOf(pid) {
+    if (!attendCache.has(pid)) {
+      const mine = this.data.daily.filter((d) => d.projectId === pid);
+      const srvMap = this.data.attend && typeof this.data.attend === 'object' ? this.data.attend : {};
+      const srv = Object.prototype.hasOwnProperty.call(srvMap, pid) && Array.isArray(srvMap[pid]) ? srvMap[pid] : null;
+      const local = R.attendanceDates(mine);
+      let out = null;
+      if (local || srv) {
+        const set = new Set(local || []);
+        (srv || []).forEach((x) => { if (typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x)) set.add(x); });
+        out = [...set].sort();
+      }
+      attendCache.set(pid, out);
+    }
+    return attendCache.get(pid);
+  },
 
   /** งานของผู้ใช้ปัจจุบัน: รอพิจารณา / เรื่องที่ส่งไป / เรื่องที่ต้องแก้ไข / เอกสารใกล้ครบกำหนด */
   myQueue() {
@@ -550,6 +592,7 @@ export const store = {
       group: it.group || '', no: it.no || '', desc: it.desc || '', unit: it.unit || '',
       qty: +it.qty || 0, mat: +it.mat || 0, labor: +it.labor || 0, weight: it.weight === '' || it.weight == null ? '' : +it.weight,
       ps: +it.ps > 0 ? Math.round(+it.ps) : '', pe: +it.pe > 0 ? Math.round(+it.pe) : '',
+      auto: it.auto === 'attend' || it.auto === 'off' ? it.auto : '',
       order: i + 1,
     }));
     const saved = this.cloud ? await this.backend.saveBoq(pid, clean, onProgress) : clean;
@@ -598,7 +641,7 @@ export const store = {
   _progressAfter(u) {
     const p = this.project(u.projectId);
     const ups = this.updatesOf(p.id).filter((x) => x.id !== u.id).concat([{ ...u, id: u.id || '__new' }]);
-    const a = analyze(p, this.boqOf(p.id), sortUpdates(ups), this.settings);
+    const a = analyze(p, this.boqOf(p.id), sortUpdates(ups), this.settings, undefined, this.attendanceOf(p.id));
     return { actual: a.actual, plan: a.plan };
   },
 
@@ -621,6 +664,7 @@ export const store = {
     const p = this.project(f.projectId);
     if (this.legacy) return true;
     if (f.subId) return R.isOwner(p, this.me);
+    if (R.ownsDailyDoc(p, this.me, f)) return true;
     return this.can(p, 'uploadDocs');
   },
 
@@ -630,6 +674,11 @@ export const store = {
     if (chat) {
       if (!R.canPostChannel(chat, this.project(pid), this.me, chat === 'meeting' ? this.meeting(refId) : null)) throw permError('คุณไม่มีสิทธิ์แนบไฟล์ในห้องนี้');
       category = CHAT_FILE_CATEGORY;
+    } else if (dailyId) {
+      if (!R.canWriteDaily(this.project(pid), this.me, 'contractor')) throw permError('คุณไม่มีสิทธิ์แนบไฟล์ในรายงานประจำวันของโครงการนี้');
+      const dref = this.data.daily.find((x) => x.id === dailyId);
+      if (dref && (dref.projectId !== pid || !this._seeDaily(dref) || !this.canWriteDaily(pid, R.dailyKind(dref)))) throw permError('คุณไม่มีสิทธิ์แนบไฟล์ในรายงานนี้');
+      category = category === DAILY_DOC_CATEGORY ? DAILY_DOC_CATEGORY : DAILY_FILE_CATEGORY;
     } else if (!subId && !(updateId && this.can(pid, 'recordProgress'))) this._need(pid, 'uploadDocs', 'คุณไม่มีสิทธิ์อัปโหลดเอกสารในคลังของโครงการนี้');
     if (file.size > this.maxUploadBytes()) {
       throw new Error(this.cloud
@@ -651,6 +700,10 @@ export const store = {
       };
       await idb.put(rec.id, file);
       onProgress?.(1);
+    }
+    if (/^image\//.test(file.type || '') && file.size <= 15 * 1048576) {
+      blobCache.set(rec.id, file);
+      while (blobCache.size > 60) blobCache.delete(blobCache.keys().next().value);
     }
     this._upsert('files', rec);
     this._commit();
@@ -717,6 +770,54 @@ export const store = {
     return { open: u, preview: u, download: u };
   },
 
+  // ---------- 1.0.15 คำขอสิทธิ์ (ลงทะเบียน) ----------
+  /** คำขอที่ผู้ใช้อนุมัติได้และยังรออยู่ — scope: 'admin' (ผู้ควบคุมงาน/ผู้บริหาร) · pid (ตำแหน่งในโครงการ) · '' ทั้งหมด */
+  accessQueue(scope = '') {
+    const list = (this.data.access || []).filter((x) => x.status === 'pending' && R.norm(x.email) !== R.norm(this.me?.email));
+    return list.filter((x) => {
+      const p = x.projectId ? this.project(x.projectId) : null;
+      if (!R.canDecideAccess(this.me, x, p)) return false;
+      if (scope === 'admin') return x.by === 'admin';
+      if (scope) return x.projectId === scope;
+      return true;
+    });
+  },
+  /** คำขอที่พิจารณาแล้วล่าสุด (แสดงประวัติสั้น ๆ) */
+  accessDone(scope = '') {
+    return (this.data.access || []).filter((x) => x.status !== 'pending' && (scope === 'admin' ? x.by === 'admin' : !scope || x.projectId === scope))
+      .sort((a, b) => String(b.decidedAt || '').localeCompare(String(a.decidedAt || ''))).slice(0, 10);
+  },
+  async decideAccess(id, decision, reason = '') {
+    if (this.mode !== 'gas') throw new Error('การลงทะเบียนขอสิทธิ์ใช้ได้กับระบบบน Google Drive');
+    this._assertNewServer('1.0.15', 'การอนุมัติคำขอสิทธิ์');
+    const r = await this.backend.decideAccess({ id, decision, reason });
+    const i = (this.data.access || []).findIndex((x) => x.id === id);
+    if (i >= 0) this.data.access[i] = r;
+    try { await this.refresh(); } catch { this._commit(); }
+    return r;
+  },
+  /** 1.0.15 ระบบหลังบ้าน (Google) แปลงหน้าแบบฟอร์ม HTML เป็นไฟล์ PDF เก็บในหมวดรายงานประจำวัน — ใช้เมื่อเบราว์เซอร์สร้าง PDF เองไม่ได้ */
+  async dailyHtmlToPdf(pid, dailyId, name, html, note = '') {
+    if (!R.canWriteDaily(this.project(pid), this.me, 'contractor')) throw permError('คุณไม่มีสิทธิ์บันทึกไฟล์ของรายงานประจำวันในโครงการนี้');
+    const rec = await this.backend.htmlToPdf({ projectId: pid, dailyId, name, html, note });
+    this._upsert('files', rec);
+    this._commit();
+    return rec;
+  },
+  /** 1.0.15 เนื้อไฟล์รูปภาพ (Blob) — ไม่ได้ = null */
+  async fileBlob(rec) {
+    if (!rec) return null;
+    if (blobCache.has(rec.id)) return blobCache.get(rec.id);
+    try {
+      if (rec.localBlob) return (await idb.get(rec.id)) || null;
+      if (this.cloud && this.backend.fileBlob && !(this.mode === 'gas' && this.serverOutdated('1.0.15'))) {
+        const b = await this.backend.fileBlob(rec);
+        if (b && b.size <= 15 * 1048576) { blobCache.set(rec.id, b); while (blobCache.size > 60) blobCache.delete(blobCache.keys().next().value); }
+        return b || null;
+      }
+    } catch { /* ใช้รูปย่อแทน */ }
+    return null;
+  },
   async thumbUrl(rec) {
     if (rec.localBlob) {
       const blob = await idb.get(rec.id).catch(() => null);
@@ -938,6 +1039,12 @@ export const store = {
     for (let i = 0; i < 3; i++) if ((v[i] || 0) !== m[i]) return (v[i] || 0) < m[i];
     return false;
   },
+  /** Code.gs ต้องเป็นเวอร์ชัน min ขึ้นไป (Google เท่านั้น) */
+  _assertNewServer(min, label) {
+    if (this.mode === 'gas' && (this.legacy || this.serverOutdated(min))) {
+      throw new Error(`ระบบหลังบ้าน (Code.gs) ยังเป็นเวอร์ชัน ${this.meta.version || 'เก่า'} — ให้ผู้ดูแลวาง Code.gs ${min} รัน setup แล้ว Deploy เวอร์ชันใหม่ ก่อนใช้${label}`);
+    }
+  },
   _assertNew(t, label) {
     if (this.legacy || this.serverOutdated('1.0.5')) {
       throw new Error(`ระบบหลังบ้าน (Code.gs) ยังเป็นเวอร์ชัน ${this.meta.version || 'เก่า'} — ให้ผู้ดูแลวาง Code.gs 1.0.5 รัน setup แล้ว Deploy เวอร์ชันใหม่ ก่อนใช้${label}`);
@@ -953,10 +1060,35 @@ export const store = {
     if (!p) return false;
     return this.legacy || R.canSeeDaily(p, this.me);
   },
-  dailyOf(pid) {
-    return this.data.daily.filter((d) => d.projectId === pid).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  /** 1.0.15 ผู้ใช้บันทึกรายงานชนิดนี้ได้ไหม ('' = ผู้ควบคุมงาน · 'contractor' = Daily Report & Request ผู้รับจ้าง) */
+  canWriteDaily(pid, kind = '') {
+    const p = typeof pid === 'object' ? pid : this.project(pid);
+    if (!p) return false;
+    return this.legacy ? this.can(p, 'recordProgress') : R.canWriteDaily(p, this.me, kind);
   },
-  dailyAt(pid, date) { return this.data.daily.find((d) => d.projectId === pid && d.date === date) || null; },
+  /** ผู้ใช้เป็นผู้รับจ้างของโครงการ (เห็น/บันทึกเฉพาะรายงานของผู้รับจ้าง) */
+  isContractorOf(pid) {
+    const p = typeof pid === 'object' ? pid : this.project(pid);
+    return !!p && R.roleOf(p, this.me?.email) === 'contractor';
+  },
+  _seeDaily(d) {
+    const p = this.project(d.projectId);
+    return this.legacy || (p && R.canSeeDailyRec(p, this.me, d));
+  },
+  /** รายงานประจำวันของโครงการ ชนิด kind (ใหม่ → เก่า) — kind = '*' ทุกชนิดที่ผู้ใช้เห็น */
+  dailyOf(pid, kind = '') {
+    return this.data.daily.filter((d) => d.projectId === pid && (kind === '*' || R.dailyKind(d) === kind) && this._seeDaily(d))
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  },
+  dailyAt(pid, date, kind = '') {
+    return this.data.daily.find((d) => d.projectId === pid && d.date === date && R.dailyKind(d) === kind && this._seeDaily(d)) || null;
+  },
+  /** ไฟล์ PDF ของรายงาน (หมวดรายงานประจำวัน ผูกกับรายงาน) ใหม่ → เก่า */
+  dailyDocs(d) {
+    if (!d) return [];
+    return this.data.files.filter((f) => f.projectId === d.projectId && f.updateId === d.id && f.category === DAILY_DOC_CATEGORY)
+      .sort((a, b) => String(b.uploadedAt || '').localeCompare(String(a.uploadedAt || '')));
+  },
   /** 1.0.14 บันทึกความคืบหน้า BOQ ที่กรอกพร้อมรายงานประจำวัน (รหัสผูกกับรายงาน) */
   dailyUpdateId(dailyId) { return `UD${String(dailyId || '').replace(/[^\w-]/g, '')}`.slice(0, 60); },
   dailyUpdate(d) { return d ? this.data.updates.find((u) => u.id === this.dailyUpdateId(d.id)) || null : null; },
@@ -970,9 +1102,25 @@ export const store = {
     const p = this.project(input.projectId);
     const me = this.me;
     const old = input.id ? this.data.daily.find((x) => x.id === input.id) : null;
+    if (old && !this._seeDaily(old)) throw permError('คุณไม่มีสิทธิ์แก้ไขรายงานนี้');
+    const kind = old ? R.dailyKind(old) : R.dailyKind(input);
+    if (kind === 'contractor') this._assertNewServer('1.0.15', 'Daily Report ของผู้รับจ้าง');
+    // 1.0.15 แถวงานที่ทำ (เลือกหมวด/รายการ BOQ ได้) → ข้อความงานที่ทำ (ใช้ในอีเมลและแบบฟอร์ม) + ปริมาณงานตาม BOQ
+    if (Array.isArray(input.rows)) {
+      const items = this.boqOf(p.id);
+      const rows = R.cleanWorkRows(input.rows).map((r) => (r.boq && !items.some((b) => b.id === r.boq) ? { ...r, boq: '' } : r));
+      const descOf = (r) => r.w || (items.find((b) => b.id === r.boq)?.desc || '');
+      input = { ...input, rows, work: rows.map((r) => joinWork(descOf(r), r.q, r.u)).filter(Boolean).join('\n') };
+      if (kind === '' && !('boq' in input)) {
+        const boq = {};
+        rows.forEach((r) => { const q = parseFloat(String(r.q).replace(/,/g, '')); if (r.boq && Number.isFinite(q) && q) boq[r.boq] = (boq[r.boq] || 0) + q; });
+        input.boq = boq;
+      }
+    }
+    if (kind === 'contractor') delete input.boq;
     // ตรวจสิทธิ์และข้อมูลก่อนอัปโหลดรูป
-    R.cleanDaily({ ...input, id: old ? old.id : 'check' }, p, me, nowIso(), old);
-    if (this.data.daily.some((x) => x.projectId === p.id && x.date === input.date && x.id !== old?.id)) {
+    R.cleanDaily({ ...input, kind, id: old ? old.id : 'check' }, p, me, nowIso(), old);
+    if (this.data.daily.some((x) => x.projectId === p.id && x.date === input.date && R.dailyKind(x) === kind && x.id !== old?.id)) {
       throw new Error('มีรายงานประจำวันของวันที่นี้แล้ว — เปิดรายงานเดิมเพื่อแก้ไข');
     }
     const id = old ? old.id : uid('D');
@@ -992,16 +1140,16 @@ export const store = {
     const captions = {};
     Object.entries(input.captions || {}).forEach(([k, v]) => { const rid = realId(k); if (rid && String(v || '').trim()) captions[rid] = String(v).trim(); });
     const boq = input.boq;
-    input = { ...input, captions };
+    input = { ...input, kind, captions };
     delete input.boq;
     let saved;
     if (this.serverRules) {
-      saved = detachMail(await this.backend.saveDaily({ ...input, id, files: fileIds }, { notify }));
+      saved = detachMail(await this.backend.saveDaily({ ...input, id, files: fileIds }, { notify: notify && kind === '' }));
     } else {
       const fresh = old && this.direct && this.backend.dailyOfProject ? (await this.backend.dailyOfProject(p.id)).find((x) => x.id === id) || old : old;
       saved = R.cleanDaily({ ...input, id, files: fileIds }, p, me, nowIso(), fresh);
       if (this.direct) await this.backend.saveDaily(saved, { isNew: !old });
-      if (notify) {
+      if (notify && kind === '') {
         const to = R.reportRecipients(p, 'daily', true).filter((e) => e !== R.norm(me.email));
         if (to.length) {
           const m = R.dailyReportEmail({ p, daily: saved, subs: this.subsOf(p.id), reqs: this.reqsOf(p.id), settings: this.settings, today: saved.date, nowIso: nowIso(), appUrl: this.appUrl() });
@@ -1011,7 +1159,7 @@ export const store = {
     }
     this._upsert('daily', saved);
     this._commit();
-    if (boq && typeof boq === 'object') {
+    if (kind === '' && boq && typeof boq === 'object' && this.can(p, 'recordProgress')) {
       // ปริมาณงานตาม BOQ ของวันนั้น → บันทึกความคืบหน้า (กราฟ S-Curve รายงานประจำสัปดาห์ และแบบฟอร์มใช้ข้อมูลเดียวกัน)
       const uidLink = this.dailyUpdateId(saved.id);
       const prev = this.data.updates.find((u) => u.id === uidLink);
@@ -1032,9 +1180,9 @@ export const store = {
     const d = this.data.daily.find((x) => x.id === id);
     if (!d) return;
     this._assertNew('daily', 'รายงานประจำวัน');
-    this._need(d.projectId, 'recordProgress', 'คุณไม่มีสิทธิ์ลบรายงานประจำวันของโครงการนี้');
-    const linked = this.dailyUpdate(d);
-    if (linked) await this.deleteUpdate(linked.id);
+    if (!this._seeDaily(d) || !this.canWriteDaily(d.projectId, R.dailyKind(d))) throw permError('คุณไม่มีสิทธิ์ลบรายงานประจำวันนี้');
+    const linked = R.dailyKind(d) === '' ? this.dailyUpdate(d) : null;
+    if (linked && this.can(d.projectId, 'recordProgress')) await this.deleteUpdate(linked.id);
     if (this.cloud) await this.backend.deleteDaily(id, d.projectId);
     this.data.daily = this.data.daily.filter((x) => x.id !== id);
     this._commit();
@@ -1101,8 +1249,9 @@ export const store = {
     for (const p of projects) {
       const items = this.boqOf(p.id);
       const ups = this.updatesOf(p.id);
-      const a = analyze(p, items, ups, this.settings, iso);
-      out[p.id] = { actual: a.actual, plan: a.plan, daysLeft: a.daysLeft, status: a.status, prevActual: prevIso ? progressAt(p, items, ups, prevIso) : null };
+      const att = this.attendanceOf(p.id);
+      const a = analyze(p, items, ups, this.settings, iso, att);
+      out[p.id] = { actual: a.actual, plan: a.plan, daysLeft: a.daysLeft, status: a.status, prevActual: prevIso ? progressAt(p, items, ups, prevIso, att) : null };
     }
     return out;
   },

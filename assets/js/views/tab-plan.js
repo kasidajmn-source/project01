@@ -1,7 +1,7 @@
 // แผนงานรายรายการ BOQ (Gantt): กำหนดวันเริ่ม–วันจบของแต่ละรายการ แล้วเทียบแผนกับผลงานจริง
 import { store } from '../store.js';
 import {
-  contractDays, dayOf, dayToIso, hasPlan, hasSchedule, itemPlanFrac, groupBreakdown, ratio, num, todayISO,
+  contractDays, dayOf, dayToIso, hasPlan, hasSchedule, itemPlanFrac, groupBreakdown, itemRatioFn, num, todayISO,
 } from '../calc.js';
 import { esc, fmt, icon, emptyState, toast, confirmBox, setBusy, guard } from '../ui.js';
 
@@ -39,7 +39,9 @@ function renderGantt(el, ctx) {
   const tDay = dayOf(p, today);
   const canEdit = store.can(p.id, 'editBoq');
   const scheduled = hasSchedule(items);
-  const groups = groupBreakdown(p, items, a.cum, today);
+  const att = store.attendanceOf(p.id);
+  const groups = groupBreakdown(p, items, a.cum, today, att);
+  const rf = itemRatioFn(p, items, a.cum, att, today);
   const pos = (d) => `${(Math.max(0, Math.min(N, d)) / N * 100).toFixed(3)}%`;
 
   // ป้ายเดือนบนแกนเวลา
@@ -78,7 +80,7 @@ function renderGantt(el, ctx) {
       ${nums(g.planPct, g.pct)}
     </div>`;
     for (const it of items.filter((i) => (i.group || 'ไม่ระบุหมวด') === g.name)) {
-      const r = ratio(a.cum[it.id] || 0, it.qty, p.allowOver);
+      const r = rf(it);
       const pr = itemPlanFrac(p, it, today);
       rows += `<div class="gt-row">
         <div class="gt-label"><span>${it.no ? `<i>${esc(it.no)}</i> ` : ''}${esc(it.desc)}</span>${hasPlan(it) ? `<small>วันที่ ${num(it.ps)}–${Math.max(num(it.pe), num(it.ps))} (${Math.max(num(it.pe), num(it.ps)) - num(it.ps) + 1} วัน)</small>` : ''}</div>

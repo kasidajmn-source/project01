@@ -56,7 +56,7 @@ var CONFIG = {
   MAIL_RESERVE: 15,
 };
 
-var VERSION = '1.0.14';
+var VERSION = '1.0.15';
 var LIBRARY_FOLDER = 'คลังแบบฟอร์มและระเบียบ';
 var DAILY_FILE_CATEGORY = 'รูปถ่ายความคืบหน้า';
 var SUB_FILE_CATEGORY = 'เอกสารแนบเรื่องขออนุมัติ';
@@ -68,7 +68,7 @@ var SCHEMA = {
     'planPoints', 'docCategories', 'folderId', 'folderUrl', 'createdBy', 'createdAt', 'updatedAt',
     'ownerEmail', 'ownerName', 'ownerRole', 'members', 'rolePerms', 'workflow', 'slaWarnDays', 'slaLateDays', 'ownerSeat',
     'orgSection', 'orgDivision', 'orgDept', 'pmOrder', 'contractorRep', 'contractDate'],
-  BOQ: ['id', 'projectId', 'group', 'no', 'desc', 'unit', 'qty', 'mat', 'labor', 'weight', 'order', 'ps', 'pe'],
+  BOQ: ['id', 'projectId', 'group', 'no', 'desc', 'unit', 'qty', 'mat', 'labor', 'weight', 'order', 'ps', 'pe', 'auto'],
   Updates: ['id', 'projectId', 'date', 'week', 'entries', 'manualPct', 'note', 'issues', 'createdBy', 'createdAt', 'updatedAt', 'createdByEmail'],
   Files: ['id', 'projectId', 'category', 'name', 'mime', 'size', 'driveId', 'url', 'note', 'updateId', 'uploadedBy', 'uploadedAt', 'subId', 'uploadedByEmail'],
   Submissions: ['id', 'projectId', 'no', 'rev', 'category', 'title', 'detail', 'requiredId', 'files', 'submittedBy', 'submittedByName',
@@ -77,8 +77,10 @@ var SCHEMA = {
   Messages: ['id', 'projectId', 'channel', 'refId', 'by', 'byName', 'at', 'text', 'files', 'deleted', 'editedAt'],
   Meetings: ['id', 'projectId', 'audience', 'title', 'startAt', 'durationMin', 'place', 'link', 'attendees', 'agenda', 'minutes', 'actions',
     'status', 'createdBy', 'createdByName', 'createdAt', 'updatedAt', 'updatedBy', 'updatedByName'],
+  // 1.0.15 คำขอสิทธิ์จากผู้ลงทะเบียน (tok = แฮชของรหัสในลิงก์อีเมลถึงผู้อนุมัติ)
+  Access: ['id', 'email', 'name', 'org', 'phone', 'role', 'projectId', 'note', 'status', 'createdAt', 'decidedAt', 'decidedBy', 'reason', 'tok', 'exp', 'scope'],
   Daily: ['id', 'projectId', 'date', 'weather', 'workHours', 'manpower', 'equipment', 'work', 'materials', 'stoppage', 'safety', 'instructions',
-    'files', 'createdBy', 'createdByEmail', 'createdAt', 'updatedAt', 'captions', 'request'],
+    'files', 'createdBy', 'createdByEmail', 'createdAt', 'updatedAt', 'captions', 'request', 'kind', 'rows'],
   Library: ['id', 'title', 'kind', 'workType', 'category', 'uses', 'version', 'effective', 'note', 'url', 'file', 'active', 'order', 'audience',
     'updatedBy', 'updatedAt', 'createdAt'],
   Settings: ['key', 'value'],
@@ -89,7 +91,7 @@ var JSON_FIELDS = {
   Projects: ['tags', 'planPoints', 'docCategories', 'members', 'rolePerms', 'workflow'],
   Updates: ['entries'], Settings: ['value'], Submissions: ['files', 'steps', 'history', 'vote', 'form'],
   Messages: ['files'], Meetings: ['attendees', 'actions'],
-  Daily: ['weather', 'manpower', 'equipment', 'stoppage', 'files', 'captions', 'request'], Library: ['uses', 'file'],
+  Daily: ['weather', 'manpower', 'equipment', 'stoppage', 'files', 'captions', 'request', 'rows'], Library: ['uses', 'file'],
 };
 var NUM_FIELDS = {
   Projects: ['contractValue', 'slaWarnDays', 'slaLateDays'], BOQ: ['qty', 'mat', 'labor', 'weight', 'order', 'ps', 'pe'],
@@ -102,8 +104,8 @@ var DATE_FIELDS = { Projects: ['startDate', 'endDate'], Updates: ['date'], Requi
 var KEY_FIELD = { Settings: 'key', Users: 'email' };
 
 // คำสั่งที่เรียกได้โดยยังไม่เข้าสู่ระบบ และคำสั่งที่ไม่ต้องล็อก
-var PUBLIC_ACTIONS = ['ping', 'requestOtp', 'verifyOtp'];
-var READ_ONLY = ['ping', 'getAll', 'requestOtp'];
+var PUBLIC_ACTIONS = ['ping', 'requestOtp', 'verifyOtp', 'requestAccess', 'accessInfo', 'decideAccess'];
+var READ_ONLY = ['ping', 'getAll', 'requestOtp', 'fileData'];
 // ฟิลด์ที่เฉพาะเจ้าของโครงการเปลี่ยนได้
 var OWNER_FIELDS = ['ownerRole', 'ownerSeat', 'members', 'rolePerms', 'workflow', 'slaWarnDays', 'slaLateDays'];
 
@@ -134,6 +136,7 @@ function doPost(e) {
 
   var lock = null;
   try {
+    if (body.action !== 'ping' && prop_('SHEET_ID') && prop_('MIG_115') !== '1') { try { migrate115_(); } catch (me) { console.error(me); } }
     if (READ_ONLY.indexOf(body.action) < 0) {
       lock = LockService.getScriptLock();
       lock.waitLock(30000);
@@ -151,10 +154,23 @@ function doPost(e) {
     return json_({ ok: true, data: data });
   } catch (err) {
     console.error(err);
-    return json_({ ok: false, code: (err && err.code) || '', error: String((err && err.message) || err) });
+    var fe = friendlyError_(err);
+    return json_({ ok: false, code: fe.code, error: fe.error });
   } finally {
     if (lock) lock.releaseLock();
   }
+}
+
+/** 1.0.15 แปลงข้อผิดพลาดของ Google (ยังไม่อนุญาตสิทธิ์ / ยังไม่ได้รัน setup) เป็นคำแนะนำที่ทำตามได้ */
+var SETUP_STEPS = 'ผู้ติดตั้งเปิดโปรเจกต์ Apps Script › เลือกฟังก์ชัน setup › กด "เรียกใช้" › "ตรวจสอบสิทธิ์" แล้วกด "อนุญาต" (ถ้าขึ้น Google hasn\'t verified this app ให้กด "ขั้นสูง" › "ไปที่ …") › จากนั้น "ทำให้ใช้งานได้" › "จัดการการทำให้ใช้งานได้" › แก้ไข › เวอร์ชันใหม่';
+function friendlyError_(err) {
+  var msg = String((err && err.message) || err || '');
+  var code = (err && err.code) || '';
+  if (/You do not have permission to call|ไม่ได้รับอนุญาตให้เรียกใช้|Authorization is required|ต้องได้รับการให้สิทธิ์|ต้องมีการให้สิทธิ์|required permissions|สิทธิ์ที่จำเป็น/i.test(msg)) {
+    return { code: 'auth_required', error: 'ระบบหลังบ้าน (Apps Script) ยังไม่ได้รับอนุญาตสิทธิ์ใช้ Google Sheet/Drive/อีเมล — ' + SETUP_STEPS };
+  }
+  if (code === 'setup_required') return { code: code, error: msg + ' — ' + SETUP_STEPS };
+  return { code: code, error: msg.slice(0, 600) };
 }
 
 function json_(obj) {
@@ -175,7 +191,10 @@ function nowIso_() { return new Date().toISOString(); }
 // =============================================================
 var ACTIONS = {
   ping: function () {
-    return { version: VERSION, time: nowIso_(), maxUploadMB: CONFIG.MAX_UPLOAD_MB, auth: 'otp' };
+    // 1.0.15 บอกสถานะการติดตั้ง (ยังไม่ได้รัน setup / ยังไม่ได้อนุญาตสิทธิ์) — ไม่เปิดเผยข้อมูลอื่น
+    var setup = { ok: true, code: '', error: '' };
+    try { ss_(); } catch (e) { setup = { ok: false, code: (e && e.code) || '', error: friendlyError_(e).error }; }
+    return { version: VERSION, time: nowIso_(), maxUploadMB: CONFIG.MAX_UPLOAD_MB, auth: 'otp', setup: setup };
   },
 
   // ---------- เข้าสู่ระบบ ----------
@@ -184,8 +203,11 @@ var ACTIONS = {
     var email = R.norm(b.email);
     if (!R.validEmail(email)) fail_('อีเมลไม่ถูกต้อง');
     var settings = readSettings_();
+    // 1.0.15 โหมดลงทะเบียน: อีเมลที่ยังไม่มีสิทธิ์ยืนยันอีเมลได้ แล้วกรอกแบบขอสิทธิ์ (ยังไม่ได้เข้าสู่ระบบ)
+    var register = false;
     if (!loginAllowed_(email, settings)) {
-      fail_('อีเมลนี้ยังไม่ได้รับสิทธิ์เข้าใช้ระบบ — ให้เจ้าของโครงการเพิ่มอีเมลของคุณเป็นสมาชิกก่อน', 'not_member');
+      if (!R.approvalOn(settings)) fail_('อีเมลนี้ยังไม่ได้รับสิทธิ์เข้าใช้ระบบ — ให้เจ้าของโครงการเพิ่มอีเมลของคุณเป็นสมาชิกก่อน', 'not_member');
+      register = true;
     }
     var cache = CacheService.getScriptCache();
     otpLocked_(cache, email);
@@ -197,11 +219,15 @@ var ACTIONS = {
     if (count6 >= 10) fail_('ขอรหัสครบ 10 ครั้งใน 6 ชั่วโมงแล้ว กรุณาลองใหม่ภายหลัง', 'rate');
     var all = +(cache.get('otprl_all') || 0);
     if (all >= 120) fail_('ระบบได้รับคำขอรหัสจำนวนมาก กรุณาลองใหม่ภายหลัง', 'rate');
+    // 1.0.15 อีเมลที่ยังไม่มีสิทธิ์ (ลงทะเบียน): จำกัดรวมทั้งระบบ ไม่ให้ใช้โควตาอีเมลของ Google หมดจนแจ้งเตือนงานไม่ได้
+    var regAll = +(cache.get('otpreg_all') || 0);
+    if (register && regAll >= 12) fail_('มีผู้ลงทะเบียนใหม่จำนวนมากในช่วงนี้ กรุณาลองใหม่ในอีกไม่กี่ชั่วโมง หรือติดต่อผู้ควบคุมงาน/ผู้ดูแลระบบ', 'rate');
     var code = otpCode_();
     cache.put('otp_' + hash_(email).slice(0, 32), JSON.stringify({ h: hash_(email + '|' + code), tries: 0 }), 600);
     cache.put(rlKey, String(count + 1), 3600);
     cache.put(k6, String(count6 + 1), 21600);
     cache.put('otprl_all', String(all + 1), 3600);
+    if (register) cache.put('otpreg_all', String(regAll + 1), 21600);
     MailApp.sendEmail({
       to: email,
       subject: 'รหัสเข้าสู่ระบบติดตามโครงการ: ' + code,
@@ -212,7 +238,7 @@ var ACTIONS = {
       body: 'รหัสเข้าสู่ระบบติดตามโครงการ: ' + code + ' (ใช้ได้ภายใน 10 นาที)',
       name: CONFIG.MAIL_SENDER_NAME,
     });
-    return { sent: true, email: email };
+    return { sent: true, email: email, register: register };
   },
 
   verifyOtp: function (b) {
@@ -234,6 +260,15 @@ var ACTIONS = {
     }
     cache.remove(ck);
     var settings = readSettings_();
+    // 1.0.15 ยืนยันอีเมลแล้วแต่ยังไม่มีสิทธิ์ → ตั๋วลงทะเบียน 30 นาที (ไม่ใช่การเข้าสู่ระบบ)
+    if (!loginAllowed_(email, settings)) {
+      if (!R.approvalOn(settings)) fail_('อีเมลนี้ยังไม่ได้รับสิทธิ์เข้าใช้ระบบ', 'not_member');
+      var ticket = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+      cache.put('regt_' + hash_(ticket), JSON.stringify({ email: email, name: String(b.name || '').trim().slice(0, 120) }), 1800);
+      var allP = readTable_('Projects');
+      // รายชื่อโครงการให้เลือก — เฉพาะอีเมลโดเมนขององค์กร · คนนอก (เช่น ผู้รับจ้าง) พิมพ์รหัสโครงการที่ได้จากผู้ควบคุมงาน
+      return { register: true, ticket: ticket, email: email, requests: myAccess_(email), projects: orgEmail_(email, settings, allP) ? R.joinableProjects(allP) : [] };
+    }
     var user = findUser_(email);
     var name = String(b.name || '').trim() || (user && user.name) || nameFromProjects_(email) || email.split('@')[0];
     var now = nowIso_();
@@ -243,6 +278,111 @@ var ACTIONS = {
     props.setProperty('sess_' + hash_(token), JSON.stringify({ email: email, name: name, exp: Date.now() + CONFIG.SESSION_DAYS * 864e5 }));
     cleanSessions_();
     return { token: token, me: userCtx_(email, name, settings) };
+  },
+
+  // ---------- 1.0.15 ลงทะเบียนขอสิทธิ์ ----------
+  /** ผู้ที่ยืนยันอีเมลแล้ว (มีตั๋วลงทะเบียน) ส่งคำขอสิทธิ์ */
+  requestAccess: function (b) {
+    var R = R_();
+    var cache = CacheService.getScriptCache();
+    var raw = b.ticket && String(b.ticket).length >= 20 ? cache.get('regt_' + hash_(b.ticket)) : null;
+    if (!raw) fail_('หมดเวลาลงทะเบียน — ยืนยันอีเมลด้วยรหัสใหม่อีกครั้ง', 'otp_expired');
+    var who = JSON.parse(raw);
+    var settings = readSettings_();
+    if (!R.approvalOn(settings)) fail_('ระบบนี้ไม่ได้เปิดการลงทะเบียน — ให้เจ้าของโครงการเพิ่มอีเมลของคุณเป็นสมาชิก', 'not_member');
+    var o = R.cleanAccessRequest(b.request, who.email);
+    var projects = readTable_('Projects');
+    var p = null;
+    if (o.projectId) {
+      p = projects.filter(function (x) { return x.id === o.projectId && R.joinableProjects([x]).length; })[0] || null;
+      if (!p) fail_('ไม่พบโครงการที่เลือก หรือโครงการปิดแล้ว', 'notfound');
+    } else if (o.projectCode) {
+      p = R.projectByCode(projects, o.projectCode);
+      if (!p) fail_('ไม่พบโครงการรหัส "' + o.projectCode + '" — ตรวจรหัสกับผู้ควบคุมงานของโครงการ', 'notfound');
+    }
+    if (p) {
+      if (!p.ownerEmail) fail_('โครงการนี้ยังไม่มีผู้ควบคุมงานที่เป็นเจ้าของ — ติดต่อผู้ดูแลระบบ', 'invalid');
+      if (R.roleOf(p, o.email)) fail_('คุณเป็นสมาชิกของโครงการนี้อยู่แล้ว — เข้าสู่ระบบได้เลย', 'invalid');
+    }
+    var all = readTable_('Access');
+    var mine = all.filter(function (x) { return R.norm(x.email) === o.email && x.status === 'pending'; });
+    if (mine.some(function (x) { return x.role === o.role && (x.projectId || '') === (p ? p.id : ''); })) fail_('ส่งคำขอนี้ไปแล้ว — รอผู้อนุมัติพิจารณา', 'conflict');
+    if (mine.length >= 3) fail_('มีคำขอที่รออนุมัติครบ 3 รายการแล้ว', 'rate');
+    var n = +(cache.get('acc_all') || 0);
+    if (n >= 20) fail_('มีผู้ลงทะเบียนจำนวนมาก กรุณาลองใหม่ภายหลัง', 'rate');
+    cache.put('acc_all', String(n + 1), 21600);
+    var token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '').slice(0, 40);
+    var rec = {
+      id: newId_('A'), email: o.email, name: o.name, org: o.org, phone: o.phone, role: o.role, projectId: p ? p.id : '', note: o.note, scope: o.scope || '',
+      status: 'pending', createdAt: nowIso_(), decidedAt: '', decidedBy: '', reason: '', tok: hash_(token), exp: new Date(Date.now() + 14 * 864e5).toISOString(),
+    };
+    upsert_('Access', rec);
+    var to = accessApprovers_(rec, p, settings);
+    var mail = null;
+    if (to.length) {
+      var link = R.pageLink(appUrl_(b, settings), '/access/' + rec.id + '/' + token);
+      mail = sendMails_([Object.assign({ to: to, kind: 'access', event: 'access' }, R.accessRequestEmail(rec, p, link))], { projectId: p ? p.id : '' });
+    }
+    return { id: rec.id, status: rec.status, role: rec.role, project: p ? (p.code || p.name) : '', notified: to.length, mailError: mail && mail.error ? true : false };
+  },
+
+  /** รายละเอียดคำขอสำหรับหน้าพิจารณา (เปิดจากลิงก์ในอีเมล ใช้รหัสในลิงก์แทนการเข้าสู่ระบบ) */
+  accessInfo: function (b) {
+    var rec = accessByToken_(b.id, b.atok);
+    var p = rec.projectId ? findById_('Projects', rec.projectId) : null;
+    return publicAccess_(rec, p);
+  },
+
+  /** อนุมัติ/ไม่อนุมัติ: ด้วยรหัสในลิงก์อีเมล หรือเข้าสู่ระบบในฐานะผู้มีสิทธิ์อนุมัติ */
+  decideAccess: function (b) {
+    var R = R_();
+    var settings = readSettings_();
+    var rec, me = null;
+    if (b.atok) rec = accessByToken_(b.id, b.atok);
+    else {
+      var sess = session_(b.token);
+      if (!sess) fail_('กรุณาเข้าสู่ระบบด้วยอีเมลของคุณ', 'login');
+      me = userCtx_(sess.email, sess.name, settings);
+      rec = findById_('Access', b.id);
+      if (!rec) fail_('ไม่พบคำขอนี้', 'notfound');
+    }
+    var p = rec.projectId ? findById_('Projects', rec.projectId) : null;
+    if (me && !R.canDecideAccess(me, rec, p)) forbid_(R.ACCESS_ROLES[rec.role] && R.ACCESS_ROLES[rec.role].by === 'admin' ? 'เฉพาะผู้ดูแลระบบเท่านั้นที่อนุมัติตำแหน่งนี้ได้' : 'เฉพาะผู้ควบคุมงานที่สร้างโครงการนี้เท่านั้นที่อนุมัติได้');
+    if (rec.status !== 'pending') fail_('คำขอนี้' + (R.ACCESS_STATUS[rec.status] || 'ถูกพิจารณา') + 'แล้ว', 'conflict');
+    if (rec.projectId && !p) fail_('ไม่พบโครงการของคำขอนี้แล้ว', 'notfound');
+    // ผู้อนุมัติจากลิงก์: ใช้ชื่อเจ้าของโครงการ/ผู้ดูแลระบบ
+    var actor = me || (p ? { email: R.norm(p.ownerEmail), name: p.ownerName || p.ownerEmail, isAdmin: false } : { email: scriptOwner_() || 'admin', name: 'ผู้ดูแลระบบ', isAdmin: true });
+    var ok = b.decision === 'approve';
+    if (!ok && b.decision !== 'reject') fail_('คำสั่งไม่ถูกต้อง', 'invalid');
+    var role = rec.role;
+    if (ok) {
+      if (role === 'supervisor' || role === 'exec') {
+        var key = role === 'supervisor' ? 'projectCreators' : 'executives';
+        var list = R.parseList(settings[key]);
+        if (!R.listHas(list, rec.email)) list.push(rec.email);
+        upsertKey_('Settings', 'key', { key: key, value: list.join(', ') });
+      } else {
+        var members = (p.members || []).filter(function (m) { return R.norm(m && m.email) !== R.norm(rec.email); });
+        members.push({ email: rec.email, name: rec.name, role: R.MEMBER_ROLES.indexOf(role) >= 0 ? role : 'viewer', scope: rec.scope || '' });
+        var old = JSON.parse(JSON.stringify(p));
+        p.members = cleanMembers_(members, p.ownerEmail);
+        var saved = saveProject_(p, actor.name);
+        afterMembersChanged_(old, saved, actor, { invite: true, appUrl: b.appUrl }, { settings: settings });
+      }
+      upsertKey_('Users', 'email', Object.assign({}, findUser_(rec.email) || { createdAt: nowIso_() }, { email: rec.email, name: (findUser_(rec.email) || {}).name || rec.name }));
+    }
+    rec.status = ok ? 'approved' : 'rejected';
+    rec.decidedAt = nowIso_();
+    rec.decidedBy = actor.email;
+    rec.reason = String(b.reason || '').slice(0, 500);
+    rec.tok = '';
+    upsert_('Access', rec);
+    // แจ้งผลผู้ขอ (ตำแหน่งในโครงการที่อนุมัติแล้ว ได้อีเมลเชิญเข้าร่วมโครงการแทน)
+    if (!ok || !rec.projectId) {
+      var link = appUrl_(b, settings);
+      sendMails_([Object.assign({ to: [rec.email], kind: 'access', event: ok ? 'access-ok' : 'access-no' }, R.accessResultEmail(rec, p, ok, rec.reason, link))], { projectId: rec.projectId || '' });
+    }
+    return publicAccess_(rec, p);
   },
 
   logout: function (b) {
@@ -296,6 +436,7 @@ var ACTIONS = {
     var byId = Object.create(null);
     projects.forEach(function (p) { ids[p.id] = true; byId[p.id] = p; });
     var pick = function (t) { return readTable_(t).filter(function (r) { return ids[r.projectId]; }); };
+    var allDaily = pick('Daily');
     return {
       projects: projects,
       boq: pick('BOQ'),
@@ -305,13 +446,17 @@ var ACTIONS = {
       reqs: pick('Required'),
       msgs: chatFor_(me, readTable_('Messages'), null),
       meetings: meetingsFor_(me),
-      daily: readTable_('Daily').filter(function (d) { var p = byId[d.projectId]; return p && R.canSeeDaily(p, me); }),
+      daily: allDaily.filter(function (d) { var p = byId[d.projectId]; return p && R.canSeeDailyRec(p, me, d); }),
+      // 1.0.15 วันที่มีคนเข้างาน (ทุกชนิดรายงาน) — ใช้คิดค่าที่พัก/ค่าเดินทางตามการเข้างาน แม้ผู้ใช้จะไม่เห็นรายงานของผู้ควบคุมงาน
+      attend: attendMap_(projects, allDaily),
+      access: accessFor_(me, readTable_('Projects')),
       library: readTable_('Library').filter(function (it) { return R.canSeeLibrary(it, me, projects); }),
       settings: publicSettings_(ctx.settings, me),
       meta: {
         rootFolderUrl: me.isAdmin ? safeRootUrl_() : '', maxUploadMB: CONFIG.MAX_UPLOAD_MB, version: VERSION,
         me: me, auth: 'otp', mailQuota: me.isAdmin ? mailQuota_() : null, sendEmail: CONFIG.SEND_EMAIL,
         jobs: me.isAdmin ? jobStatus_() : null,
+        registration: R.approvalOn(ctx.settings),
       },
     };
   },
@@ -409,6 +554,7 @@ var ACTIONS = {
         unit: str_(it.unit, 40), qty: num_(it.qty), mat: num_(it.mat), labor: num_(it.labor),
         weight: it.weight === '' || it.weight == null ? '' : num_(it.weight), order: i + 1,
         ps: ps > 0 ? Math.round(ps) : '', pe: pe > 0 ? Math.round(pe) : '',
+        auto: it.auto === 'attend' || it.auto === 'off' ? it.auto : '',
       };
     });
     replaceWhere_('BOQ', function (r) { return r.projectId === b.projectId; }, items);
@@ -463,8 +609,10 @@ var ACTIONS = {
     if (b.dailyId) {
       // รูปถ่าย/ไฟล์แนบของรายงานประจำวัน: ใช้สิทธิ์บันทึกความคืบหน้า
       if (!/^[\w-]{4,60}$/.test(String(b.dailyId))) fail_('รหัสรายงานไม่ถูกต้อง');
-      need_(p, me, 'recordProgress', 'คุณไม่มีสิทธิ์แนบไฟล์ในรายงานประจำวันของโครงการนี้');
-      b.updateId = b.dailyId; b.subId = ''; b.chat = ''; b.category = b.category || DAILY_FILE_CATEGORY;
+      dailyFileCheck_(p, me, b.dailyId);
+      b.updateId = b.dailyId; b.subId = ''; b.chat = '';
+      // 1.0.15 ไฟล์ของรายงานประจำวันเก็บได้เฉพาะหมวดรูปถ่ายความคืบหน้า หรือหมวดรายงานประจำวัน/สัปดาห์ (ไฟล์ PDF ของรายงาน)
+      b.category = b.category === R.DAILY_DOC_CATEGORY ? R.DAILY_DOC_CATEGORY : DAILY_FILE_CATEGORY;
     }
     if (b.chat) {
       // ไฟล์ที่แนบในห้องสนทนา/ห้องประชุม: ใช้สิทธิ์ส่งข้อความของห้องนั้น
@@ -476,7 +624,7 @@ var ACTIONS = {
       var sref = findById_('Submissions', b.subId);
       if (sref && (sref.projectId !== p.id || !R.canView(p, me))) forbid_();
       if (!/^[\w-]{4,60}$/.test(String(b.subId))) fail_('รหัสเรื่องไม่ถูกต้อง');
-    } else if (!(b.updateId && R.can(p, me, 'recordProgress'))) need_(p, me, 'uploadDocs', 'คุณไม่มีสิทธิ์อัปโหลดเอกสารในคลังของโครงการนี้');
+    } else if (!b.dailyId && !(b.updateId && R.can(p, me, 'recordProgress'))) need_(p, me, 'uploadDocs', 'คุณไม่มีสิทธิ์อัปโหลดเอกสารในคลังของโครงการนี้');
     if (!b.base64) fail_('ไม่มีข้อมูลไฟล์');
     var bytes = Utilities.base64Decode(b.base64);
     if (bytes.length > CONFIG.MAX_UPLOAD_MB * 1048576) fail_('ไฟล์ใหญ่เกิน ' + CONFIG.MAX_UPLOAD_MB + ' MB');
@@ -543,6 +691,52 @@ var ACTIONS = {
     }
     deleteWhere_('Files', function (r) { return r.id === b.id; });
     return { id: b.id };
+  },
+
+  /** 1.0.15 หน้าแบบฟอร์มรายงานประจำวัน (HTML) → PDF ใน Drive หมวดรายงานประจำวัน/สัปดาห์ — ใช้เมื่อเบราว์เซอร์สร้าง PDF เองไม่ได้ (เช่น Safari) */
+  dailyPdf: function (b, ctx) {
+    var R = R_();
+    var me = ctx.me;
+    var p = requireProject_(b.projectId);
+    dailyFileCheck_(p, me, b.dailyId);
+    var html = String(b.html || '');
+    if (!html || html.length > 15 * 1048576) fail_('ข้อมูลแบบฟอร์มว่างหรือใหญ่เกิน 15 MB');
+    // รับเฉพาะหน้าเอกสาร: ไม่มีสคริปต์ กรอบ ฟอร์ม ลิงก์ หรือรูป/ฟอนต์จากภายนอก (รูปต้องฝังในไฟล์) — ตรวจแบบเส้นตรง ไม่ใช้นิพจน์ที่ย้อนกลับ
+    var low = html.toLowerCase();
+    var BAD = ['<script', '<iframe', '<frame', '<object', '<embed', '<link', '<base', '<form', '<meta', '<svg', '<math', 'javascript:', 'vbscript:',
+      '@import', 'url(http', "url('http", 'url("http', 'url(//', "url('//", 'url("//', 'src="http', "src='http", 'src=http', 'src="//', "src='//", 'href=', 'srcset', 'formaction', 'xlink:'];
+    for (var i = 0; i < BAD.length; i++) if (low.indexOf(BAD[i]) >= 0) fail_('ข้อมูลแบบฟอร์มมีส่วนที่ไม่อนุญาต', 'invalid');
+    if (/\son[a-z]{2,30}\s*=/i.test(html)) fail_('ข้อมูลแบบฟอร์มมีส่วนที่ไม่อนุญาต', 'invalid');
+    var name = String(b.name || 'รายงานประจำวัน').replace(/[\\/:*?"<>|]+/g, '-').replace(/\.(html?|pdf)$/i, '').slice(0, 150) + '.pdf';
+    var pdf = Utilities.newBlob(html, 'text/html', name.replace(/\.pdf$/, '.html')).getAs('application/pdf').setName(name);
+    if (pdf.getBytes().length > CONFIG.MAX_UPLOAD_MB * 1048576) fail_('ไฟล์ PDF ใหญ่เกิน ' + CONFIG.MAX_UPLOAD_MB + ' MB');
+    var file = categoryFolder_(p, R.DAILY_DOC_CATEGORY).createFile(pdf);
+    var note = String(b.note || '').slice(0, 500);
+    if (note) file.setDescription(note);
+    if (CONFIG.LINK_SHARING) {
+      try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) { /* โดเมนอาจไม่อนุญาต */ }
+    }
+    var rec = {
+      id: newId_('F'), projectId: p.id, category: R.DAILY_DOC_CATEGORY, name: file.getName(), mime: 'application/pdf',
+      size: file.getSize(), driveId: file.getId(), url: file.getUrl(), note: note, updateId: b.dailyId,
+      subId: '', uploadedBy: me.name, uploadedByEmail: me.email, uploadedAt: nowIso_(),
+    };
+    upsert_('Files', rec);
+    return rec;
+  },
+
+  /** 1.0.15 เนื้อไฟล์รูปภาพ (base64) — ใช้ใส่รูปในไฟล์ PDF รายงานประจำวัน · เฉพาะผู้ที่เห็นโครงการ รูปภาพไม่เกิน 10 MB */
+  fileData: function (b, ctx) {
+    var rec = findById_('Files', b.id);
+    if (!rec || !rec.driveId) fail_('ไม่พบไฟล์', 'notfound');
+    var p = requireProject_(rec.projectId);
+    if (!R_().canView(p, ctx.me)) forbid_();
+    if (!/^image\//.test(String(rec.mime || ''))) fail_('ดึงได้เฉพาะไฟล์รูปภาพ', 'invalid');
+    if ((+rec.size || 0) > 10 * 1048576) fail_('รูปใหญ่เกิน 10 MB', 'invalid');
+    var blob = DriveApp.getFileById(rec.driveId).getBlob();
+    var bytes = blob.getBytes();
+    if (bytes.length > 10 * 1048576) fail_('รูปใหญ่เกิน 10 MB', 'invalid');
+    return { id: rec.id, mime: String(blob.getContentType() || rec.mime), base64: Utilities.base64Encode(bytes) };
   },
 
   /** เพิ่มไฟล์ที่ถูกวางไว้ในโฟลเดอร์ Drive ของโครงการโดยตรง (เช่น ไฟล์ใหญ่) เข้าระบบ */
@@ -690,7 +884,9 @@ var ACTIONS = {
     var all = readTable_('Daily');
     var old = input.id ? all.filter(function (x) { return x.id === input.id; })[0] : null;
     if (old && old.projectId !== p.id) forbid_();
-    var same = all.filter(function (x) { return x.projectId === p.id && x.date === input.date && (!old || x.id !== old.id); })[0];
+    if (old && !R.canSeeDailyRec(p, ctx.me, old)) forbid_();
+    var kind = old ? R.dailyKind(old) : R.dailyKind(input);
+    var same = all.filter(function (x) { return x.projectId === p.id && x.date === input.date && R.dailyKind(x) === kind && (!old || x.id !== old.id); })[0];
     if (same) fail_('มีรายงานประจำวันของวันที่นี้แล้ว — เปิดรายงานเดิมเพื่อแก้ไข', 'conflict');
     if (!old) input.id = /^D[\w-]{3,60}$/.test(String(input.id || '')) && !all.some(function (x) { return x.id === input.id; }) ? input.id : newId_('D');
     var files = (input.files || []).filter(function (id) {
@@ -699,7 +895,7 @@ var ACTIONS = {
     });
     var d = R.cleanDaily(Object.assign({}, input, { files: files }), p, ctx.me, nowIso_(), old);
     upsert_('Daily', d);
-    if (b.notify) {
+    if (b.notify && d.kind !== 'contractor') {
       var to = R.reportRecipients(p, 'daily', true).filter(function (e) { return e !== ctx.me.email; });
       if (to.length) {
         var m = R.dailyReportEmail({ p: p, daily: d, subs: readTable_('Submissions').filter(function (s) { return s.projectId === p.id; }), reqs: readTable_('Required').filter(function (r) { return r.projectId === p.id; }),
@@ -712,7 +908,8 @@ var ACTIONS = {
   deleteDaily: function (b, ctx) {
     var d = findById_('Daily', b.id);
     if (!d) return { id: b.id };
-    need_(requireProject_(d.projectId), ctx.me, 'recordProgress', 'คุณไม่มีสิทธิ์ลบรายงานประจำวันของโครงการนี้');
+    var dp = requireProject_(d.projectId);
+    if (!R_().canSeeDailyRec(dp, ctx.me, d) || !R_().canWriteDaily(dp, ctx.me, R_().dailyKind(d))) forbid_('คุณไม่มีสิทธิ์ลบรายงานประจำวันนี้');
     deleteWhere_('Daily', function (r) { return r.id === b.id; });
     return { id: b.id };
   },
@@ -796,6 +993,11 @@ var ACTIONS = {
   saveSettings: function (b, ctx) {
     if (!ctx.me.isAdmin) forbid_('เฉพาะผู้ดูแลระบบเท่านั้นที่เปลี่ยนการตั้งค่ากลางได้');
     var s = R_().checkSettings(b.settings || {});
+    // 1.0.15 หน้าเว็บรุ่นเก่าไม่ส่งค่านี้มา — คงค่าเดิมไว้ (ไม่ให้การลงทะเบียนปิดเองโดยไม่ตั้งใจ)
+    if (!Object.prototype.hasOwnProperty.call(s, 'accessApproval')) {
+      var cur = ctx.settings || readSettings_();
+      if (Object.prototype.hasOwnProperty.call(cur, 'accessApproval')) s.accessApproval = String(cur.accessApproval) === '1' ? '1' : '0';
+    }
     var rows = Object.keys(s).map(function (k) { return { key: k, value: s[k] }; });
     replaceWhere_('Settings', function () { return true; }, rows);
     return readSettings_();
@@ -888,6 +1090,17 @@ function cleanSessions_() {
   });
 }
 
+// 1.0.15 โดเมนขององค์กร = โดเมนของผู้ดูแลระบบ ผู้สร้างโครงการ และเจ้าของโครงการ (ไม่นับอีเมลสาธารณะ เช่น gmail.com)
+var PUBLIC_MAIL_DOMAINS = ['gmail.com', 'googlemail.com', 'hotmail.com', 'outlook.com', 'live.com', 'msn.com', 'yahoo.com', 'yahoo.co.th', 'icloud.com', 'me.com', 'proton.me', 'protonmail.com', 'aol.com', 'gmx.com', 'mail.com', 'zoho.com', 'yandex.com'];
+function orgEmail_(email, settings, projects) {
+  var R = R_();
+  var d = String(R.norm(email)).split('@')[1] || '';
+  if (!d || PUBLIC_MAIL_DOMAINS.indexOf(d) >= 0) return false;
+  var src = [scriptOwner_()].concat(R.parseList(settings.admins), R.parseList(settings.projectCreators));
+  (projects || []).forEach(function (p) { if (p && p.ownerEmail) src.push(p.ownerEmail); });
+  return src.some(function (e) { return String(R.norm(e)).split('@')[1] === d; });
+}
+
 function scriptOwner_() {
   var e = prop_('OWNER_EMAIL');
   if (!e) {
@@ -916,8 +1129,42 @@ function loginAllowed_(email, settings) {
   var me = userCtx_(email, '', settings);
   if (me.isAdmin || me.isExec || me.isDept) return true;
   var creators = R.parseList(settings.projectCreators);
-  if (!creators.length || R.listHas(creators, email)) return true;
+  // 1.0.15 โหมดลงทะเบียน: รายชื่อว่างไม่ได้แปลว่าทุกคนเข้าได้ — ต้องได้รับอนุมัติหรือเป็นสมาชิกโครงการ
+  if (R.listHas(creators, email) || (!creators.length && !R.approvalOn(settings))) return true;
   return readTable_('Projects').some(function (p) { return !!R.roleOf(p, email); });
+}
+
+/**
+ * 1.0.15 เปิดโหมดลงทะเบียน (ครั้งเดียวหลังอัปเดต): ผู้ใช้ใหม่ต้องยืนยันอีเมลแล้วขอสิทธิ์
+ * ผู้ควบคุมงานที่เป็นเจ้าของโครงการอยู่แล้วยังสร้างโครงการได้ (เพิ่มในรายชื่อผู้สร้างโครงการให้)
+ */
+function migrate115_() {
+  if (prop_('MIG_115') === '1') return '';
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) return '';
+  try {
+    if (prop_('MIG_115') === '1') return '';
+    var R = R_();
+    var settings = readSettings_();
+    var msg = '';
+    if (!Object.prototype.hasOwnProperty.call(settings, 'accessApproval')) {
+      var creators = R.parseList(settings.projectCreators);
+      // ค่าที่ setup รุ่น 1.0.11 ตั้งให้อัตโนมัติ (@โดเมนของผู้ติดตั้ง) = ทุกคนในโดเมนสร้างโครงการได้โดยไม่ต้องอนุมัติ → เปลี่ยนเป็นการอนุมัติ
+      var own = scriptOwner_();
+      var dom = own && own.indexOf('@') > 0 ? '@' + own.split('@')[1].toLowerCase() : '';
+      if (creators.length === 1 && dom && String(creators[0]).toLowerCase() === dom) creators = [];
+      if (!creators.length) {
+        var owners = [];
+        readTable_('Projects').forEach(function (p) { var e = R.norm(p.ownerEmail); if (e && owners.indexOf(e) < 0) owners.push(e); });
+        upsertKey_('Settings', 'key', { key: 'projectCreators', value: owners.join(', ') });
+        msg = 'เปิดการลงทะเบียนขอสิทธิ์ — ผู้สร้างโครงการได้: ผู้ดูแลระบบ' + (owners.length ? ' และเจ้าของโครงการเดิม ' + owners.length + ' คน' : '');
+      } else msg = 'เปิดการลงทะเบียนขอสิทธิ์ — ใช้รายชื่อผู้สร้างโครงการเดิม';
+      upsertKey_('Settings', 'key', { key: 'accessApproval', value: '1' });
+    }
+    sheet_('Access');
+    setProp_('MIG_115', '1');
+    return msg;
+  } finally { lock.releaseLock(); }
 }
 
 function findUser_(email) {
@@ -1005,7 +1252,19 @@ function shareFolder_(p, add, remove) {
 function canEditFile_(rec, p, me) {
   var R = R_();
   if (rec.subId) { if (!R.isOwner(p, me)) forbid_('ไฟล์แนบของเรื่องขออนุมัติเก็บเป็นหลักฐาน — แก้ไขหรือลบได้เฉพาะเจ้าของโครงการ'); return; }
+  if (R.ownsDailyDoc(p, me, rec)) return;
   need_(p, me, 'uploadDocs', 'คุณไม่มีสิทธิ์แก้ไขไฟล์ในคลังของโครงการนี้');
+}
+
+/** 1.0.15 แนบไฟล์กับรายงานประจำวัน: ต้องบันทึกรายงานชนิดนั้นได้ — รายงานที่มีอยู่แล้วต้องอยู่ในโครงการเดียวกันและผู้ใช้แก้ไขรายงานนั้นได้ */
+function dailyFileCheck_(p, me, dailyId) {
+  var R = R_();
+  if (!/^[\w-]{4,60}$/.test(String(dailyId || ''))) fail_('รหัสรายงานไม่ถูกต้อง');
+  if (!R.canWriteDaily(p, me, 'contractor')) forbid_('คุณไม่มีสิทธิ์แนบไฟล์ในรายงานประจำวันของโครงการนี้');
+  var d = findById_('Daily', dailyId);
+  if (d && (d.projectId !== p.id || !R.canSeeDailyRec(p, me, d) || !R.canWriteDaily(p, me, R.dailyKind(d)))) forbid_('คุณไม่มีสิทธิ์แนบไฟล์ในรายงานนี้');
+  // รหัสนี้ใช้เป็นบันทึกความคืบหน้าอยู่แล้ว (ไม่ใช่รายงานประจำวัน) → ไม่ให้ผู้ที่ไม่มีสิทธิ์บันทึกความคืบหน้าแนบไฟล์
+  if (!d && findById_('Updates', dailyId) && !R.can(p, me, 'recordProgress')) forbid_('คุณไม่มีสิทธิ์แนบไฟล์ในรายงานนี้');
 }
 
 /** รับเฉพาะรหัสไฟล์ที่อยู่ในโครงการนี้ และแนบกับเรื่องนี้ */
@@ -1160,15 +1419,82 @@ function jobStatus_() {
 }
 
 /** ผลงาน/แผนของแต่ละโครงการ ณ วันที่ (คำนวณด้วย PTCalc ชุดเดียวกับหน้าเว็บ) */
-function progressMap_(projects, boq, ups, settings, iso, prevIso) {
+function progressMap_(projects, boq, ups, settings, iso, prevIso, daily) {
   var out = {};
+  var att = attendMap_(projects, daily || readTable_('Daily'));
   projects.forEach(function (p) {
     var items = boq.filter(function (x) { return x.projectId === p.id; }).sort(function (a, b) { return (+a.order || 0) - (+b.order || 0); });
     var u = ups.filter(function (x) { return x.projectId === p.id; });
     try {
-      var a = PTCalc.analyze(p, items, u, settings, iso);
-      out[p.id] = { actual: a.actual, plan: a.plan, daysLeft: a.daysLeft, status: a.status, prevActual: prevIso ? PTCalc.progressAt(p, items, u, prevIso) : null };
+      var at = Object.prototype.hasOwnProperty.call(att, p.id) ? att[p.id] : null;
+      var a = PTCalc.analyze(p, items, u, settings, iso, at);
+      out[p.id] = { actual: a.actual, plan: a.plan, daysLeft: a.daysLeft, status: a.status, prevActual: prevIso ? PTCalc.progressAt(p, items, u, prevIso, at) : null };
     } catch (e) { out[p.id] = null; }
+  });
+  return out;
+}
+
+/** 1.0.15 คำขอสิทธิ์จากรหัสในลิงก์อีเมล (ใช้ครั้งเดียว อายุ 14 วัน) */
+function accessByToken_(id, tok) {
+  if (!id || !tok || String(tok).length < 20 || !/^[A-Za-z0-9_-]{2,60}$/.test(String(id))) fail_('ลิงก์ไม่ถูกต้องหรือหมดอายุ', 'notfound');
+  var rec = findById_('Access', id);
+  if (!rec || !rec.tok || rec.tok !== hash_(tok)) fail_('ลิงก์ไม่ถูกต้อง หมดอายุ หรือคำขอนี้ถูกพิจารณาแล้ว', 'notfound');
+  if (rec.exp && String(rec.exp) < nowIso_()) fail_('ลิงก์หมดอายุแล้ว (เกิน 14 วัน) — พิจารณาในเว็บแทน', 'notfound');
+  return rec;
+}
+/** ข้อมูลคำขอที่ส่งให้หน้าเว็บ (ไม่มีรหัสลับ) */
+function publicAccess_(rec, p) {
+  var R = R_();
+  return {
+    id: rec.id, email: rec.email, name: rec.name, org: rec.org, phone: rec.phone, role: rec.role, roleLabel: (R.ACCESS_ROLES[rec.role] || {}).label || rec.role,
+    by: (R.ACCESS_ROLES[rec.role] || {}).by || '', projectId: rec.projectId || '', projectName: p ? p.name : '', projectCode: p ? (p.code || '') : '', note: rec.note, scope: rec.scope || '',
+    status: rec.status, createdAt: rec.createdAt, decidedAt: rec.decidedAt, decidedBy: rec.decidedBy, reason: rec.reason,
+  };
+}
+/** ผู้อนุมัติคำขอ: ผู้ดูแลระบบ (ตำแหน่งระดับระบบ) หรือเจ้าของโครงการ */
+function accessApprovers_(rec, p, settings) {
+  var R = R_();
+  if (R.ACCESS_ROLES[rec.role].by === 'owner') return p && p.ownerEmail ? [R.norm(p.ownerEmail)] : [];
+  var out = [];
+  var add = function (e) { e = R.norm(e); if (R.validEmail(e) && out.indexOf(e) < 0) out.push(e); };
+  add(scriptOwner_());
+  R.parseList(CONFIG.ADMIN_EMAILS).forEach(add);
+  R.parseList(settings.admins).forEach(add);
+  return out.slice(0, 20);
+}
+/** คำขอที่ผู้ใช้เห็น: ที่ตนอนุมัติได้ (รอ + พิจารณาแล้วใน 30 วัน) และของตนเอง */
+function accessFor_(me, projects) {
+  var R = R_();
+  var byId = Object.create(null);
+  projects.forEach(function (p) { byId[p.id] = p; });
+  var since = new Date(Date.now() - 30 * 864e5).toISOString();
+  return readTable_('Access').filter(function (x) {
+    if (R.norm(x.email) === R.norm(me.email)) return true;
+    if (x.status !== 'pending' && String(x.decidedAt || '') < since) return false;
+    return R.canDecideAccess(me, x, x.projectId ? byId[x.projectId] : null);
+  }).map(function (x) { return publicAccess_(x, x.projectId ? byId[x.projectId] : null); });
+}
+/** คำขอของอีเมลนี้ (แสดงสถานะหลังยืนยันอีเมล) */
+function myAccess_(email) {
+  var R = R_();
+  var ps = readTable_('Projects');
+  return readTable_('Access').filter(function (x) { return R.norm(x.email) === R.norm(email); }).slice(-10).map(function (x) {
+    var p = x.projectId ? ps.filter(function (y) { return y.id === x.projectId; })[0] : null;
+    var o = publicAccess_(x, p);
+    return { id: o.id, role: o.role, roleLabel: o.roleLabel, projectName: o.projectName, status: o.status, createdAt: o.createdAt, reason: o.reason };
+  });
+}
+
+/** 1.0.15 วันที่มีคนเข้างานของแต่ละโครงการ { projectId: [วันที่] } — โครงการที่ไม่มีรายงานประจำวันเลยไม่มีคีย์ */
+function attendMap_(projects, daily) {
+  var R = R_();
+  var by = {};
+  (daily || []).forEach(function (d) { if (d && d.projectId) (by[d.projectId] = by[d.projectId] || []).push(d); });
+  var out = {};
+  projects.forEach(function (p) {
+    if (!Object.prototype.hasOwnProperty.call(by, p.id)) return;
+    var a = R.attendanceDates(by[p.id]);
+    if (a) out[p.id] = a;
   });
   return out;
 }
@@ -1193,12 +1519,12 @@ function planFor_(kind, o) {
   var ups = of('Updates');
   if (kind === 'weekly') {
     c.daily = of('Daily'); c.updates = ups; c.meetings = of('Meetings');
-    c.progress = progressMap_(projects, boq, ups, settings, o.date, R.addDaysIso(o.date, -7));
+    c.progress = progressMap_(projects, boq, ups, settings, o.date, R.addDaysIso(o.date, -7), c.daily);
     return R.weeklyPlan(c);
   }
   c.month = /^\d{4}-\d{2}$/.test(String(o.month || '')) ? o.month : R.prevMonth(o.date);
   var end = R.monthEnd(c.month);
-  c.progress = progressMap_(projects, boq, ups, settings, end, null);
+  c.progress = progressMap_(projects, boq, ups, settings, end, null, of('Daily'));
   var msgs = R.monthlyPlan(c);
   if (o.projectId) {
     // ส่งเฉพาะโครงการเดียว: ให้เจ้าของโครงการ
@@ -1341,12 +1667,16 @@ function categoryFolder_(p, category) {
 // =============================================================
 // ฐานข้อมูลบน Google Sheet
 // =============================================================
+var SS_CACHE_ = null;
 function ss_() {
+  if (SS_CACHE_) return SS_CACHE_;
   var id = prop_('SHEET_ID');
-  if (id) return SpreadsheetApp.openById(id);
-  var a = SpreadsheetApp.getActiveSpreadsheet();
-  if (a) { setProp_('SHEET_ID', a.getId()); return a; }
-  fail_('ยังไม่ได้ติดตั้งฐานข้อมูล — เปิด Apps Script แล้วรันฟังก์ชัน setup ก่อน');
+  if (id) return (SS_CACHE_ = SpreadsheetApp.openById(id));
+  // 1.0.15 ยังไม่ได้รัน setup: สคริปต์ที่ผูกกับ Google Sheet ใช้ชีตนั้นได้ ถ้ายังไม่ได้อนุญาตสิทธิ์จะบอกขั้นตอนให้
+  var a = null;
+  try { a = SpreadsheetApp.getActiveSpreadsheet(); } catch (e) { fail_('ยังไม่ได้ติดตั้งฐานข้อมูลหรือยังไม่ได้อนุญาตสิทธิ์', 'setup_required'); }
+  if (a) { setProp_('SHEET_ID', a.getId()); return (SS_CACHE_ = a); }
+  fail_('ยังไม่ได้ติดตั้งฐานข้อมูล (ยังไม่ได้รันฟังก์ชัน setup)', 'setup_required');
 }
 
 function sheet_(name) {
@@ -1550,17 +1880,10 @@ function setup() {
   if (!accessKey_()) setProp_('ACCESS_KEY', 'PT-' + Utilities.getUuid().replace(/-/g, '').slice(0, 10).toUpperCase());
   var owner = '';
   try { owner = Session.getEffectiveUser().getEmail(); if (owner) setProp_('OWNER_EMAIL', owner); } catch (e) { /* ignore */ }
-  // 1.0.11: ติดตั้งครั้งแรก — ให้เฉพาะอีเมลโดเมนของหน่วยงาน (โดเมนของผู้ติดตั้ง) สร้างโครงการได้ ผู้รับจ้างภายนอกสร้างเองไม่ได้
-  // (เปลี่ยนได้ที่หน้า "ตั้งค่า" › ผู้ใช้และสิทธิ์)
+  // 1.0.15: ผู้ใช้ใหม่ลงทะเบียนขอสิทธิ์ (ผู้ควบคุมงาน/ผู้บริหาร → ผู้ดูแลระบบอนุมัติ · ตำแหน่งอื่น → ผู้ควบคุมงานที่สร้างโครงการอนุมัติ)
   var creatorsMsg = '';
-  var dom = owner && owner.indexOf('@') > 0 ? owner.split('@')[1].toLowerCase() : '';
-  if (dom && !/^(gmail|googlemail|hotmail|outlook|live|yahoo|icloud|me)\./.test(dom)) {
-    var curSet = readSettings_();
-    if (!Object.prototype.hasOwnProperty.call(curSet, 'projectCreators')) {
-      upsertKey_('Settings', 'key', { key: 'projectCreators', value: '@' + dom });
-      creatorsMsg = 'ผู้ที่สร้างโครงการได้: @' + dom + ' (แก้ได้ที่หน้า "ตั้งค่า" ของเว็บ)';
-    }
-  }
+  var accMsg = '';
+  try { accMsg = migrate115_(); } catch (e) { accMsg = 'เปิดการลงทะเบียนขอสิทธิ์ไม่สำเร็จ: ' + e.message; }
   var trig = 'ตั้งเวลาส่งอีเมลอัตโนมัติแล้ว (เตือนงานค้าง รายงานประจำวัน/สัปดาห์/เดือน)';
   try { installTriggers(); } catch (e) { trig = 'ตั้งเวลาส่งอีเมลอัตโนมัติไม่สำเร็จ (' + e.message + ') — รันฟังก์ชัน installTriggers ภายหลัง'; }
   var quota = mailQuota_();
@@ -1573,6 +1896,7 @@ function setup() {
     'ผู้ดูแลระบบ: ' + (owner || '(บัญชีที่ติดตั้ง)') + (CONFIG.ADMIN_EMAILS ? ', ' + CONFIG.ADMIN_EMAILS : ''),
     trig,
     creatorsMsg,
+    accMsg,
     'โควตาอีเมลคงเหลือวันนี้: ' + (quota == null ? '-' : quota),
     '',
     'ขั้นต่อไป: ทำให้ใช้งานได้ > การทำให้ใช้งานได้รายการใหม่ > ประเภท: เว็บแอป',
@@ -1635,11 +1959,14 @@ function revokeSessions_(email) {
   return n;
 }
 /** ค่ากลางที่ส่งให้หน้าเว็บ: ผู้ใช้ทั่วไป (เช่น ผู้รับจ้าง) ไม่ต้องเห็นรายชื่ออีเมลผู้ดูแล/ผู้บริหาร/สมาชิกแผนก */
-var PRIVATE_SETTINGS = ['admins', 'executives', 'projectCreators', 'deptMembers', 'reportMonthlyTo'];
+var PRIVATE_SETTINGS = ['admins', 'executives', 'projectCreators', 'deptMembers', 'reportMonthlyTo', 'accessApproval', 'appUrl'];
+// 1.0.15 ข้อมูลผู้ดูแลระบบและการตั้งค่าระบบ — เฉพาะผู้ดูแลระบบ · ผู้บริหาร/สมาชิกแผนกเห็นรายชื่อแผนก/ผู้บริหาร (ใช้เชิญประชุมแผนก)
+var DEPT_SETTINGS = ['executives', 'deptMembers', 'reportMonthlyTo'];
 function publicSettings_(settings, me) {
-  if (me.isAdmin || me.isExec || me.isDept) return settings;
+  if (me.isAdmin) return settings;
+  var dept = me.isExec || me.isDept;
   var o = {};
-  Object.keys(settings || {}).forEach(function (k) { if (PRIVATE_SETTINGS.indexOf(k) < 0) o[k] = settings[k]; });
+  Object.keys(settings || {}).forEach(function (k) { if (PRIVATE_SETTINGS.indexOf(k) < 0 || (dept && DEPT_SETTINGS.indexOf(k) >= 0)) o[k] = settings[k]; });
   return o;
 }
 
@@ -1792,32 +2119,89 @@ function lastManual(ups) {
   return null;
 }
 
-/** ความคืบหน้าจากปริมาณสะสม ตามวิธีคำนวณที่ตั้งไว้ในโครงการ */
-function progressFromCum(p, items, cum, manual) {
+// ---------- 1.0.15 รายการค่าใช้จ่ายตามการเข้างาน (ค่าที่พัก ค่าเดินทาง ฯลฯ) ----------
+/** ชื่อรายการที่ระบบถือว่าเป็นค่าใช้จ่ายตามการเข้างาน (เมื่อ auto ว่าง) */
+const OVERHEAD_RE = /ที่พัก|เดินทาง|เบี้ยเลี้ยง|ค่าครองชีพ|ค่าเช่าบ้าน|ค่าพาหนะ|accommodation|travel|lodging|per ?diem/i;
+/** รายการนี้คิดความคืบหน้าอัตโนมัติจากการเข้างานหรือไม่ — auto: '' = ดูจากชื่อรายการ · 'attend' = คิดอัตโนมัติ · 'off' = กรอกปริมาณเอง */
+function isAutoItem(it) {
+  if (!it) return false;
+  if (it.auto === 'attend') return true;
+  if (it.auto === 'off') return false;
+  return OVERHEAD_RE.test(String(it.desc || ''));
+}
+/** จำนวนวันที่มีคนเข้างาน ถึงวันที่ iso — att = วันที่ (ISO) เรียงจากน้อยไปมาก */
+function attendDays(att, iso) {
+  if (!Array.isArray(att)) return 0;
+  let n = 0;
+  for (const d of att) { if (iso && d > iso) break; n++; }
+  return n;
+}
+/** สัดส่วนการเข้างานของรายการ: วันที่มีคนเข้างาน ÷ จำนวนวันของรายการ
+ *  หน่วย วัน/เดือน/สัปดาห์ → ใช้ปริมาณในหน่วยนั้น · หน่วยอื่น (เหมา งาน เที่ยว ฯลฯ) → ใช้จำนวนวันตามสัญญา
+ *  att = null (โครงการไม่ได้ใช้รายงานประจำวัน) → ใช้เวลาที่ผ่านไปของสัญญาแทน */
+function attendFrac(p, it, att, iso) {
+  if (!Array.isArray(att)) return iso ? timeFraction(p, iso) : 0;
+  const u = String(it.unit || '').trim().toLowerCase();
+  const q = num(it.qty);
+  let den;
+  if (q > 0 && /^(วัน|day)/.test(u)) den = q;
+  else if (q > 0 && /^(สัปดาห์|อาทิตย์|week|wk)/.test(u)) den = q * 7;
+  else if (q > 0 && /^(เดือน|month|mo)/.test(u)) den = q * 30;
+  else den = contractDays(p);
+  return den > 0 ? clamp(attendDays(att, iso) / den) : 0;
+}
+
+/** ฟังก์ชันสัดส่วนงานที่ทำได้ของแต่ละรายการ (0–1)
+ *  รายการค่าใช้จ่ายตามการเข้างาน = ½ × สัดส่วนการเข้างาน + ½ × ความคืบหน้าของงานอื่น (งานอื่นเสร็จครบ = 100%)
+ *  ถ้ากรอกปริมาณของรายการนั้นเองมากกว่า ใช้ค่าที่กรอก */
+function itemRatioFn(p, items, cum, att, iso) {
+  const ao = !!p.allowOver;
+  const base = (i) => ratio(cum[i.id] || 0, i.qty, ao);
+  const method = p.progressMethod || 'boq_value';
+  if (method === 'manual' || method === 'time' || !items.some(isAutoItem)) return base;
+  const others = items.filter((i) => !isAutoItem(i));
+  const phys = others.length ? Math.min(1, progressFromCum(p, others, cum, null)) : null;
+  const memo = new Map();
+  return (i) => {
+    const r0 = base(i);
+    if (!isAutoItem(i)) return r0;
+    if (!memo.has(i)) {
+      const a = attendFrac(p, i, att, iso);
+      const ph = phys == null ? a : phys;
+      memo.set(i, ph >= 0.999 ? 1 : 0.5 * a + 0.5 * ph);
+    }
+    return Math.max(r0, memo.get(i));
+  };
+}
+
+/** ความคืบหน้าจากปริมาณสะสม ตามวิธีคำนวณที่ตั้งไว้ในโครงการ
+ *  att/iso (1.0.15) = วันที่มีคนเข้างาน และวันที่คำนวณ — ใช้กับรายการค่าใช้จ่ายตามการเข้างาน */
+function progressFromCum(p, items, cum, manual, att, iso) {
   const method = p.progressMethod || 'boq_value';
   const ao = !!p.allowOver;
   if (method === 'manual' || !items.length) {
     return manual == null ? 0 : clamp(manual / 100, 0, ao ? 5 : 1);
   }
+  const r = itemRatioFn(p, items, cum, att, iso);
   if (method === 'boq_qty') {
     const valid = items.filter((i) => num(i.qty) > 0);
     if (!valid.length) return 0;
-    return valid.reduce((s, i) => s + ratio(cum[i.id] || 0, i.qty, ao), 0) / valid.length;
+    return valid.reduce((s, i) => s + r(i), 0) / valid.length;
   }
   if (method === 'boq_weight') {
     const tw = items.reduce((s, i) => s + num(i.weight), 0);
-    if (tw > 0) return items.reduce((s, i) => s + num(i.weight) * ratio(cum[i.id] || 0, i.qty, ao), 0) / tw;
+    if (tw > 0) return items.reduce((s, i) => s + num(i.weight) * r(i), 0) / tw;
   }
   const basis = p.priceBasis || 'total';
   const tot = boqTotal(items, basis);
   if (tot <= 0) return 0;
-  return items.reduce((s, i) => s + amount(i, basis) * ratio(cum[i.id] || 0, i.qty, ao), 0) / tot;
+  return items.reduce((s, i) => s + amount(i, basis) * r(i), 0) / tot;
 }
 
-function progressAt(p, items, updates, iso) {
+function progressAt(p, items, updates, iso, att) {
   if (p.progressMethod === 'time') return timeFraction(p, iso);
   const ups = sortUpdates(updates).filter((u) => !iso || u.date <= iso);
-  return progressFromCum(p, items, cumulative(ups), lastManual(ups));
+  return progressFromCum(p, items, cumulative(ups), lastManual(ups), att, iso || todayISO());
 }
 
 // ---------- แผนงานรายรายการ BOQ (Gantt) ----------
@@ -1906,32 +2290,41 @@ function planSeries(p, steps = 60, items = []) {
   return [...dates].filter((d) => d >= p.startDate).sort().map((date) => ({ date, v: planAt(p, date, items) }));
 }
 
-/** ผลงานจริงสะสม ณ แต่ละวันที่มีการบันทึก */
-function actualSeries(p, items, updates, today = todayISO()) {
+/** ผลงานจริงสะสม ณ แต่ละวันที่มีการบันทึก
+ *  att (1.0.15) = วันที่มีคนเข้างาน — วันที่เข้างานแต่ไม่มีบันทึกปริมาณ ก็เป็นจุดในกราฟด้วยเมื่อมีรายการค่าใช้จ่ายตามการเข้างาน */
+function actualSeries(p, items, updates, today = todayISO(), att) {
   if (p.progressMethod === 'time') {
     if (!p.startDate || today < p.startDate) return [];
     const end = p.endDate && p.endDate < today ? p.endDate : today;
     return [{ date: p.startDate, v: 0 }, { date: end, v: timeFraction(p, end) }];
   }
   const ups = sortUpdates(updates).filter((u) => u.date);
+  const dates = new Set(ups.map((u) => u.date));
+  if (Array.isArray(att) && items.some(isAutoItem) && p.progressMethod !== 'manual') {
+    for (const d of att) if (d <= today && (!p.startDate || d >= p.startDate)) dates.add(d);
+  }
   const out = [];
-  if (p.startDate && (!ups.length || ups[0].date >= p.startDate)) out.push({ date: p.startDate, v: 0 });
+  const sorted = [...dates].sort();
+  if (p.startDate && (!sorted.length || sorted[0] >= p.startDate)) out.push({ date: p.startDate, v: 0 });
   const cum = Object.create(null);
   let manual = null;
-  ups.forEach((u, i) => {
-    for (const k in u.entries || {}) cum[k] = (cum[k] || 0) + num(u.entries[k]);
-    if (hasManual(u)) manual = +u.manualPct;
-    if (i === ups.length - 1 || ups[i + 1].date !== u.date) {
-      const v = progressFromCum(p, items, cum, manual);
-      if (out.length && out[out.length - 1].date === u.date) out[out.length - 1].v = v;
-      else out.push({ date: u.date, v });
+  let k = 0;
+  for (const d of sorted) {
+    while (k < ups.length && ups[k].date <= d) {
+      const u = ups[k++];
+      for (const key in u.entries || {}) cum[key] = (cum[key] || 0) + num(u.entries[key]);
+      if (hasManual(u)) manual = +u.manualPct;
     }
-  });
+    const v = progressFromCum(p, items, cum, manual, att, d);
+    if (out.length && out[out.length - 1].date === d) out[out.length - 1].v = v;
+    else out.push({ date: d, v });
+  }
   return out;
 }
 
-function groupBreakdown(p, items, cum, today = todayISO()) {
-  const basis = p.priceBasis || 'total', ao = !!p.allowOver;
+function groupBreakdown(p, items, cum, today = todayISO(), att) {
+  const basis = p.priceBasis || 'total';
+  const rf = itemRatioFn(p, items, cum, att, today);
   const map = new Map();
   for (const it of items) {
     const g = it.group || 'ไม่ระบุหมวด';
@@ -1939,7 +2332,7 @@ function groupBreakdown(p, items, cum, today = todayISO()) {
     map.get(g).items.push(it);
     const o = map.get(g);
     const a = amount(it, basis);
-    const r = ratio(cum[it.id] || 0, it.qty, ao);
+    const r = rf(it);
     o.amount += a;
     o.earned += a * r;
     o.count++;
@@ -1958,13 +2351,13 @@ function groupBreakdown(p, items, cum, today = todayISO()) {
   });
 }
 
-/** วิเคราะห์โครงการ ณ วันนี้ */
-function analyze(p, items, updates, S, today = todayISO()) {
+/** วิเคราะห์โครงการ ณ วันนี้ — att (1.0.15) = วันที่มีคนเข้างานจากรายงานประจำวัน (null = ไม่ได้ใช้รายงานประจำวัน) */
+function analyze(p, items, updates, S, today = todayISO(), att) {
   const ups = sortUpdates(updates).filter((u) => u.date <= today);
   const cum = cumulative(ups);
   const actual = p.progressMethod === 'time'
     ? timeFraction(p, today)
-    : progressFromCum(p, items, cum, lastManual(ups));
+    : progressFromCum(p, items, cum, lastManual(ups), att, today);
   const started = !!p.startDate && today >= p.startDate;
   const planDate = p.endDate && today > p.endDate ? p.endDate : today;
   const plan = started ? planAt(p, planDate, items) : 0;
@@ -2025,7 +2418,7 @@ function portfolio(rows) {
   };
 }
 
-return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STATUS: STATUS, STATUS_ORDER: STATUS_ORDER, parseISO: parseISO, toISO: toISO, todayISO: todayISO, addDays: addDays, diffDays: diffDays, num: num, timeFraction: timeFraction, weekNo: weekNo, unitPrice: unitPrice, amount: amount, boqTotal: boqTotal, sortUpdates: sortUpdates, cumulative: cumulative, ratio: ratio, progressFromCum: progressFromCum, progressAt: progressAt, dayOf: dayOf, dayToIso: dayToIso, contractDays: contractDays, hasPlan: hasPlan, hasSchedule: hasSchedule, itemPlanFrac: itemPlanFrac, weightFn: weightFn, schedulePlan: schedulePlan, planAt: planAt, planSeries: planSeries, actualSeries: actualSeries, groupBreakdown: groupBreakdown, analyze: analyze, portfolio: portfolio };
+return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STATUS: STATUS, STATUS_ORDER: STATUS_ORDER, parseISO: parseISO, toISO: toISO, todayISO: todayISO, addDays: addDays, diffDays: diffDays, num: num, timeFraction: timeFraction, weekNo: weekNo, unitPrice: unitPrice, amount: amount, boqTotal: boqTotal, sortUpdates: sortUpdates, cumulative: cumulative, ratio: ratio, OVERHEAD_RE: OVERHEAD_RE, isAutoItem: isAutoItem, attendDays: attendDays, attendFrac: attendFrac, itemRatioFn: itemRatioFn, progressFromCum: progressFromCum, progressAt: progressAt, dayOf: dayOf, dayToIso: dayToIso, contractDays: contractDays, hasPlan: hasPlan, hasSchedule: hasSchedule, itemPlanFrac: itemPlanFrac, weightFn: weightFn, schedulePlan: schedulePlan, planAt: planAt, planSeries: planSeries, actualSeries: actualSeries, groupBreakdown: groupBreakdown, analyze: analyze, portfolio: portfolio };
 })();
 // ===================== CALC END =====================
 
@@ -2277,11 +2670,88 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     if (permsOf(p, role).indexOf(perm) >= 0) return true;
     return !!user.isAdmin && perm !== 'submit' && perm !== 'approve';
   }
+  /** 1.0.15 ผู้ใช้ใหม่ต้องลงทะเบียนและได้รับอนุมัติก่อน (Google: เปิดเป็นค่าเริ่มต้น) */
+  function approvalOn(settings) { return String(settings && settings.accessApproval) === '1'; }
   function canCreateProject(settings, user) {
     if (!user || !user.email) return false;
     if (user.isAdmin) return true;
     var list = parseList(settings && settings.projectCreators);
-    return !list.length || listHas(list, user.email);
+    // ไม่ได้กำหนดรายชื่อ: เดิม = ทุกคนสร้างได้ · โหมดลงทะเบียน = เฉพาะผู้ดูแลระบบและผู้ควบคุมงานที่ได้รับอนุมัติ
+    if (!list.length) return !approvalOn(settings);
+    return listHas(list, user.email);
+  }
+
+  // ---------- 1.0.15 ลงทะเบียนขอสิทธิ์ ----------
+  // by: admin = ผู้ดูแลระบบอนุมัติ · owner = ผู้ควบคุมงานที่สร้างโครงการ (เจ้าของโครงการ) อนุมัติ
+  var ACCESS_ROLES = {
+    supervisor: { label: 'ผู้ควบคุมงาน', desc: 'สร้างและดูแลโครงการของตนเอง', by: 'admin' },
+    exec: { label: 'ผู้บริหาร', desc: 'ดูข้อมูลทุกโครงการ และรับรายงานสรุป', by: 'admin' },
+    contractor: { label: 'ผู้รับจ้าง', desc: 'ส่งเอกสารขออนุมัติ และบันทึก Daily Report & Request ของโครงการ', by: 'owner' },
+    committee: { label: 'คณะกรรมการตรวจรับ', desc: 'พิจารณาเรื่องที่ต้องผ่านคณะกรรมการของโครงการ', by: 'owner' },
+    head: { label: 'หัวหน้า/ผู้บริหารโครงการ', desc: 'ดูข้อมูลโครงการ รับอีเมลผลการพิจารณา', by: 'owner' },
+    viewer: { label: 'ผู้ติดตาม', desc: 'ดูข้อมูลโครงการอย่างเดียว', by: 'owner' },
+  };
+  var ACCESS_STATUS = { pending: 'รออนุมัติ', approved: 'อนุมัติแล้ว', rejected: 'ไม่อนุมัติ', cancelled: 'ยกเลิก' };
+  /** ข้อมูลคำขอจากผู้ลงทะเบียน (อีเมลมาจากการยืนยันรหัสเท่านั้น ไม่รับจากแบบฟอร์ม) */
+  function cleanAccessRequest(input, email) {
+    input = isPlainObj(input) ? input : {};
+    var role = ownKey(ACCESS_ROLES, input.role) ? input.role : '';
+    if (!role) throw fail('กรุณาเลือกตำแหน่งที่ขอสิทธิ์', 'invalid');
+    var o = {
+      email: norm(email), role: role,
+      name: cut(input.name, 120), org: cut(input.org, 200), phone: cut(String(input.phone || '').replace(/[^\d+\-\s()]/g, ''), 30),
+      projectCode: ACCESS_ROLES[role].by === 'owner' ? cut(input.projectCode, 60) : '', note: cut(input.note, 1000),
+      projectId: ACCESS_ROLES[role].by === 'owner' && /^[\w-]{1,64}$/.test(String(input.projectId || '')) ? String(input.projectId) : '',
+      scope: ACCESS_ROLES[role].by === 'owner' ? cut(input.scope, 200) : '',
+    };
+    if (!validEmail(o.email)) throw fail('อีเมลไม่ถูกต้อง', 'invalid');
+    if (!o.name) throw fail('กรุณาระบุชื่อ-นามสกุล', 'invalid');
+    if (ACCESS_ROLES[role].by === 'owner' && !o.projectCode && !o.projectId) throw fail('กรุณาเลือกโครงการที่ขอเข้าร่วม', 'invalid');
+    return o;
+  }
+  /** ผู้มีสิทธิ์อนุมัติคำขอนี้ไหม: ตำแหน่งระดับระบบ = ผู้ดูแลระบบ · ตำแหน่งในโครงการ = เจ้าของโครงการ (ผู้ควบคุมงานที่สร้างโครงการ) */
+  function canDecideAccess(user, req, project) {
+    if (!user || !req || !ownKey(ACCESS_ROLES, req.role)) return false;
+    if (ACCESS_ROLES[req.role].by === 'admin') return !!user.isAdmin;
+    return !!project && project.id === req.projectId && !!project.ownerEmail && norm(project.ownerEmail) === norm(user.email);
+  }
+  /** 1.0.15 โครงการที่ผู้ลงทะเบียนเลือกขอเข้าร่วมได้ (ยังไม่ปิด/ยกเลิก และมีผู้ควบคุมงานเจ้าของโครงการ) — แสดงหลังยืนยันอีเมลแล้วเท่านั้น */
+  function joinableProjects(projects) {
+    return (projects || []).filter(function (p) { return p && p.ownerEmail && ['done', 'cancelled'].indexOf(p.status) < 0; })
+      .map(function (p) { return { id: p.id, code: cut(p.code, 60), name: cut(p.name, 200) }; })
+      .sort(function (a, b) { return String(a.code || a.name).localeCompare(String(b.code || b.name)); }).slice(0, 300);
+  }
+  /** หาโครงการจากรหัสโครงการ (ไม่สนตัวพิมพ์เล็ก/ใหญ่และช่องว่าง) — รหัสซ้ำกันหลายโครงการ = ไม่ระบุได้ */
+  function projectByCode(projects, code) {
+    var c = String(code || '').replace(/\s+/g, '').toLowerCase();
+    if (!c) return null;
+    var hit = (projects || []).filter(function (p) { return p && p.status !== 'cancelled' && String(p.code || '').replace(/\s+/g, '').toLowerCase() === c; });
+    return hit.length === 1 ? hit[0] : null;
+  }
+  /** อีเมลถึงผู้อนุมัติ */
+  function accessRequestEmail(req, project, link) {
+    var R0 = ACCESS_ROLES[req.role] || {};
+    var rows = [['ชื่อ', esc(req.name)], ['อีเมล (ยืนยันแล้ว)', esc(req.email)], ['ตำแหน่งที่ขอ', '<b>' + esc(R0.label || req.role) + '</b>']];
+    if (project) rows.push(['โครงการ', esc((project.code ? project.code + ' ' : '') + project.name)]);
+    if (req.scope) rows.push(['ขอบเขตงาน', esc(req.scope)]);
+    if (req.org) rows.push(['หน่วยงาน/บริษัท', esc(req.org)]);
+    if (req.phone) rows.push(['โทรศัพท์', esc(req.phone)]);
+    if (req.note) rows.push(['หมายเหตุ', esc(req.note)]);
+    return {
+      subject: 'คำขอสิทธิ์: ' + (req.name || req.email) + ' — ' + (R0.label || req.role) + (project ? ' (' + (project.code || project.name) + ')' : ''),
+      html: layout('มีผู้ขอสิทธิ์ใช้ระบบ', esc(req.name || req.email) + ' ยืนยันอีเมลแล้ว และขอสิทธิ์เป็น<b>' + esc(R0.label || req.role) + '</b>', rows,
+        '<p>' + (project ? 'คุณเป็นผู้ควบคุมงานที่สร้างโครงการนี้ จึงเป็นผู้อนุมัติ' : 'ตำแหน่งนี้ต้องได้รับอนุมัติจากผู้ดูแลระบบ') + ' — กดปุ่มด้านล่างเพื่อดูรายละเอียดแล้วเลือก "อนุมัติ" หรือ "ไม่อนุมัติ" (หรืออนุมัติในเว็บที่หน้า' + (project ? 'สมาชิกของโครงการ' : 'ตั้งค่า › คำขอสิทธิ์') + ') ลิงก์ใช้ได้ 14 วัน</p>' +
+        '<p style="color:#737D90;font-size:13px">ถ้าไม่รู้จักผู้ขอ ให้เลือก "ไม่อนุมัติ" — ห้ามส่งต่ออีเมลนี้ให้ผู้อื่น</p>', link, 'พิจารณาคำขอ'),
+    };
+  }
+  /** อีเมลแจ้งผลถึงผู้ขอ */
+  function accessResultEmail(req, project, ok, reason, link) {
+    var R0 = ACCESS_ROLES[req.role] || {};
+    return {
+      subject: (ok ? 'อนุมัติสิทธิ์แล้ว: ' : 'ไม่อนุมัติคำขอสิทธิ์: ') + (R0.label || req.role) + (project ? ' — ' + project.name : ''),
+      html: layout(ok ? 'ได้รับอนุมัติสิทธิ์แล้ว' : 'คำขอสิทธิ์ไม่ได้รับอนุมัติ', '', [['ตำแหน่ง', esc(R0.label || req.role)]].concat(project ? [['โครงการ', esc(project.name)]] : []).concat(reason ? [['เหตุผล', esc(reason)]] : []),
+        ok ? '<p>เข้าสู่ระบบด้วยอีเมลนี้ (' + esc(req.email) + ') ระบบจะส่งรหัสยืนยัน 6 หลักให้ทางอีเมล</p>' : '<p>สอบถามผู้ควบคุมงานหรือผู้ดูแลระบบของหน่วยงาน</p>', ok ? link : '', 'เข้าสู่ระบบ'),
+    };
   }
 
   // ---------- ขั้นตอนอนุมัติ ----------
@@ -2596,6 +3066,8 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
       seen[e] = true;
       var role = MEMBER_ROLES.indexOf(m.role) >= 0 ? m.role : 'viewer';
       var rec = { email: e, name: String(m.name || '').trim().slice(0, 120), role: role, notify: ownKey(NOTIFY, m.notify) ? m.notify : DEFAULT_NOTIFY[role] };
+      // 1.0.15 ขอบเขตงานที่รับผิดชอบ (จากการลงทะเบียน หรือเจ้าของโครงการกรอก)
+      if (m.scope) rec.scope = cut(m.scope, 200);
       if (role === 'committee') {
         var st = seatOf_(m.seat);
         if (st !== '' && seats[st]) throw fail('ลำดับกรรมการ "' + seatLabel(st) + '" ซ้ำกัน', 'invalid');
@@ -2644,6 +3116,7 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
       o[k] = n;
     });
     if (o.slaWarnDays && o.slaLateDays && o.slaLateDays < o.slaWarnDays) throw fail('จำนวนวันของสีแดงต้องไม่น้อยกว่าสีเหลือง', 'invalid');
+    if (o.accessApproval != null) o.accessApproval = String(o.accessApproval) === '1' ? '1' : '0';
     return o;
   }
 
@@ -3293,10 +3766,31 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
       return o;
     }).filter(function (r) { return r[keys[0]]; });
   }
-  /** รายงานประจำวันของผู้ควบคุมงาน (ระเบียบฯ ข้อ 178) */
+  /** 1.0.15 ชนิดรายงานประจำวัน: '' = ผู้ควบคุมงาน (FM-002) · 'contractor' = ผู้รับจ้าง (PT-F07 Daily Report and Daily Request) */
+  var DAILY_KINDS = { '': 'รายงานผู้ควบคุมงาน', contractor: 'Daily Report & Request ผู้รับจ้าง' };
+  function dailyKind(d) { return d && d.kind === 'contractor' ? 'contractor' : ''; }
+  /** ผู้ที่บันทึกรายงานชนิดนี้ได้: ผู้ควบคุมงาน = สิทธิ์บันทึกความคืบหน้า · ผู้รับจ้าง = ผู้รับจ้างในโครงการ (หรือผู้ควบคุมงานบันทึกแทน) */
+  function canWriteDaily(p, user, kind) {
+    if (!p || !user) return false;
+    var isCon = roleOf(p, user.email) === 'contractor' && !isOwner(p, user);
+    // ผู้รับจ้างบันทึกได้เฉพาะรายงานของผู้รับจ้าง (แม้เจ้าของโครงการให้สิทธิ์บันทึกความคืบหน้า)
+    if (isCon) return kind === 'contractor';
+    return can(p, user, 'recordProgress');
+  }
+  /** แถวงานที่ทำ: { w: รายละเอียด, q: ปริมาณ, u: หน่วย, boq: รหัสรายการ BOQ (ถ้าเลือก) } */
+  function cleanWorkRows(list) {
+    return (Array.isArray(list) ? list : []).slice(0, 60).map(function (r) {
+      r = isPlainObj(r) ? r : {};
+      var b = typeof r.boq === 'string' && safeKey(r.boq) && /^[\w-]{1,80}$/.test(r.boq) ? r.boq : '';
+      var q = r.q == null ? '' : String(r.q).trim();
+      return { w: cut(r.w, 300), q: cut(q, 40), u: cut(r.u, 40), boq: b };
+    }).filter(function (r) { return r.w || r.boq; });
+  }
+  /** รายงานประจำวันของผู้ควบคุมงาน (ระเบียบฯ ข้อ 178) และของผู้รับจ้าง (1.0.15) */
   function cleanDaily(input, p, actor, nowIso, existing) {
-    if (!can(p, actor, 'recordProgress')) throw fail('คุณไม่มีสิทธิ์บันทึกรายงานประจำวันของโครงการนี้', 'forbidden');
     input = input || {};
+    var kind = existing ? dailyKind(existing) : dailyKind(input);
+    if (!canWriteDaily(p, actor, kind)) throw fail(kind === 'contractor' ? 'คุณไม่มีสิทธิ์บันทึก Daily Report ของผู้รับจ้างในโครงการนี้' : 'คุณไม่มีสิทธิ์บันทึกรายงานประจำวันของโครงการนี้', 'forbidden');
     if (!validIsoDate(input.date)) throw fail('กรุณาระบุวันที่ให้ถูกต้อง', 'invalid');
     // บันทึกล่วงหน้าไม่ได้ (เผื่อเขตเวลา 1 วัน)
     var todayTh = new Date(Date.parse(nowIso || new Date().toISOString()) + 7 * 3600e3).toISOString().slice(0, 10);
@@ -3309,12 +3803,12 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     files.forEach(function (fid) { if (Object.prototype.hasOwnProperty.call(capIn, fid) && String(capIn[fid] || '').trim()) caps[fid] = cut(capIn[fid], 300); });
     var pm = w.pm25 === '' || w.pm25 == null || !isFinite(+w.pm25) ? '' : Math.max(0, Math.min(1000, Math.round(+w.pm25)));
     var d = {
-      id: existing ? existing.id : input.id, projectId: p.id, date: input.date,
+      id: existing ? existing.id : input.id, projectId: p.id, date: input.date, kind: kind,
       weather: { am: ownKey(WEATHER, w.am) ? w.am : '', pm: ownKey(WEATHER, w.pm) ? w.pm : '', night: ownKey(WEATHER, w.night) ? w.night : '', pm25: pm },
       workHours: cut(input.workHours, 40), manpower: rows_(input.manpower, ['trade', 'count'], 40), equipment: rows_(input.equipment, ['name', 'count'], 40),
-      work: cut(input.work, 4000), materials: cut(input.materials, 2000),
+      work: cut(input.work, 4000), rows: cleanWorkRows(input.rows), materials: cut(input.materials, 2000),
       stoppage: { stopped: !!st.stopped, hours: Math.max(0, Math.min(24, +st.hours || 0)), reason: cut(st.reason, 500) },
-      safety: cut(input.safety, 2000), instructions: cut(input.instructions, 2000), files: files, captions: caps,
+      safety: cut(input.safety, 2000), instructions: kind === 'contractor' ? '' : cut(input.instructions, 2000), files: files, captions: caps,
       // 1.0.14 งานที่ผู้รับจ้างขอทำวันถัดไป (Daily Request) — ใช้ในแบบ PT-F07
       request: (Array.isArray(input.request) ? input.request : []).slice(0, 30).map(function (r) {
         r = isPlainObj(r) ? r : {};
@@ -3323,10 +3817,30 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
       createdBy: existing ? existing.createdBy : (actor.name || ''), createdByEmail: existing ? existing.createdByEmail : norm(actor.email),
       createdAt: existing ? existing.createdAt : nowIso, updatedAt: nowIso,
     };
-    if (!d.work && !d.manpower.length && !d.stoppage.stopped) throw fail('กรุณาบันทึกงานที่ทำ จำนวนคนงาน หรือการหยุดงาน', 'invalid');
+    if (!d.work && !d.rows.length && !d.manpower.length && !d.stoppage.stopped && !(kind === 'contractor' && d.request.length)) throw fail('กรุณาบันทึกงานที่ทำ จำนวนคนงาน หรือการหยุดงาน', 'invalid');
     return d;
   }
   function manpowerTotal(d) { return (d && d.manpower || []).reduce(function (a, r) { return a + (+r.count || 0); }, 0); }
+  /** 1.0.15 วันที่มีคนเข้างาน (มีผู้ปฏิบัติงานในรายงานประจำวันชนิดใดก็ได้) เรียงจากน้อยไปมาก — ไม่มีรายงานเลย = null */
+  function attendanceDates(list) {
+    list = Array.isArray(list) ? list : [];
+    if (!list.length) return null;
+    var seen = Object.create(null), out = [];
+    list.forEach(function (d) {
+      if (d && validIsoDate(d.date) && manpowerTotal(d) > 0 && !seen[d.date]) { seen[d.date] = true; out.push(d.date); }
+    });
+    return out.sort();
+  }
+  /** 1.0.15 หมวดไฟล์ของรายงานประจำวัน: รูปถ่าย และไฟล์ PDF ของรายงาน */
+  var DAILY_PHOTO_CATEGORY = 'รูปถ่ายความคืบหน้า';
+  var DAILY_DOC_CATEGORY = 'รายงานประจำวัน/สัปดาห์';
+  /** ผู้สร้างไฟล์ PDF ของรายงานประจำวันลบ/แทนไฟล์ของตนได้ (แม้ไม่มีสิทธิ์จัดการคลังเอกสาร) */
+  function ownsDailyDoc(p, user, f) {
+    return !!(p && user && f && f.updateId && !f.subId && f.category === DAILY_DOC_CATEGORY
+      && norm(f.uploadedByEmail) === norm(user.email) && canWriteDaily(p, user, 'contractor'));
+  }
+  /** รายงานของผู้ควบคุมงานเท่านั้น (รายงานทางอีเมล/สรุปประจำสัปดาห์) */
+  function supDaily(list) { return (Array.isArray(list) ? list : []).filter(function (d) { return dailyKind(d) === ''; }); }
   /** รายการในคลังแบบฟอร์ม/ระเบียบ (ผู้ดูแลระบบจัดการ) */
   function cleanLibrary(input, actor, nowIso, existing) {
     if (!actor || !actor.isAdmin) throw fail('เฉพาะผู้ดูแลระบบเท่านั้นที่จัดการคลังแบบฟอร์มได้', 'forbidden');
@@ -3493,8 +4007,13 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     }).map(function (m) { return m.email; }));
   }
 
-  /** รายงานประจำวันเป็นบันทึกภายในของผู้ควบคุมงาน — ผู้รับจ้างไม่เห็น */
-  function canSeeDaily(p, user) { return canView(p, user) && roleOf(p, user && user.email) !== 'contractor'; }
+  /** แท็บรายงานประจำวัน: ทุกคนในโครงการ (1.0.15 ผู้รับจ้างเห็นและบันทึก Daily Report & Request ของตน) */
+  function canSeeDaily(p, user) { return canView(p, user); }
+  /** รายงานของผู้ควบคุมงานเป็นบันทึกภายใน — ผู้รับจ้างเห็นเฉพาะรายงานของผู้รับจ้าง */
+  function canSeeDailyRec(p, user, d) {
+    if (!canView(p, user) || !d) return false;
+    return dailyKind(d) === 'contractor' || roleOf(p, user && user.email) !== 'contractor';
+  }
   /** เอกสาร "เฉพาะเจ้าหน้าที่" ไม่แสดงต่อผู้ที่เป็นผู้รับจ้างอย่างเดียว */
   function canSeeLibrary(item, user, projects) {
     if (!item || !user) return false;
@@ -3629,7 +4148,7 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     var sunday = dowOf(c.today) === 0;
     (c.projects || []).forEach(function (p) {
       if (!projectActive(p, c.today)) return;
-      var d = (c.daily || []).filter(function (x) { return x.projectId === p.id && x.date === c.today; })[0] || null;
+      var d = supDaily(c.daily).filter(function (x) { return x.projectId === p.id && x.date === c.today; })[0] || null;
       if (!d && sunday) return;
       var to = reportRecipients(p, 'daily', !!d).filter(function (e) { return !d || e !== norm(d.createdByEmail); });
       if (!to.length) return;
@@ -3648,7 +4167,7 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
       var to = reportRecipients(p, 'weekly');
       if (!to.length) return;
       var by = function (t) { return (c[t] || []).filter(function (x) { return x.projectId === p.id; }); };
-      var m = weeklyReportEmail({ p: p, progress: (c.progress || {})[p.id], daily: by('daily'), subs: by('subs'), reqs: by('reqs'), meetings: by('meetings'), updates: by('updates'), settings: c.settings, from: from, to: c.today, nowIso: c.nowIso, appUrl: c.appUrl });
+      var m = weeklyReportEmail({ p: p, progress: (c.progress || {})[p.id], daily: supDaily(by('daily')), subs: by('subs'), reqs: by('reqs'), meetings: by('meetings'), updates: by('updates'), settings: c.settings, from: from, to: c.today, nowIso: c.nowIso, appUrl: c.appUrl });
       out.push(MSG(to, 'report', 'report-weekly', p.id, m));
     });
     return out;
@@ -3698,6 +4217,8 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
   }
 
   root.PTRules = {
+    approvalOn: approvalOn, ACCESS_ROLES: ACCESS_ROLES, ACCESS_STATUS: ACCESS_STATUS, cleanAccessRequest: cleanAccessRequest, canDecideAccess: canDecideAccess,
+    projectByCode: projectByCode, joinableProjects: joinableProjects, accessRequestEmail: accessRequestEmail, accessResultEmail: accessResultEmail, pageLink: pageLink,
     ROLES: ROLES, MEMBER_ROLES: MEMBER_ROLES, OWNER_ACTS: OWNER_ACTS, PERMS: PERMS, PERM_KEYS: PERM_KEYS,
     MAX_SEAT: MAX_SEAT, MAX_TITLE: MAX_TITLE, MAX_DETAIL: MAX_DETAIL, MAX_COMMENT: MAX_COMMENT, STEP_MODES: STEP_MODES, VOTE_STATUS: VOTE_STATUS, seatLabel: seatLabel, seatOf: seatOf, committeeSeats: committeeSeats, stepMode: stepMode,
     voters: voters, voteChair: voteChair, tally: tally, ballotOf: ballotOf, optionLabel: optionLabel,
@@ -3721,9 +4242,9 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     canReadChannel: canReadChannel, canPostChannel: canPostChannel, canSeeMeeting: canSeeMeeting, canCreateMeeting: canCreateMeeting,
     canEditMeeting: canEditMeeting, canToggleAction: canToggleAction, newMessage: newMessage, canDeleteMessage: canDeleteMessage,
     cleanMeeting: cleanMeeting, toggleAction: toggleAction, meetingWhen: meetingWhen, meetingEmail: meetingEmail, validLocalDT: validLocalDT,
-    WEATHER: WEATHER, SUB_ATTACH: SUB_ATTACH, WORK_TYPES: WORK_TYPES, cleanSubForm: cleanSubForm, LIB_KINDS: LIB_KINDS, LIB_USE: LIB_USE, cleanDaily: cleanDaily, manpowerTotal: manpowerTotal, cleanLibrary: cleanLibrary, libraryFor: libraryFor,
+    WEATHER: WEATHER, SUB_ATTACH: SUB_ATTACH, WORK_TYPES: WORK_TYPES, cleanSubForm: cleanSubForm, LIB_KINDS: LIB_KINDS, LIB_USE: LIB_USE, cleanDaily: cleanDaily, manpowerTotal: manpowerTotal, DAILY_KINDS: DAILY_KINDS, dailyKind: dailyKind, canWriteDaily: canWriteDaily, cleanWorkRows: cleanWorkRows, attendanceDates: attendanceDates, supDaily: supDaily, DAILY_PHOTO_CATEGORY: DAILY_PHOTO_CATEGORY, DAILY_DOC_CATEGORY: DAILY_DOC_CATEGORY, ownsDailyDoc: ownsDailyDoc, cleanLibrary: cleanLibrary, libraryFor: libraryFor,
     statusOf: statusOf, dailyReportEmail: dailyReportEmail, weeklyReportEmail: weeklyReportEmail, monthlyReportEmail: monthlyReportEmail, reportRecipients: reportRecipients,
-    canSeeDaily: canSeeDaily, canSeeLibrary: canSeeLibrary, projectActive: projectActive, WEEKDAYS: WEEKDAYS, jobSettings: jobSettings, dueJobs: dueJobs,
+    canSeeDaily: canSeeDaily, canSeeDailyRec: canSeeDailyRec, canSeeLibrary: canSeeLibrary, projectActive: projectActive, WEEKDAYS: WEEKDAYS, jobSettings: jobSettings, dueJobs: dueJobs,
     prevMonth: prevMonth, monthEnd: monthEnd, reminderPlan: reminderPlan, dailyPlan: dailyPlan, weeklyPlan: weeklyPlan, monthRow: monthRow, monthlyPlan: monthlyPlan,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

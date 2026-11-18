@@ -43,7 +43,7 @@ export function startPresentation(rows, pf) {
   for (const { p, a } of rows) {
     const items = store.boqOf(p.id);
     const ups = store.updatesOf(p.id).filter((u) => u.date <= today);
-    const groups = groupBreakdown(p, items, a.cum).slice(0, 6);
+    const groups = groupBreakdown(p, items, a.cum, undefined, store.attendanceOf(p.id)).slice(0, 6);
     const last = ups[ups.length - 1];
     const issue = [...ups].reverse().find((u) => u.issues);
     const photo = store.filesOf(p.id).find((f) => fileKind(f).kind === 'image');
@@ -92,7 +92,7 @@ export function startPresentation(rows, pf) {
     if (s.p) {
       const box = stage.querySelector('.slp-sc');
       mountSCurve(box, {
-        plan: planSeries(s.p, 60, s.items), actual: actualSeries(s.p, s.items, s.ups),
+        plan: planSeries(s.p, 60, s.items), actual: actualSeries(s.p, s.items, s.ups, undefined, store.attendanceOf(s.p.id)),
         start: s.p.startDate, end: s.p.endDate, height: Math.max(220, Math.min(420, window.innerHeight * 0.45)),
       });
       if (s.photo) {

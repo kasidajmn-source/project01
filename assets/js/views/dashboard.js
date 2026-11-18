@@ -12,6 +12,24 @@ import { offerPending } from '../guide.js';
 const R = globalThis.PTRules;
 
 
+/** 1.0.15 คำขอสิทธิ์ที่รอฉันอนุมัติ */
+function accessBanner() {
+  if (store.mode !== 'gas') return '';
+  const q = store.accessQueue();
+  if (!q.length) return '';
+  const adminN = q.filter((x) => x.by === 'admin').length;
+  const pids = [...new Set(q.filter((x) => x.projectId).map((x) => x.projectId))];
+  const href = adminN ? '#/settings' : `#/p/${encodeURIComponent(pids[0])}/members`;
+  return `<p class="notice notice-warn dash-access" id="dash-access">${icon('users')}<span><b>มีคำขอสิทธิ์รอคุณอนุมัติ ${q.length} รายการ</b> — ${esc(q.slice(0, 3).map((x) => `${x.name || x.email} (${x.roleLabel})`).join(', '))}${q.length > 3 ? ' …' : ''}</span><a class="btn btn-sm" href="${href}">พิจารณา</a></p>`;
+}
+
+/** 1.0.15 โหมดทดลอง: บอกว่าข้อมูลไม่ได้แชร์กับทีม (ปิดได้) */
+function localHint() {
+  if (store.cloud) return '';
+  try { if (localStorage.getItem('pt.localhint') === '0') return ''; } catch { /* แสดงตามปกติ */ }
+  return `<p class="notice dash-local" id="dash-local">${icon('device')}<span><b>โหมดทดลอง</b> — ข้อมูลอยู่ในเบราว์เซอร์นี้เท่านั้น ทีมของคุณไม่เห็น · ทำงานร่วมกับทีม: เชื่อมต่อฐานข้อมูลที่ <a class="link" href="#/settings">ตั้งค่า</a> แล้วส่ง "ลิงก์เชิญทีม" (ลิงก์เว็บธรรมดาเปิดเป็นโหมดทดลองแยกกันทุกเครื่อง)</span><button type="button" class="icon-btn" data-act="hide-local" aria-label="ปิดข้อความนี้">${icon('x')}</button></p>`;
+}
+
 export function renderDashboard(el) {
   const S = store.settings;
   const rows = store.rows();
@@ -22,7 +40,7 @@ export function renderDashboard(el) {
 
   if (!rows.length) {
     const hidden = store.data.projects.length && !store.cloud;
-    el.innerHTML = `${pageHead('ภาพรวมโครงการ', sub)}
+    el.innerHTML = `${pageHead('ภาพรวมโครงการ', sub)}${accessBanner()}
       <section class="panel">${emptyState({
         ic: 'grid',
         title: me.canCreate || !store.cloud ? 'ยังไม่มีโครงการ' : 'ยังไม่มีโครงการที่คุณเป็นสมาชิก',
@@ -67,6 +85,7 @@ export function renderDashboard(el) {
     ${newBtn ? `<div class="head-actions">${newBtn}</div>` : ''}
   </header>
   ${greeting(pf)}
+  ${accessBanner()}${localHint()}
   ${jobsNotice()}
   ${myWork('mw-top')}
   <section class="portfolio panel">
@@ -118,6 +137,7 @@ export function renderDashboard(el) {
 
 function bind(el) {
   el.querySelector('[data-act="new"]')?.addEventListener('click', openProjectForm);
+  el.querySelector('[data-act="hide-local"]')?.addEventListener('click', (e) => { try { localStorage.setItem('pt.localhint', '0'); } catch { /* ignore */ } e.currentTarget.closest('.dash-local')?.remove(); });
   el.querySelector('[data-act="greet-x"]')?.addEventListener('click', (e) => {
     const g = e.currentTarget.closest('.greet');
     greetClosed = true;

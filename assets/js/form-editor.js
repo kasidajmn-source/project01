@@ -576,6 +576,21 @@
     return s.at || true;
   }
   function say(t) { if (msg) msg.textContent = t; }
+  /** 1.0.15 บันทึกหน้าที่กรอก/ลงชื่อแล้วเป็นไฟล์ PDF ในแท็บเอกสารของโครงการ (หน้าเว็บหลักเป็นผู้สร้างไฟล์) */
+  var savingDoc = false;
+  function saveDoc(btn) {
+    if (savingDoc) return;
+    if (typeof win.ptSaveDoc !== 'function') { say('เปิดแบบฟอร์มนี้จากรายงานประจำวันในระบบ จึงจะบันทึกเข้าเอกสารได้'); return; }
+    savingDoc = true;
+    btn.disabled = true;
+    var label = btn.textContent;
+    btn.textContent = 'กำลังบันทึก…';
+    Promise.resolve().then(function () { return win.ptSaveDoc(function (t) { say(t + '…'); }); }).then(function (rec) {
+      say('บันทึกไฟล์ "' + ((rec && rec.name) || 'PDF') + '" ในแท็บเอกสารของโครงการแล้ว');
+    }, function (e) {
+      say('บันทึกเข้าเอกสารไม่สำเร็จ: ' + ((e && e.message) || e));
+    }).then(function () { savingDoc = false; btn.disabled = false; btn.textContent = label; });
+  }
 
   function changed() {
     dirty = true;
@@ -718,6 +733,7 @@
       if (ac === 'print') printNow();
       else if (ac === 'close') win.close();
       else if (ac === 'reset') reset();
+      else if (ac === 'savedoc') saveDoc(b);
       else if (ac === 'preview') {
         var on = body.classList.toggle('preview');
         b.setAttribute('aria-pressed', on ? 'true' : 'false');

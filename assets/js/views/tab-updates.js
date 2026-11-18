@@ -1,7 +1,7 @@
 // แท็บบันทึกความคืบหน้า: ประวัติรายสัปดาห์ + ฟอร์มบันทึก
 import { store } from '../store.js';
 import {
-  sortUpdates, cumulative, progressFromCum, planAt, weekNo, ratio, num, todayISO, METHODS, timeFraction,
+  sortUpdates, cumulative, progressFromCum, planAt, weekNo, ratio, num, todayISO, METHODS, timeFraction, isAutoItem,
 } from '../calc.js';
 import { esc, fmt, icon, emptyState, toast, confirmBox, setBusy, guard } from '../ui.js';
 import { deltaHTML, mailNote, personName } from './common.js';
@@ -22,12 +22,13 @@ export function renderUpdates(el, ctx, sub) {
 /** ความคืบหน้าหลังแต่ละการบันทึก */
 function progressTrail(p, items, ups) {
   const out = new Map();
+  const att = store.attendanceOf(p.id);
   const cum = Object.create(null);
   let manual = null;
   for (const u of sortUpdates(ups)) {
     for (const k in u.entries || {}) cum[k] = (cum[k] || 0) + num(u.entries[k]);
     if (u.manualPct !== '' && u.manualPct != null && Number.isFinite(+u.manualPct)) manual = +u.manualPct;
-    out.set(u.id, p.progressMethod === 'time' ? timeFraction(p, u.date) : progressFromCum(p, items, cum, manual));
+    out.set(u.id, p.progressMethod === 'time' ? timeFraction(p, u.date) : progressFromCum(p, items, cum, manual, att, u.date));
   }
   return out;
 }
@@ -107,6 +108,7 @@ function renderEditor(el, ctx, id) {
   const existing = id ? all.find((u) => u.id === id) : null;
   if (id && !existing) { location.hash = `#/p/${pid}/updates`; return; }
   const method = p.progressMethod || 'boq_value';
+  const autoOn = !['manual', 'time'].includes(method);
   const useBoq = !['manual', 'time'].includes(method);
 
   if (useBoq && !items.length) {
@@ -201,8 +203,9 @@ function renderEditor(el, ctx, id) {
     const lastM = [...sortUpdates(upTo)].reverse().find((u) => u.manualPct !== '' && u.manualPct != null);
     const mBefore = lastM ? +lastM.manualPct : null;
     const mNow = form.elements.manualPct ? (form.elements.manualPct.value === '' ? mBefore : +form.elements.manualPct.value) : mBefore;
-    const before = method === 'time' ? timeFraction(p, d) : progressFromCum(p, items, cumBefore, mBefore);
-    const after = method === 'time' ? timeFraction(p, d) : progressFromCum(p, items, cumAfter, mNow);
+    const att = store.attendanceOf(p.id);
+    const before = method === 'time' ? timeFraction(p, d) : progressFromCum(p, items, cumBefore, mBefore, att, d);
+    const after = method === 'time' ? timeFraction(p, d) : progressFromCum(p, items, cumAfter, mNow, att, d);
     const plan = planAt(p, d, items);
     el.querySelector('#u-live').innerHTML = `
       <div><span>ผลงานสะสมหลังบันทึก</span><b class="num">${fmt.pct(after)}</b>${deltaHTML((after - before) * 100)}</div>
@@ -232,7 +235,7 @@ function renderEditor(el, ctx, id) {
         ? (ed.entries[it.id] === undefined || ed.entries[it.id] === '' ? '' : +num(ed.entries[it.id]).toFixed(4))
         : (ed.entries[it.id] === undefined || ed.entries[it.id] === '' ? '' : +((qty ? after / qty : 0) * 100).toFixed(2));
       html += `<tr class="${after > qty + 1e-9 ? 'is-over' : ''}">
-        <td class="c-desc"><span class="muted">${esc(it.no)}</span> ${esc(it.desc)}</td>
+        <td class="c-desc"><span class="muted">${esc(it.no)}</span> ${esc(it.desc)}${autoOn && isAutoItem(it) ? ' <span class="tag tag-auto" title="ระบบคิดผลงานให้จากวันที่มีคนเข้างานและความคืบหน้าของงานอื่น — ไม่ต้องกรอก เว้นแต่ต้องการกำหนดเอง">ตามการเข้างาน</span>' : ''}</td>
         <td class="c-unit" data-l="หน่วย">${esc(it.unit)}</td>
         <td class="r num c-qty" data-l="BOQ">${fmt.num(qty)}</td>
         <td class="r num c-before" data-l="ก่อนหน้า">${fmt.num(before)}</td>

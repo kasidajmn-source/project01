@@ -9,6 +9,7 @@ import { esc, icon, toast, confirmBox, promptBox, setBusy, fmt, download, openMo
 import { pageHead, loadDemoData } from './common.js';
 import { APP_VERSION } from '../defaults.js';
 import { openLogin } from './login.js';
+import { accessQueueHTML, bindAccessQueue } from './access.js';
 import { applyMotion } from '../motion.js';
 import { mascot, mascotOn, setMascotOn, mascotName, hasCustomPack } from '../mascot.js';
 import { guideHidden, setGuideHidden, resetGuide } from '../guide.js';
@@ -62,6 +63,10 @@ export function renderSettings(el) {
   const spAcc = mode !== 'onedrive' ? backendFor('sharepoint').account() : null;
   const odAcc = mode === 'onedrive' ? backendFor('onedrive').account() : null;
   const me = store.me;
+  // 1.0.15 ข้อมูลการเชื่อมต่อคลาวด์ (ที่อยู่ระบบหลังบ้าน รหัสเข้าใช้งาน ไซต์/โฟลเดอร์) และผู้ใช้และสิทธิ์ของระบบ — เฉพาะผู้ดูแลระบบ
+  // (โหมดทดลอง = เครื่องของตัวเอง เห็นทั้งหมดเพื่อติดตั้ง)
+  const adminView = !store.cloud || store.legacy || !!me.isAdmin;
+  const V = (v) => (adminView ? v : '');
   const pill = store.cloud
     ? `<span class="conn-pill ${store.online ? 'is-on' : 'is-off'}">${icon('cloud')}${store.online ? `เชื่อมต่อ ${esc(store.backendLabel)}` : `${esc(store.backendLabel)} — เชื่อมต่อไม่ได้`}</span>`
     : `<span class="conn-pill">${icon('device')}โหมดทดลอง (เก็บในเบราว์เซอร์)</span>`;
@@ -72,6 +77,9 @@ export function renderSettings(el) {
 
     <section class="panel">
       <header class="panel-head"><h2>ที่เก็บข้อมูล</h2>${pill}</header>
+      ${connStatus()}
+      ${adminView ? '' : `<p class="hint" id="cfg-locked">${icon('lock')}รายละเอียดการเชื่อมต่อ (ที่อยู่ระบบหลังบ้าน รหัสเข้าใช้งาน โฟลเดอร์) ดูและเปลี่ยนได้เฉพาะผู้ดูแลระบบ${store.needLogin || store.lastError || !store.online || !me.email ? ' — ถ้าคุณเป็นผู้ดูแลระบบ เข้าสู่ระบบก่อน หรือ <button type="button" class="link-btn" data-act="cfg-show">ตั้งค่าการเชื่อมต่อใหม่</button> (ต้องใส่ที่อยู่และรหัสเข้าใช้งานใหม่)' : ''}</p>`}
+      <div id="cfg-admin"${adminView ? '' : ' hidden'}>
       <div class="opt-cards opt-4">
         <label class="opt"><input type="radio" name="mode" value="local" ${mode === 'local' ? 'checked' : ''}>
           <span><b>โหมดทดลอง</b><small>เก็บในเบราว์เซอร์เครื่องนี้ เหมาะสำหรับทดลองใช้ ข้อมูลไม่แชร์กับคนอื่น</small></span></label>
@@ -86,9 +94,9 @@ export function renderSettings(el) {
       <div id="cfg-gas" ${mode === 'gas' ? '' : 'hidden'}>
         <div class="form-grid">
           <label class="field span-2"><span>URL ของ Web app (Google Apps Script)</span>
-            <input id="c-url" value="${esc(conf.url)}" placeholder="https://script.google.com/macros/s/…/exec" spellcheck="false"></label>
+            <input id="c-url" value="${esc(V(conf.url))}" placeholder="https://script.google.com/macros/s/…/exec" spellcheck="false"></label>
           <label class="field"><span>รหัสเข้าใช้งาน (Access key)</span>
-            <input id="c-key" value="${esc(conf.key)}" placeholder="ได้จากการรัน setup ใน Apps Script" spellcheck="false" autocomplete="off"></label>
+            <input id="c-key" value="${esc(V(conf.key))}" placeholder="ได้จากการรัน setup ใน Apps Script" spellcheck="false" autocomplete="off"></label>
           <div class="field field-actions"><span>&nbsp;</span>
             <div><button type="button" class="btn" data-act="test">ทดสอบการเชื่อมต่อ</button>
             <button type="button" class="btn btn-primary" data-act="connect">${icon('cloud')}บันทึกและเชื่อมต่อ</button></div></div>
@@ -110,13 +118,13 @@ export function renderSettings(el) {
       <div id="cfg-sp" ${mode === 'sharepoint' ? '' : 'hidden'}>
         <div class="form-grid">
           <label class="field"><span>Tenant (โดเมนองค์กร หรือ Tenant ID)</span>
-            <input id="sp-tenant" value="${esc(sp.tenant)}" placeholder="เช่น องค์กร.onmicrosoft.com หรือ องค์กร.co.th" spellcheck="false"></label>
+            <input id="sp-tenant" value="${esc(V(sp.tenant))}" placeholder="เช่น องค์กร.onmicrosoft.com หรือ องค์กร.co.th" spellcheck="false"></label>
           <label class="field"><span>Application (client) ID</span>
-            <input id="sp-client" value="${esc(sp.clientId)}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false" autocomplete="off"></label>
+            <input id="sp-client" value="${esc(V(sp.clientId))}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false" autocomplete="off"></label>
           <label class="field span-2"><span>URL ของไซต์ SharePoint</span>
-            <input id="sp-site" value="${esc(sp.site)}" placeholder="https://องค์กร.sharepoint.com/sites/ชื่อไซต์" spellcheck="false"></label>
+            <input id="sp-site" value="${esc(V(sp.site))}" placeholder="https://องค์กร.sharepoint.com/sites/ชื่อไซต์" spellcheck="false"></label>
           <label class="field"><span>โฟลเดอร์เก็บไฟล์ในคลังเอกสารของไซต์</span>
-            <input id="sp-folder" value="${esc(sp.folder)}" placeholder="ProjectTracker" spellcheck="false">
+            <input id="sp-folder" value="${esc(V(sp.folder))}" placeholder="ProjectTracker" spellcheck="false">
             <small class="hint">พิมพ์ชื่อโฟลเดอร์ (สร้างให้อัตโนมัติ) หรือวางลิงก์โฟลเดอร์ที่มีอยู่แล้ว</small></label>
           <label class="field"><span>ระดับสิทธิ์ที่ขอ</span>
             <select id="sp-scope">
@@ -151,13 +159,13 @@ export function renderSettings(el) {
       <div id="cfg-od" ${mode === 'onedrive' ? '' : 'hidden'}>
         <div class="form-grid">
           <label class="field"><span>Tenant</span>
-            <input id="od-tenant" value="${esc(od.tenant)}" placeholder="organizations" spellcheck="false" list="od-tenants">
+            <input id="od-tenant" value="${esc(V(od.tenant))}" placeholder="organizations" spellcheck="false" list="od-tenants">
             <datalist id="od-tenants"><option value="organizations">บัญชีองค์กร (Microsoft 365)</option><option value="consumers">บัญชีส่วนตัว (outlook.com / hotmail)</option><option value="common">ได้ทั้งสองแบบ</option></datalist>
             <small class="hint">บัญชีองค์กร: ใส่โดเมนองค์กร เช่น egat.co.th หรือ organizations</small></label>
           <label class="field"><span>Application (client) ID</span>
-            <input id="od-client" value="${esc(od.clientId)}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false" autocomplete="off"></label>
+            <input id="od-client" value="${esc(V(od.clientId))}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" spellcheck="false" autocomplete="off"></label>
           <label class="field span-2"><span>โฟลเดอร์หลักใน OneDrive</span>
-            <input id="od-folder" value="${esc(od.folder)}" placeholder="ProjectTracker" spellcheck="false">
+            <input id="od-folder" value="${esc(V(od.folder))}" placeholder="ProjectTracker" spellcheck="false">
             <small class="hint"><b>ผู้ดูแล</b>: พิมพ์ชื่อโฟลเดอร์ใน OneDrive ของตนเอง (สร้างให้อัตโนมัติ) · <b>สมาชิก</b>: ใช้ "ลิงก์เชิญทีม" จากผู้ดูแล หรือวางลิงก์ของโฟลเดอร์ที่ถูกแชร์มา</small></label>
           <div class="field span-2"><span>Redirect URI สำหรับลงทะเบียนแอป (แบบ Single-page application)</span>
             <div class="copy-row"><input readonly value="${esc(redirectUri())}" id="od-redirect"><button type="button" class="btn" data-copy="#od-redirect">${icon('copy')}คัดลอก</button></div></div>
@@ -182,16 +190,18 @@ export function renderSettings(el) {
         </details>
       </div>
 
+      </div>
       ${store.cloud ? `
         <div class="cloud-info">
-          ${safeUrl(store.meta.siteUrl) ? `<a class="btn" href="${esc(safeUrl(store.meta.siteUrl))}" target="_blank" rel="noopener noreferrer">${icon('external')}เปิดไซต์ SharePoint</a>` : ''}
-          ${safeUrl(store.meta.rootFolderUrl) ? `<a class="btn" href="${esc(safeUrl(store.meta.rootFolderUrl))}" target="_blank" rel="noopener noreferrer">${icon('folder')}เปิดโฟลเดอร์หลักใน ${esc(store.fileHost)}</a>` : ''}
+          ${adminView && safeUrl(store.meta.siteUrl) ? `<a class="btn" href="${esc(safeUrl(store.meta.siteUrl))}" target="_blank" rel="noopener noreferrer">${icon('external')}เปิดไซต์ SharePoint</a>` : ''}
+          ${adminView && safeUrl(store.meta.rootFolderUrl) ? `<a class="btn" href="${esc(safeUrl(store.meta.rootFolderUrl))}" target="_blank" rel="noopener noreferrer">${icon('folder')}เปิดโฟลเดอร์หลักใน ${esc(store.fileHost)}</a>` : ''}
           <button type="button" class="btn" data-act="refresh">${icon('refresh')}ดึงข้อมูลล่าสุด</button>
-          <button type="button" class="btn" data-act="invite">${icon('share')}ลิงก์เชิญทีม</button>
+          ${adminView ? `<button type="button" class="btn" data-act="invite">${icon('share')}ลิงก์เชิญทีม</button>` : ''}
           ${store.mode === 'onedrive' && me.isAdmin ? `<button type="button" class="btn" data-act="od-share">${icon('users')}ให้สิทธิ์เข้าถึงโฟลเดอร์</button>` : ''}
-          <span class="muted">${store.lastSync ? `ซิงก์ล่าสุด ${store.lastSync.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.` : ''}${store.meta.version ? ` · ระบบหลังบ้านเวอร์ชัน ${esc(store.meta.version)}` : ''}</span>
+          <span class="muted">${store.lastSync ? `ซิงก์ล่าสุด ${store.lastSync.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.` : ''}${adminView && store.meta.version ? ` · ระบบหลังบ้านเวอร์ชัน ${esc(store.meta.version)}` : ''}</span>
         </div>
-        ${store.legacy ? `<div class="notice notice-warn">${icon('alert')}<div><b>Code.gs ยังเป็นเวอร์ชัน 1.0.0</b><span>วางโค้ด Code.gs เวอร์ชัน 1.0.1 แทนของเดิม รัน setup แล้ว Deploy เวอร์ชันใหม่ เพื่อใช้สมาชิก สิทธิ์ เรื่องขออนุมัติ และอีเมลแจ้งเตือน</span></div></div>` : ''}
+        ${store.lastError && store.mode === 'gas' ? `<div class="notice notice-warn" id="conn-error">${icon('alert')}<div><b>${store.lastError.code === 'auth_required' || store.lastError.code === 'setup_required' ? 'ระบบหลังบ้านยังติดตั้งไม่เสร็จ' : 'ดึงข้อมูลจากระบบหลังบ้านไม่สำเร็จ'}</b><span>${esc(store.lastError.message)}</span></div></div>` : ''}
+        ${store.legacy && adminView ? `<div class="notice notice-warn">${icon('alert')}<div><b>Code.gs เป็นรุ่นแรก (1.0.0)</b><span>วางโค้ด Code.gs เวอร์ชัน ${esc(APP_VERSION)} แทนของเดิม รันฟังก์ชัน setup (อนุญาตสิทธิ์) แล้ว Deploy เวอร์ชันใหม่ เพื่อใช้การเข้าสู่ระบบ สมาชิก สิทธิ์ เรื่องขออนุมัติ และอีเมลแจ้งเตือน</span></div></div>` : ''}
         ${store.mode === 'sharepoint' && (store.meta.upgrade || []).length ? `<div class="notice notice-warn">${icon('database')}<div><b>ต้องอัปเดตโครงสร้างข้อมูลในไซต์</b><span>สร้างรายการ ${(store.meta.upgrade || []).map((t) => esc(SP_LISTS[t])).join(', ')} สำหรับเรื่องขออนุมัติ (ต้องมีสิทธิ์จัดการไซต์)</span></div><button type="button" class="btn" data-act="sp-upgrade">อัปเดตโครงสร้างข้อมูลในไซต์</button></div>` : ''}
         ${hasLocal && me.isAdmin ? `<div class="notice">${icon('database')}<div><b>มีข้อมูลในโหมดทดลอง ${hasLocal} โครงการ</b><span>ย้ายขึ้น ${esc(store.backendLabel)} เพื่อแชร์กับทีม (รวมไฟล์ที่อัปโหลดไว้)</span></div><button type="button" class="btn" data-act="migrate">ย้ายข้อมูล</button></div>` : ''}` : ''}
     </section>
@@ -283,6 +293,11 @@ export function renderSettings(el) {
     setBusy(btn, true, 'กำลังทดสอบ…');
     try {
       const info = await testConnection(url, key);
+      // 1.0.15 เซิร์ฟเวอร์ตอบได้แต่ยังติดตั้งไม่ครบ (ยังไม่ได้รัน setup / ยังไม่อนุญาตสิทธิ์) — บอกขั้นตอนก่อนเชื่อมต่อ
+      if (info?.setup && info.setup.ok === false) {
+        notice(result, 'bad', `ติดต่อ Code.gs เวอร์ชัน ${esc(info.version || '')} ได้ แต่ฐานข้อมูลยังไม่พร้อม: ${esc(info.setup.error || 'ยังไม่ได้รันฟังก์ชัน setup')}`);
+        return null;
+      }
       notice(result, 'ok', `เชื่อมต่อสำเร็จ — เซิร์ฟเวอร์เวอร์ชัน ${esc(info.version || '')}`);
       return info;
     } catch (e) {
@@ -494,6 +509,11 @@ export function renderSettings(el) {
   el.querySelector('[data-act="od-share"]')?.addEventListener('click', () => openOdShare());
 
   // ---------- ขณะเชื่อมต่อ ----------
+  el.querySelector('[data-act="cfg-show"]')?.addEventListener('click', () => {
+    el.querySelector('#cfg-admin').hidden = false;
+    el.querySelector('#cfg-locked')?.remove();
+    el.querySelector('#c-url')?.focus();
+  });
   el.querySelector('[data-act="refresh"]')?.addEventListener('click', async (e) => {
     setBusy(e.currentTarget, true, 'กำลังดึงข้อมูล…');
     try { await store.refresh(); toast('อัปเดตข้อมูลล่าสุดแล้ว'); } catch (ex) { toast(ex.message, 'bad'); }
@@ -613,7 +633,7 @@ function accountSection(me) {
   const emailField = mode === 'gas'
     ? `<div class="field"><span>อีเมลที่เข้าสู่ระบบ</span><div class="acc-line">${icon('mail')}<span><b>${esc(me.email || '–')}</b>${store.legacy ? '<small>(ระบบหลังบ้านเวอร์ชันเก่า ยังไม่ต้องเข้าสู่ระบบ)</small>' : ''}</span>${conf.token ? `<button type="button" class="btn btn-ghost btn-sm" data-act="logout">${icon('logout')}ออกจากระบบ</button>${store.serverOutdated('1.0.8') ? '' : menu({ btnCls: 'btn-sm btn-ghost', title: 'ตัวเลือกการเข้าสู่ระบบ', items: [{ act: 'logout-all', icon: 'shield', label: 'ออกจากระบบทุกเครื่อง', sub: 'เช่น ลืมออกจากระบบบนเครื่องสาธารณะ หรือมือถือหาย' }] })}` : ''}</div></div>`
     : mode === 'sharepoint' || mode === 'onedrive'
-      ? `<div class="field"><span>บัญชี Microsoft</span><div class="acc-line">${icon('user')}<span><b>${esc(me.email || 'ยังไม่ได้ลงชื่อเข้าใช้')}</b></span></div></div>`
+      ? `<div class="field"><span>บัญชี Microsoft</span><div class="acc-line">${icon('user')}<span><b>${esc(me.email || 'ยังไม่ได้ลงชื่อเข้าใช้')}</b></span>${me.email && !me.isAdmin ? '<button type="button" class="btn btn-ghost btn-sm" data-act="ms-signout">ออกจากระบบ Microsoft</button>' : ''}</div></div>`
       : `<label class="field"><span>อีเมลของคุณ <small class="muted">(ใช้ระบุบทบาทในโครงการ)</small></span><input id="me-email" type="email" value="${esc(conf.email)}" placeholder="name@egat.co.th"></label>`;
   return `<section class="panel">
     <header class="panel-head"><h2>บัญชีของฉัน</h2><span class="muted">${flags.map(esc).join('<span class="sep"></span>')}</span></header>
@@ -702,6 +722,8 @@ function bindAccount(el) {
     store.forget();
     window.dispatchEvent(new Event('pt:relogin'));
   });
+  // 1.0.15 ผู้ใช้ที่ไม่ใช่ผู้ดูแลไม่เห็นส่วนการเชื่อมต่อ — ปุ่มออกจากระบบ Microsoft อยู่ที่บัญชีของฉัน
+  el.querySelector('[data-act="ms-signout"]')?.addEventListener('click', () => el.querySelector('[data-act="sp-signout"], [data-act="od-signout"]')?.click());
   el.querySelector('[data-act="logout"]')?.addEventListener('click', async () => {
     if (!(await confirmBox({ title: 'ออกจากระบบ', message: 'ออกจากระบบบนเครื่องนี้? ต้องยืนยันอีเมลอีกครั้งเมื่อกลับมาใช้งาน', ok: 'ออกจากระบบ' }))) return;
     await store.backend.logout();
@@ -711,16 +733,32 @@ function bindAccount(el) {
   void mode;
 }
 
+/** 1.0.15 สถานะการเชื่อมต่อของเครื่องนี้ (บอกชัดว่าแชร์กับทีมหรือไม่) */
+function connStatus() {
+  if (!store.cloud) {
+    const n = store.data.projects.length;
+    return `<p class="notice notice-warn conn-status" id="conn-status">${icon('device')}<span><b>เครื่องนี้ใช้โหมดทดลอง — ข้อมูลอยู่ในเบราว์เซอร์นี้เท่านั้น คนอื่นไม่เห็น</b>${n ? ` (มี ${n} โครงการ)` : ''}<br>
+      ทำงานร่วมกับทีม: ผู้ดูแลติดตั้งระบบหลังบ้าน (Google Drive/SharePoint/OneDrive) แล้วส่ง <b>"ลิงก์เชิญทีม"</b> ให้ทุกคนเปิด — การเปิดลิงก์เว็บธรรมดาจะได้โหมดทดลองของแต่ละเครื่องแยกกัน</span></p>`;
+  }
+  if (store.lastError) return ''; // แสดงในกล่องข้อผิดพลาดด้านล่างแล้ว
+  if (store.needLogin) return `<p class="notice notice-warn conn-status" id="conn-status">${icon('lock')}<span><b>เชื่อมต่อ ${esc(store.backendLabel)} แล้ว แต่ยังไม่ได้เข้าสู่ระบบ</b> — เข้าสู่ระบบด้วยอีเมลของคุณเพื่อเห็นโครงการของทีม</span></p>`;
+  if (!store.online) return `<p class="notice notice-warn conn-status" id="conn-status">${icon('cloud')}<span><b>เชื่อมต่อ ${esc(store.backendLabel)} ไม่ได้ตอนนี้</b> — แสดงข้อมูลที่บันทึกไว้ล่าสุด กด "ดึงข้อมูลล่าสุด" เพื่อลองใหม่</span></p>`;
+  return `<p class="notice notice-ok conn-status" id="conn-status">${icon('check')}<span><b>เชื่อมต่อข้อมูลของทีมแล้ว (${esc(store.backendLabel)})</b>${store.me?.email ? ` — เข้าสู่ระบบเป็น ${esc(store.me.email)}${store.me.isAdmin ? ' (ผู้ดูแลระบบ)' : ''}` : ''} ${store.me?.isAdmin ? ' · ส่ง "ลิงก์เชิญทีม" ให้สมาชิกเพื่อเชื่อมเครื่องของเขา' : ''}</span></p>`;
+}
+
 // =============================================================
 // ผู้ใช้และสิทธิ์ของระบบ (ผู้ดูแลระบบ)
 // =============================================================
 function systemSection(me, S) {
   if (store.legacy) return '';
+  if (store.cloud && !me.isAdmin) return ''; // 1.0.15 รายชื่อผู้ดูแล/ผู้บริหาร/ผู้สร้างโครงการ — เฉพาะผู้ดูแลระบบ
   const dis = me.isAdmin ? '' : 'disabled';
   const mode = store.mode;
   const noAdmins = mode === 'sharepoint' && !R.parseList(S.admins).length;
   const gasAdmin = mode === 'gas' && me.isAdmin;
-  const openLogin = gasAdmin && !R.parseList(S.projectCreators).length;
+  const approval = mode === 'gas' && R.approvalOn(S);
+  const regOk = mode === 'gas' && !store.serverOutdated('1.0.15');
+  const openLogin = gasAdmin && !R.parseList(S.projectCreators).length && !approval;
   const myDomain = (String(me.email || '').split('@')[1] || '').toLowerCase();
   const orgDomain = myDomain && !/^(gmail|hotmail|outlook|yahoo|live|icloud)\./.test(myDomain) ? `@${myDomain}` : '';
   return `<section class="panel" id="sys-users">
@@ -743,6 +781,10 @@ function systemSection(me, S) {
         ${openLogin ? `<span class="notice notice-warn sy-open">${icon('alert')}<span><b>ยังเปิดกว้าง:</b> ทุกคนที่มีลิงก์เชิญเข้าสู่ระบบและสร้างโครงการได้ (รวมผู้รับจ้างภายนอก) — แนะนำให้ระบุโดเมนของหน่วยงาน${orgDomain ? ` <button type="button" class="link-btn" data-act="creators-domain" data-v="${esc(orgDomain)}">ใช้ ${esc(orgDomain)}</button>` : ''}</span></span>` : ''}
         ${mode === 'gas' ? '<small class="hint">ถ้ากำหนดไว้ ผู้ที่เข้าสู่ระบบได้คือ ผู้ที่สร้างโครงการได้ ผู้บริหาร และสมาชิกของโครงการใดโครงการหนึ่งเท่านั้น</small>' : ''}</label>
     </div>
+    ${regOk ? `<h3 class="sub-h" id="sys-access">การลงทะเบียนขอสิทธิ์${me.isAdmin && store.accessQueue('admin').length ? ` <span class="tag tag-bad">รออนุมัติ ${store.accessQueue('admin').length}</span>` : ''}</h3>
+    <label class="check check-block"><input type="checkbox" id="sy-approval" ${approval ? 'checked' : ''} ${dis}>
+      <span>ผู้ใช้ใหม่ต้องลงทะเบียนและได้รับอนุมัติก่อน<small>ผู้ที่ยังไม่มีสิทธิ์ยืนยันอีเมลด้วยรหัส แล้วกรอกแบบขอสิทธิ์ — ผู้ควบคุมงานและผู้บริหาร: ผู้ดูแลระบบอนุมัติ · ผู้รับจ้าง คณะกรรมการ และตำแหน่งอื่นในโครงการ: ผู้ควบคุมงานที่สร้างโครงการอนุมัติ (ในอีเมลหรือหน้าสมาชิกของโครงการ) · ผู้ที่อยู่ในรายชื่อ "ผู้ที่สร้างโครงการได้" ไม่ต้องขอ</small></span></label>
+    ${me.isAdmin ? accessQueueHTML(store.accessQueue('admin'), store.accessDone('admin')) || '<p class="muted small">ยังไม่มีคำขอเป็นผู้ควบคุมงาน/ผู้บริหาร</p>' : ''}` : ''}
     <h3 class="sub-h">ระยะเวลาพิจารณาเรื่องขออนุมัติ (ค่าเริ่มต้นของทุกโครงการ)</h3>
     <div class="form-grid form-grid-3">
       <label class="field"><span><i class="dot dot-warn"></i>สีเหลืองเมื่อค้างเกิน (วัน)</span><input id="sy-warn" type="number" min="1" value="${esc(S.slaWarnDays)}" ${dis}></label>
@@ -759,6 +801,7 @@ function systemSection(me, S) {
 }
 
 function bindSystem(el) {
+  bindAccessQueue(el, () => window.dispatchEvent(new Event('pt:rerender')));
   el.querySelector('[data-act="dept-fill"]')?.addEventListener('click', () => {
     const box = el.querySelector('#sy-dept');
     const set = new Set(R.parseList(box.value));
@@ -804,6 +847,7 @@ function bindSystem(el) {
     try {
       await store.saveSettings({
         ...lists, slaWarnDays: warn, slaLateDays: late, appUrl: url,
+        ...(el.querySelector('#sy-approval') ? { accessApproval: el.querySelector('#sy-approval').checked ? '1' : '0' } : {}),
         ...(el.querySelector('#sy-spmail') ? { spMail: el.querySelector('#sy-spmail').checked } : {}),
       });
       if (store.serverRules) await store.refresh();

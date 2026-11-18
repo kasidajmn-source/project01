@@ -6,7 +6,7 @@
 //   · ช่องติ๊ก [data-ck] · รูป [data-photo] · จำที่กรอกไว้ในเครื่อง · บันทึก PDF
 //   PT-F01 เปลี่ยนเป็นหนังสือขออนุมัติ + บันทึกการขออนุมัติ/ผลการตรวจสอบ · เพิ่ม PT-F07 Daily Report and Daily Request
 import { store } from './store.js';
-import { analyze, planSeries, actualSeries, cumulative, sortUpdates, weightFn, ratio, weekNo, diffDays } from './calc.js';
+import { analyze, planSeries, actualSeries, cumulative, sortUpdates, weightFn, weekNo, diffDays, itemRatioFn, isAutoItem } from './calc.js';
 import { download } from './ui.js';
 import { APP_VERSION } from './defaults.js';
 import { splitLine, tradeLabel, allSuggestions } from './vocab.js';
@@ -112,7 +112,7 @@ export const EGAT_ORIGINALS = [
 
 // ฟอนต์จาก Google Fonts โหลดด้วย <link> ท้ายหน้า (ไม่ใช้ @import) — ถ้าเครือข่ายหน่วยงานกันหรือช้า
 // แบบฟอร์มยังเปิดและกรอกได้ทันทีด้วยฟอนต์ในเครื่อง ไม่ต้องรอ (สคริปต์กรอกแบบฟอร์มไม่ถูกบล็อกโดยสไตล์ชีตที่ค้าง)
-const FONTS_URL = 'https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&family=Taviraj:wght@400;600&display=swap';
+export const FONTS_URL = 'https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&family=Taviraj:wght@400;600&display=swap';
 const CSS = `
 @page { size: A4; margin: 14mm 14mm 16mm; }
 * { box-sizing: border-box; }
@@ -256,12 +256,15 @@ const linesOf = (text) => String(text || '').split(/\r?\n/).map((x) => x.trim())
 const pad = (list, n, blank) => { const out = list.slice(); while (out.length < n) out.push(blank); return out; };
 const contractorRep = (p) => p?.contractorRep || (p ? (R.members(p).find((m) => m.role === 'contractor')?.name || '') : '');
 const supervisorName = (p) => p?.manager || (supervisors(p)[0] ? nameOf(p, supervisors(p)[0].email) : '');
-/** งานที่บันทึกความคืบหน้า BOQ ในวันนั้น → [[รายการ, ปริมาณ, หน่วย]] */
-function boqDone(p, day) {
+/** งานที่บันทึกความคืบหน้า BOQ ในวันนั้น → [[รายการ, ปริมาณ, หน่วย]]
+ *  dy = รายงานประจำวัน: 1.0.15 ที่กรอกปริมาณตามรายการ BOQ แล้ว ไม่นับบันทึกที่ผูกกับรายงานนั้นซ้ำ · รายงานของผู้รับจ้างไม่ดึงบันทึกของผู้ควบคุมงาน */
+function boqDone(p, day, dy) {
   if (!p || !day) return [];
+  if (dy && R.dailyKind(dy) === 'contractor') return [];
+  const skip = dy?.id && Array.isArray(dy.rows) && dy.rows.length ? store.dailyUpdateId(dy.id) : '';
   const boq = store.boqOf(p.id);
   const out = [];
-  store.updatesOf(p.id).filter((u) => u.date === day).forEach((u) => {
+  store.updatesOf(p.id).filter((u) => u.date === day && u.id !== skip).forEach((u) => {
     Object.entries(u.entries || {}).forEach(([id, q]) => {
       const it = boq.find((b) => b.id === id);
       if (it && +q) out.push([`${it.no ? `${it.no} ` : ''}${it.desc}`, qtyTxt(q), it.unit || '']);
@@ -313,7 +316,7 @@ function formDaily({ p, daily: dy, date, today }) {
   // รายละเอียดของงาน: งานที่บันทึก + ปริมาณงานจากบันทึกความคืบหน้าวันเดียวกัน (ถ้ามี)
   const work = linesOf(dy?.work).map(splitQty);
   const up = p && day ? store.updatesOf(p.id).find((u) => u.date === day) : null;
-  if (dy || date) boqDone(p, day).forEach(([w, q, u]) => work.push([w, `${q} ${u}`.trim()]));
+  if (dy || date) boqDone(p, day, dy).forEach(([w, q, u]) => work.push([w, `${q} ${u}`.trim()]));
   const workRows = pad(work.map(([w, q], i) => `<tr>${TD(String(i + 1), 'class="c"')}${TD(w, 'data-sug="work"')}${TD(q)}</tr>`), 11, `<tr>${TD('', 'class="c"')}${TD('', 'data-sug="work"')}${TD()}</tr>`).join('');
   // ปัญหา / การแก้ไข
   const probs = [
@@ -617,7 +620,7 @@ function formCDaily({ p, daily: dy, date, today }) {
   const contractor = p?.contractor || '';
   // งานที่ทำได้ (รายงาน) — จากรายงานประจำวัน + บันทึกความคืบหน้า BOQ ของวันนั้น
   const done = linesOf(dy?.work).map((ln) => splitLine(ln.replace(/^\s*(?:\d+[.)]|[-•·])\s+/, '')));
-  if (p) boqDone(p, rep).forEach((x) => done.push(x));
+  if (p) boqDone(p, rep, dy).forEach((x) => done.push(x));
   // งานที่ขอทำวันถัดไป (Daily Request) — กรอกในรายงานประจำวัน 1.0.14
   const reqs = (dy?.request || []);
   const nRows = Math.max(14, done.length, reqs.length);
@@ -657,7 +660,9 @@ function formCDaily({ p, daily: dy, date, today }) {
   // แทรกช่อง "ปัญหาและอุปสรรค" (ช่องเดียวสูงตลอดตาราง) ในแถวแรก
   boqRows[0] = boqRows[0].replace(/<\/tr>$/, `<td class="f multi" data-f rowspan="${boqRows.length}" style="vertical-align:top">${e(issues)}</td></tr>`);
   // คนงาน: สะสมจากรายงานประจำวันก่อนหน้า + วันนี้
-  const dys = p ? store.dailyOf(p.id).filter((x) => x.date <= rep) : (dy ? [dy] : []);
+  // 1.0.15 นับจากรายงานชนิดเดียวกัน (Daily Report ของผู้รับจ้าง หรือรายงานผู้ควบคุมงานเมื่อผู้รับจ้างยังไม่ได้บันทึกในระบบ)
+  const cKind = dy ? R.dailyKind(dy) : (p && store.dailyOf(p.id, 'contractor').length ? 'contractor' : '');
+  const dys = p ? store.dailyOf(p.id, cKind).filter((x) => x.date <= rep && x.id !== dy?.id) : [];
   const trades = [];
   const upto = Object.create(null), now = Object.create(null);
   // ชื่อตำแหน่งเดียวกัน (รวม "กรรมกร" = "ผู้ปฏิบัติงาน") นับเป็นแถวเดียว
@@ -752,7 +757,7 @@ export function weekOptions(p, today) {
 }
 function sCurveSvg(p, items, ups, from, to, week) {
   const plan = planSeries(p, 80, items);
-  const act = actualSeries(p, items, ups, to);
+  const act = p ? actualSeries(p, items, ups, to, store.attendanceOf(p.id)) : [];
   if (!p?.startDate || !p?.endDate || (!plan.length && !act.length)) return '<p class="muted small">ใส่วันเริ่ม/สิ้นสุดสัญญาที่ตั้งค่าโครงการ เพื่อแสดง S-Curve</p>';
   const s = p.startDate, e = p.endDate > to ? p.endDate : to;
   const span = Math.max(1, diffDays(s, e));
@@ -789,8 +794,9 @@ function formWeekly({ p, to, today, week }) {
   const dys = p ? store.dailyOf(p.id) : [];
   const items = p ? store.boqOf(p.id) : [];
   const ups = p ? sortUpdates(store.updatesOf(p.id)) : [];
-  const a = p ? analyze(p, items, ups, store.settings, to) : null;
-  const prev = p ? analyze(p, items, ups, store.settings, R.addDaysIso(from, -1)) : null;
+  const att = p ? store.attendanceOf(p.id) : null;
+  const a = p ? analyze(p, items, ups, store.settings, to, att) : null;
+  const prev = p ? analyze(p, items, ups, store.settings, R.addDaysIso(from, -1), att) : null;
   const subs = p ? store.subsOf(p.id) : [];
   const inWeek = (iso) => String(iso || '').slice(0, 10) >= from && String(iso || '').slice(0, 10) <= to;
   const weekDys = dys.filter((x) => inWeek(x.date));
@@ -805,7 +811,9 @@ function formWeekly({ p, to, today, week }) {
   const cumTo = cumulative(ups.filter((u) => u.date && u.date <= to));
   const wf = p ? weightFn(p, items) : () => 0;
   const tw = items.reduce((s, it) => s + (+wf(it) || 0), 0);
-  const ao = !!p?.allowOver;
+  // 1.0.15 รายการค่าที่พัก/ค่าเดินทาง คิดตามการเข้างาน ณ ต้นและสิ้นสัปดาห์
+  const rPrev = p ? itemRatioFn(p, items, cumPrev, att, R.addDaysIso(from, -1)) : () => 0;
+  const rTo = p ? itemRatioFn(p, items, cumTo, att, to) : () => 0;
   const pctOf = (x) => `${(x * 100).toFixed(2)}%`;
   const groups = [];
   items.forEach((it) => {
@@ -814,14 +822,17 @@ function formWeekly({ p, to, today, week }) {
     if (!o) { o = { g, w: 0, pre: 0, now: 0 }; groups.push(o); }
     const w = +wf(it) || 0;
     o.w += w;
-    o.pre += w * ratio(cumPrev[it.id] || 0, it.qty, ao);
-    o.now += w * ratio(cumTo[it.id] || 0, it.qty, ao);
+    o.pre += w * rPrev(it);
+    o.now += w * rTo(it);
   });
   const groupRows = groups.map((o) => `<tr><td>${e(o.g)}</td><td class="r">${tw ? pctOf(o.w / tw) : ''}</td><td class="r">${o.w ? pctOf(o.pre / o.w) : ''}</td><td class="r">${o.w ? pctOf((o.now - o.pre) / o.w) : ''}</td><td class="r"><b>${o.w ? pctOf(o.now / o.w) : ''}</b></td><td class="r">${tw ? pctOf(o.now / tw) : ''}</td></tr>`).join('');
-  const moved = items.filter((it) => Math.abs((cumTo[it.id] || 0) - (cumPrev[it.id] || 0)) > 1e-9);
+  const moved = items.filter((it) => Math.abs((cumTo[it.id] || 0) - (cumPrev[it.id] || 0)) > 1e-9 || (isAutoItem(it) && rTo(it) - rPrev(it) > 1e-9));
   const showItems = moved.length ? moved : [];
   const itemRows = showItems.map((it) => {
-    const q = +it.qty || 0, wkq = (cumTo[it.id] || 0) - (cumPrev[it.id] || 0), c = cumTo[it.id] || 0;
+    const q = +it.qty || 0;
+    const auto = isAutoItem(it) && !['manual', 'time'].includes(p.progressMethod);
+    const c = auto ? Math.max(cumTo[it.id] || 0, rTo(it) * q) : (cumTo[it.id] || 0);
+    const wkq = c - (auto ? Math.max(cumPrev[it.id] || 0, rPrev(it) * q) : (cumPrev[it.id] || 0));
     return `<tr><td>${e(`${it.no ? `${it.no} ` : ''}${it.desc}`)}</td><td class="r">${e(qtyTxt(q))}</td><td class="c">${e(it.unit || '')}</td><td class="r">${e(qtyTxt(wkq))}</td><td class="r">${e(qtyTxt(c))}</td><td class="r">${q > 0 ? pctOf(c / q) : ''}</td></tr>`;
   }).join('');
   const rowOf = (iso) => {
@@ -989,7 +1000,7 @@ function renderPages(kind, ctx) {
 }
 
 /** HTML ของแบบฟอร์ม (ใช้ทดสอบและพิมพ์) — editor/annotate = URL ของสคริปต์กรอกแบบฟอร์ม */
-export function formHtml(kind, ctx = {}, { inline = false, editor = '', annotate = '' } = {}) {
+export function formHtml(kind, ctx = {}, { inline = false, editor = '', annotate = '', saveDoc = false } = {}) {
   if (!FORMS[kind]) throw new Error(`ไม่รู้จักแบบฟอร์ม ${kind}`);
   ctx = { today: todayTh(), ...ctx };
   const { f, long, title, sheets, key } = renderPages(kind, ctx);
@@ -1000,13 +1011,13 @@ export function formHtml(kind, ctx = {}, { inline = false, editor = '', annotate
   const curWeek = kind === 'weekly' && ctx.p?.startDate ? (ctx.week || weekNo(ctx.p, ctx.to || ctx.today)) : null;
   const weekSel = weeks.length ? `<label class="bar-week"><span class="sr">เลือกสัปดาห์</span><select data-pt="week" aria-label="เลือกสัปดาห์ที่">${weeks.map((w) => `<option value="${w.week}" ${w.week === curWeek ? 'selected' : ''}>${e(w.label)}</option>`).join('')}</select></label>` : '';
   return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><title>${e(title)}</title><style>${CSS}${f.official ? OFFICIAL_CSS : ''}${EXTRA_CSS[kind] || ''}${EDIT_CSS}</style></head>
-  <body${cls ? ` class="${cls}"` : ''}${long ? ' data-long="1"' : ''} data-form="${kind}" data-key="${e(key)}"><div class="bar" role="toolbar" aria-label="แบบฟอร์ม"><button type="button" data-pt="print">บันทึก PDF / พิมพ์</button><button type="button" class="ghost" data-pt="preview" aria-pressed="false">ดูแบบพิมพ์</button><button type="button" class="ghost" data-pt="reset" hidden>ล้างที่กรอก</button><button type="button" class="ghost" data-pt="close">ปิด</button>${weekSel}<span class="bar-msg" data-pt="msg" role="status">${e(f.code)} · ${ctx.p ? 'กรอกข้อมูลจากระบบแล้ว ตรวจทานและแก้ได้ก่อนพิมพ์' : 'แบบเปล่า'} — ${HINT}${f.official ? ' · ตอนพิมพ์ตั้งระยะขอบกระดาษเป็น "ไม่มี"' : ''}</span></div>
+  <body${cls ? ` class="${cls}"` : ''}${long ? ' data-long="1"' : ''} data-form="${kind}" data-key="${e(key)}"><div class="bar" role="toolbar" aria-label="แบบฟอร์ม"><button type="button" data-pt="print">บันทึก PDF / พิมพ์</button><button type="button" class="ghost" data-pt="preview" aria-pressed="false">ดูแบบพิมพ์</button>${saveDoc ? '<button type="button" data-pt="savedoc" title="เก็บหน้าที่กรอกและลงชื่อแล้วเป็นไฟล์ PDF ในแท็บเอกสารของโครงการ">บันทึกเข้าเอกสาร</button>' : ''}<button type="button" class="ghost" data-pt="reset" hidden>ล้างที่กรอก</button><button type="button" class="ghost" data-pt="close">ปิด</button>${weekSel}<span class="bar-msg" data-pt="msg" role="status">${e(f.code)} · ${ctx.p ? 'กรอกข้อมูลจากระบบแล้ว ตรวจทานและแก้ได้ก่อนพิมพ์' : 'แบบเปล่า'} — ${HINT}${f.official ? ' · ตอนพิมพ์ตั้งระยะขอบกระดาษเป็น "ไม่มี"' : ''}</span></div>
   <div class="sheets">${sheets}</div>
   ${annotate ? `<script src="${e(annotate)}"></script>` : ''}${editor ? `<script src="${e(editor)}"></script>` : ''}${fallback}<link rel="stylesheet" href="${FONTS_URL}"></body></html>`;
 }
 
 /** รูปภาพในรายงานประจำวัน → ช่องภาพประกอบตามลำดับ (ลำดับเดียวกับ files ของรายงาน) */
-function dailyPhotos(dy) {
+export function dailyPhotos(dy) {
   return (dy?.files || []).map((id, i) => [i, store.data.files.find((f) => f.id === id)])
     .filter(([, f]) => f && (/^image\//.test(f.mime || '') || /\.(jpe?g|png|gif|webp|heic)$/i.test(f.name || '')));
 }
@@ -1029,14 +1040,21 @@ export function openForm(kind, ctx = {}) {
       return { html: r.sheets, key: r.key, title: r.title, msg: `สัปดาห์ที่ ${week} — ดึงข้อมูลจากรายงานประจำวันและความคืบหน้าแล้ว` };
     };
   }
+  // 1.0.15 ปุ่ม "บันทึกเข้าเอกสาร" (แบบฟอร์มที่เปิดจากรายงานประจำวัน) — ctx.saveDoc(w, onProgress) สร้างไฟล์ PDF จากหน้าที่กรอก/ลงชื่อ
+  const saveDoc = typeof ctx.saveDoc === 'function';
+  if (saveDoc) w.ptSaveDoc = (onProgress) => ctx.saveDoc(w, onProgress);
   w.document.open();
-  w.document.write(formHtml(kind, ctx, { editor, annotate }));
+  w.document.write(formHtml(kind, ctx, { editor, annotate, saveDoc }));
   w.document.close();
   // ปุ่มพิมพ์/ปิดสำรอง — ใช้เมื่อสคริปต์กรอกแบบฟอร์มยังโหลดไม่เสร็จหรือโหลดไม่ได้ (ถ้าโหลดแล้ว สคริปต์นั้นจัดการเอง)
   const doc0 = w.document;
   const fb = (act) => () => { if (doc0.body?.getAttribute('data-ed') !== '1') act(); };
   doc0.querySelector('[data-pt="print"]')?.addEventListener('click', fb(() => w.print()));
   doc0.querySelector('[data-pt="close"]')?.addEventListener('click', fb(() => w.close()));
+  doc0.querySelector('[data-pt="savedoc"]')?.addEventListener('click', fb(async () => {
+    const m = doc0.querySelector('[data-pt="msg"]');
+    try { const rec = await w.ptSaveDoc((t) => { if (m) m.textContent = `${t}…`; }); if (m) m.textContent = `บันทึกไฟล์ "${rec?.name || 'PDF'}" ในแท็บเอกสารแล้ว`; } catch (e) { if (m) m.textContent = `บันทึกเข้าเอกสารไม่สำเร็จ: ${e.message}`; }
+  }));
   const photos = kind === 'cdaily' || kind === 'daily' ? dailyPhotos(ctx.daily) : [];
   const fillPhotos = () => photos.forEach(async ([i, f]) => {
     try { const u = await store.thumbUrl(f); if (u && w.ptForm) w.ptForm.setPhoto(i, u); } catch { /* ไม่มีรูปก็กรอกเองได้ */ }

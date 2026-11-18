@@ -2273,3 +2273,65 @@ body:has(.rm-compose) #toasts { bottom: 96px; }
   .sf-row input { grid-column: 2; }
   .sf-row .icon-btn { grid-column: 3; grid-row: 1; }
 }
+
+/* 1.0.15 BOQ: รายการค่าใช้จ่ายตามการเข้างาน */
+.tag-auto { margin-left: 6px; padding: 0 6px; font-size: 11.5px; border-color: var(--accent, var(--line-strong)); color: var(--accent-ink, var(--ink-2)); background: var(--surface-2); vertical-align: 1px; }
+.boq-edit .in-auto { min-width: 128px; font-size: 13px; padding: 4px 6px; }
+
+/* 1.0.15 รายงานประจำวัน: งานตามหมวด/รายการ BOQ · รายงานของผู้รับจ้าง · ไฟล์ PDF */
+.dy-wrow { grid-template-columns: minmax(0, .9fr) minmax(0, 1.3fr) minmax(0, 1.5fr) 92px 88px 32px; }
+.dy-wrow.no-boq { grid-template-columns: minmax(0, 1fr) 90px 96px 32px; }
+.dy-wrow input[readonly] { background: var(--surface-2); color: var(--ink-2); }
+.dy-other { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.dy-other > span { flex: 1 1 260px; }
+.dy-reqhint { margin: 0; display: flex; gap: 8px; align-items: center; }
+.dy-pdf { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 14px; margin: 14px 0 0; border: 1px dashed var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); }
+.dy-sig { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dy-sigimg { height: 26px; max-width: 120px; object-fit: contain; vertical-align: middle; background: #fff; border: 1px solid var(--line); border-radius: 3px; padding: 1px 4px; }
+.dy-docs { display: flex; flex-wrap: wrap; gap: 8px; }
+.dy-docs .btn { max-width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; height: auto; min-height: 32px; flex-wrap: wrap; justify-content: flex-start; }
+.dy-docs .btn small { margin-left: 6px; }
+.dy-day.has-c { box-shadow: inset 0 -3px 0 var(--primary); }
+@media (max-width: 760px) {
+  .dy-row.dy-wrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px; padding-bottom: 8px; border-bottom: 1px dashed var(--line); }
+  .dy-row.dy-wrow > [data-k="g"], .dy-row.dy-wrow > [data-k="boq"], .dy-row.dy-wrow > [data-k="w"] { grid-column: 1 / -1; }
+  .dy-row.dy-wrow > [data-k="q"] { grid-column: 1; }
+  .dy-row.dy-wrow > [data-k="u"] { grid-column: 2; }
+  .dy-row.dy-wrow > .icon-btn { grid-column: 3; }
+}
+
+/* 1.0.15 ลงทะเบียนขอสิทธิ์ */
+.login-reg-head { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 12px; }
+.login-reg-head > div { display: grid; gap: 2px; } .login-reg-head span { font-size: 13.5px; color: var(--ink-2); }
+.login-roles { border: 0; padding: 0; margin: 0 0 10px; display: grid; gap: 6px; }
+.login-roles legend { font-size: 14px; font-weight: 600; margin-bottom: 4px; padding: 0; }
+.login-roles .check { align-items: flex-start; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.login-roles .check:has(input:checked) { border-color: var(--primary); background: var(--surface-2); }
+.login-roles .check span { display: grid; } .login-roles small { color: var(--ink-3); font-size: 12.5px; }
+.login-reqs { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 4px; font-size: 13.5px; }
+.tag-ok { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
+.tag-bad { background: var(--bad-soft); border-color: transparent; color: var(--bad); }
+.acc-view { max-width: 760px; }
+.acc-acts { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+.acc-acts .btn { width: auto; }
+.acc-queue { display: grid; gap: 8px; }
+.acc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.acc-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.acc-who { min-width: 0; flex: 1 1 260px; overflow-wrap: anywhere; }
+.acc-btns { display: flex; gap: 6px; align-items: flex-start; }
+.acc-done ul { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; }
+.mem-access { margin-bottom: 16px; }
+.dash-access { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.dash-access > span { flex: 1 1 280px; }
+.dash-local { display: flex; align-items: flex-start; gap: 8px; }
+.dash-local > span { flex: 1; }
+.conn-status { margin: 0 0 12px; }
+.form-grid .dy-reqhint { display: flex; align-items: center; justify-content: flex-start; text-align: left; gap: 8px; margin: 0; }
+table.boq .c-desc .tag-auto { display: table; margin: 3px 0 0; }
+.mem-scope { display: block; font-size: 12px; margin-top: 2px; }
+
+/* 1.0.15 แท็บชนิดรายงานประจำวันบนมือถือ — สองช่องเต็มความกว้าง ข้อความขึ้นบรรทัดใหม่ได้ ไม่ต้องเลื่อนข้าง */
+@media (max-width: 560px) {
+  .subtabs.dy-kinds { display: grid; grid-template-columns: 1fr 1fr; width: 100%; overflow: visible; }
+  .subtabs.dy-kinds a { white-space: normal; justify-content: center; text-align: center; padding: 7px 8px; line-height: 1.3; min-width: 0; }
+}

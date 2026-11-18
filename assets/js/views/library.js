@@ -157,7 +157,8 @@ export function renderLibrary(el) {
     const p = store.project(el.querySelector('#lb-p').value) || null;
     const k = b.dataset.print;
     const day = el.querySelector('#lb-d')?.value || store.thaiNow().date;
-    openForm(k, { p, daily: p && DAILY_FORMS.includes(k) ? store.dailyAt(p.id, day) : null, date: day, to: day });
+    const dy = p && DAILY_FORMS.includes(k) ? (k === 'cdaily' ? store.dailyAt(p.id, day, 'contractor') || store.dailyAt(p.id, day) : store.dailyAt(p.id, day)) : null;
+    openForm(k, { p, daily: dy, date: day, to: day });
   }));
 }
 

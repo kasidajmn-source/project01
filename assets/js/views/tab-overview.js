@@ -10,7 +10,8 @@ export function renderOverview(el, { p, a }) {
   const items = store.boqOf(p.id);
   const ups = store.updatesOf(p.id);
   const files = store.filesOf(p.id);
-  const groups = groupBreakdown(p, items, a.cum);
+  const att = store.attendanceOf(p.id);
+  const groups = groupBreakdown(p, items, a.cum, undefined, att);
   const sched = hasSchedule(items);
   const pid = encodeURIComponent(p.id);
   const timePct = timeFraction(p, todayISO());
@@ -77,7 +78,7 @@ export function renderOverview(el, { p, a }) {
 
   mountSCurve(el.querySelector('#scurve'), {
     plan: planSeries(p, 60, items),
-    actual: actualSeries(p, items, ups),
+    actual: actualSeries(p, items, ups, undefined, att),
     start: p.startDate, end: p.endDate,
   });
 }

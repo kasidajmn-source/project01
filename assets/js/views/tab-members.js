@@ -2,6 +2,7 @@
 import { store } from '../store.js';
 import { esc, icon, toast, confirmBox, promptBox, setBusy, guard, emptyState, menu } from '../ui.js';
 import { roleChip, mailNote } from './common.js';
+import { accessQueueHTML, bindAccessQueue } from './access.js';
 
 const R = globalThis.PTRules;
 const STEP_ROLES = ['supervisor', 'committee', 'head', 'owner'];
@@ -48,7 +49,17 @@ export function renderMembers(el, ctx) {
   // สิทธิ์ของฉัน
   const myPerms = R.PERM_KEYS.map((k) => ({ k, ok: store.can(p, k) }));
 
-  el.innerHTML = `
+  // 1.0.15 คำขอเข้าร่วมโครงการจากการลงทะเบียน (เจ้าของโครงการอนุมัติ)
+  const regOn = store.mode === 'gas' && !store.serverOutdated('1.0.15') && (store.meta.registration || R.approvalOn(store.settings)) && canEdit;
+  const accQ = regOn ? store.accessQueue(p.id) : [];
+  const accDone = regOn ? store.accessDone(p.id) : [];
+  const accHTML = regOn ? `<section class="panel mem-access" id="mem-access">
+      <header class="panel-head"><h2>คำขอเข้าร่วมโครงการ${accQ.length ? ` <span class="tag tag-bad">รออนุมัติ ${accQ.length}</span>` : ''}</h2></header>
+      ${accessQueueHTML(accQ, accDone)}
+      <p class="hint">${p.code ? `ผู้รับจ้าง คณะกรรมการ และผู้ที่จะติดตามงาน ลงทะเบียนเองได้โดยใช้ <b>รหัสโครงการ ${esc(p.code)}</b> — คุณจะได้รับอีเมลให้อนุมัติ หรืออนุมัติที่นี่ (หรือเพิ่มสมาชิกเองด้านล่างได้เช่นเดิม)` : 'โครงการนี้ยังไม่มีรหัสโครงการ — ใส่รหัสในหน้า "ตั้งค่าโครงการ" เพื่อให้ผู้รับจ้างและคณะกรรมการลงทะเบียนขอเข้าร่วมเองได้'}</p>
+    </section>` : '';
+
+  el.innerHTML = `${accHTML}
   <div class="mem-grid">
     <section class="panel mem-me">
       <header class="panel-head"><h2>สิทธิ์ของคุณในโครงการนี้</h2>${myRole ? roleChip(myRole, myRole === 'owner' ? `ทำหน้าที่${R.OWNER_ACTS[d.ownerRole] && d.ownerRole !== 'none' ? R.OWNER_ACTS[d.ownerRole] : ''}` : '') : (me.isAdmin ? '<span class="role role-admin">ผู้ดูแลระบบ</span>' : me.isExec ? '<span class="role role-head">ผู้บริหาร</span>' : '')}</header>
@@ -147,7 +158,7 @@ export function renderMembers(el, ctx) {
       return `<select class="seat-sel" data-mi="${i}" data-mf="seat" aria-label="ลำดับกรรมการ">${SEAT_OPTS().map((v) => `<option value="${v}" ${cur === String(v) ? 'selected' : ''}>${esc(v === '' ? `อัตโนมัติ (${R.seatLabel(e)})` : seatOptLabel(v))}</option>`).join('')}</select>`;
     };
     body.innerHTML = rows.map(({ m, i }) => `<tr>
-      <td>${canEdit ? `<input data-mi="${i}" data-mf="name" value="${esc(m.name)}" placeholder="ชื่อ" aria-label="ชื่อ">` : `<b>${esc(m.name || '–')}</b>`}</td>
+      <td>${canEdit ? `<input data-mi="${i}" data-mf="name" value="${esc(m.name)}" placeholder="ชื่อ" aria-label="ชื่อ">` : `<b>${esc(m.name || '–')}</b>`}${m.scope ? `<small class="mem-scope muted" title="ขอบเขตงานที่รับผิดชอบ">${esc(m.scope)}</small>` : ''}</td>
       <td class="m-email">${esc(m.email)}</td>
       <td>${canEdit ? `<select data-mi="${i}" data-mf="role" aria-label="บทบาท">${R.MEMBER_ROLES.map((r) => `<option value="${r}" ${m.role === r ? 'selected' : ''}>${esc(R.ROLES[r].label)}</option>`).join('')}</select>` : roleChip(m.role)}${seatCell(m, i)}</td>
       <td>${canEdit ? `<select data-mi="${i}" data-mf="notify" aria-label="การแจ้งเตือน">${Object.entries(R.NOTIFY).map(([k, v]) => `<option value="${k}" ${(m.notify || R.DEFAULT_NOTIFY[m.role]) === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>` : `<small>${esc(R.NOTIFY[m.notify || R.DEFAULT_NOTIFY[m.role]])}</small>`}</td>
@@ -324,6 +335,7 @@ export function renderMembers(el, ctx) {
     } catch (e) { toast(e.message, 'bad', 6000); }
   };
   el.querySelector('[data-act="claim"]')?.addEventListener('click', () => transfer(me.email));
+  bindAccessQueue(el, () => { st.d = null; ctx.rerender?.(); });
   el.querySelectorAll('[data-act="transfer"]').forEach((btn) => btn.addEventListener('click', async () => {
     if (guard.dirty) { toast('บันทึกการแก้ไขสมาชิกก่อน แล้วจึงโอนความเป็นเจ้าของ', 'bad'); return; }
     const hint = (p.members || []).filter((m) => m.role === 'supervisor').map((m) => m.email).join(', ');

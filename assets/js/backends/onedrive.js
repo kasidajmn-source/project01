@@ -633,7 +633,7 @@ export const odBackend = {
     await ready();
     await mutate(d.projectId, (doc) => {
       doc.daily = doc.daily || [];
-      if (doc.daily.some((x) => x.date === d.date && x.id !== d.id)) throw Object.assign(new Error('มีรายงานประจำวันของวันที่นี้แล้ว — กด "ดึงข้อมูลล่าสุด" แล้วเปิดรายงานเดิมเพื่อแก้ไข'), { code: 'conflict' });
+      if (doc.daily.some((x) => x.date === d.date && (x.kind === 'contractor') === (d.kind === 'contractor') && x.id !== d.id)) throw Object.assign(new Error('มีรายงานประจำวันของวันที่นี้แล้ว — กด "ดึงข้อมูลล่าสุด" แล้วเปิดรายงานเดิมเพื่อแก้ไข'), { code: 'conflict' });
       upsertIn(doc.daily, d);
       remember(d.projectId, doc);
     });
@@ -711,6 +711,17 @@ export const odBackend = {
     return { preview: get || it?.webUrl || rec.url, download: it?.['@microsoft.graph.downloadUrl'] || rec.url, open: it?.webUrl || rec.url };
   },
 
+  /** 1.0.15 เนื้อรูปภาพ (ใส่ในไฟล์ PDF รายงานประจำวัน) — ลิงก์ดาวน์โหลดชั่วคราวของ Microsoft Graph */
+  async fileBlob(rec) {
+    if (!rec?.driveId || !rec.spDrive) return null;
+    try {
+      const it = await gfetch(`/drives/${rec.spDrive}/items/${rec.driveId}?$select=id,@microsoft.graph.downloadUrl`);
+      const u = it?.['@microsoft.graph.downloadUrl'];
+      if (!u || !/^https:\/\//.test(u)) return null;
+      const r = await fetch(u);
+      return r.ok ? await r.blob() : null;
+    } catch { return null; }
+  },
   async thumbUrl(rec) {
     if (!rec.driveId || !rec.spDrive) return '';
     try {

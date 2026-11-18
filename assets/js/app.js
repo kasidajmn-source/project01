@@ -13,6 +13,7 @@ import { renderChat } from './views/chat.js';
 import { renderMeetings } from './views/meetings.js';
 import { renderActivity } from './views/activity.js';
 import { renderLibrary } from './views/library.js';
+import { renderAccess } from './views/access.js';
 import { showIntro } from './views/intro.js';
 import { applyMotion, enterView, bindPointerFx, replayNext } from './motion.js';
 import { mountGuide, maybeOffer } from './guide.js';
@@ -110,6 +111,8 @@ const routes = [
   [/^#\/meetings(?:\/([^/?]+))?\/?$/, (m) => renderMeetings(view, m[1] || ''), 'chat'],
   [/^#\/activity\/?$/, () => renderActivity(view), 'chat'],
   [/^#\/library\/?$/, () => renderLibrary(view), 'library'],
+  // 1.0.15 พิจารณาคำขอสิทธิ์จากลิงก์ในอีเมล (ไม่ต้องเข้าสู่ระบบ — ใช้รหัสในลิงก์)
+  [/^#\/access\/([A-Za-z0-9_-]{1,64})(?:\/([a-f0-9]{40}))?\/?$/, (m) => renderAccess(view, m[1], m[2] || ''), 'settings'],
 ];
 
 const baseOf = (h) => (h || '#/').split('/').slice(0, 3).join('/');
@@ -169,7 +172,7 @@ function route() {
     return;
   }
   if (fresh === 'background') setTimeout(() => freshen(h, false), 0);
-  if (store.needLogin && store.mode === 'gas' && !h.startsWith('#/settings') && !h.startsWith('#/help')) {
+  if (store.needLogin && store.mode === 'gas' && !h.startsWith('#/settings') && !h.startsWith('#/help') && !h.startsWith('#/access/')) {
     document.querySelectorAll('[data-nav]').forEach((a) => a.classList.remove('is-on'));
     window.dispatchEvent(new Event('pt:login-cancel'));
     return;
@@ -226,7 +229,7 @@ document.addEventListener('change', (e) => {
 // SharePoint: #/connect?sp=1&t=<tenant>&c=<client id>&s=<site url>&f=<โฟลเดอร์>&m=<all|selected>
 // OneDrive:   #/connect?od=1&t=<tenant>&c=<client id>&d=<drive id>&i=<item id>&n=<ชื่อโฟลเดอร์>&f=<ลิงก์โฟลเดอร์>
 // 1.0.11: to=<หน้า> — เปิดหน้านั้นหลังเชื่อมต่อ (ลิงก์ในอีเมลแจ้งเตือน) · รับเฉพาะหน้าในระบบ
-const CONNECT_TO = /^\/(?:p\/[A-Za-z0-9_-]{1,64}(?:\/(?:overview|boq|updates|daily|subs|docs|chat|members|settings)(?:\/[A-Za-z0-9_-]{1,64})?)?|meetings\/[A-Za-z0-9_-]{1,64}|inbox|summary|projects)$/;
+const CONNECT_TO = /^\/(?:p\/[A-Za-z0-9_-]{1,64}(?:\/(?:overview|boq|updates|daily|subs|docs|chat|members|settings)(?:\/[A-Za-z0-9_-]{1,64})?)?|meetings\/[A-Za-z0-9_-]{1,64}|access\/[A-Za-z0-9_-]{1,64}\/[a-f0-9]{40}|inbox|summary|projects)$/;
 async function handleConnect() {
   const q = new URLSearchParams((location.hash.split('?')[1] || ''));
   const isOd = q.get('od') === '1';
@@ -247,6 +250,7 @@ async function handleConnect() {
     }
     history.replaceState(null, '', `${location.pathname}${to}`);
     current = to;
+    if (to.startsWith('#/access/')) { await initQuiet(); updateConn(); route(); return; }
     try { await initWithLogin(); } catch (e) { if (e.code !== 'login') toast(e.message, 'bad', 8000); }
     updateConn();
     route();
@@ -324,6 +328,10 @@ async function handleConnect() {
       }
       saveConf();
       m.close();
+      if (to.startsWith('#/access/')) {
+        history.replaceState(null, '', `${location.pathname}${to}`); current = to;
+        await initQuiet(); updateConn(); route(); return;
+      }
       await initWithLogin();
       updateConn();
       if (conf.mode !== 'gas') toast('เชื่อมต่อข้อมูลของทีมแล้ว'); // Google: ข้อความต้อนรับหลังยืนยัน OTP บอกอยู่แล้ว
@@ -337,6 +345,12 @@ async function handleConnect() {
   m.el.querySelector('[data-close]')?.addEventListener('click', () => route());
 }
 
+/** 1.0.15 โหลดข้อมูลโดยไม่บังคับเข้าสู่ระบบ (หน้าพิจารณาคำขอสิทธิ์จากลิงก์ในอีเมล) */
+async function initQuiet() {
+  try { await store.init(); store.needLogin = false; } catch (e) {
+    if (e.code === 'login') { store.forget(); store.needLogin = true; } else toast(e.message, 'bad', 8000);
+  }
+}
 /** โหลดข้อมูล — ถ้าเซิร์ฟเวอร์ต้องการให้เข้าสู่ระบบ (Google 1.0.1) จะเปิดหน้าต่างเข้าสู่ระบบก่อน */
 async function initWithLogin() {
   try {
@@ -412,10 +426,13 @@ async function boot() {
     return;
   }
   if (store.cloud) view.innerHTML = `<div class="loading"><span class="spin"></span>กำลังโหลดข้อมูลจาก ${esc(store.backendLabel)}…</div>`;
+  if ((location.hash || '').startsWith('#/access/')) {
+    await initQuiet(); updateConn(); current = location.hash; route(); return;
+  }
   try {
     await initWithLogin();
   } catch (e) {
-    if (e.code === 'setup_required') {
+    if (e.code === 'setup_required' || e.code === 'auth_required') {
       toast(e.message, 'bad', 9000);
       if (!location.hash.startsWith('#/settings')) location.hash = '#/settings';
     } else if (e.code === 'login_required') {

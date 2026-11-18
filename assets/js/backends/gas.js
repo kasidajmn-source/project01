@@ -51,6 +51,8 @@ export const gasBackend = {
   requestOtp: (email, opts) => api('requestOtp', { email }, opts),
   async verifyOtp(email, code, name, opts) {
     const r = await api('verifyOtp', { email, code, name }, opts);
+    // 1.0.15 อีเมลที่ยังไม่มีสิทธิ์: ได้ตั๋วลงทะเบียน (ไม่ใช่การเข้าสู่ระบบ) — ไม่เก็บเป็นรหัสเข้าใช้
+    if (r.register) return r;
     conf.token = r.token;
     conf.email = r.me?.email || email;
     if (r.me?.name) conf.user = r.me.name;
@@ -58,6 +60,10 @@ export const gasBackend = {
     return r;
   },
   updateMe: (name) => api('updateMe', { name }),
+  // ---------- 1.0.15 ลงทะเบียนขอสิทธิ์ ----------
+  requestAccess: (ticket, request) => api('requestAccess', { ticket, request }),
+  accessInfo: (id, atok) => api('accessInfo', { id, atok }),
+  decideAccess: ({ id, decision, reason = '', atok = '' }) => api('decideAccess', { id, decision, reason, ...(atok ? { atok } : {}) }),
   async logout() {
     try { if (conf.token) await api('logout', {}, { timeout: 15000 }); } catch { /* ignore */ }
     conf.token = '';
@@ -136,5 +142,17 @@ export const gasBackend = {
   },
   async thumbUrl(rec) {
     return rec.driveId ? `https://drive.google.com/thumbnail?id=${rec.driveId}&sz=w480` : '';
+  },
+  /** 1.0.15 แปลงหน้าแบบฟอร์ม (HTML) เป็น PDF บน Google แล้วเก็บในหมวดรายงานประจำวัน */
+  htmlToPdf: (o) => api('dailyPdf', o, { timeout: 300000 }),
+  /** 1.0.15 เนื้อรูปภาพจาก Drive (ใส่ในไฟล์ PDF รายงานประจำวัน) */
+  async fileBlob(rec) {
+    if (!rec?.driveId) return null;
+    const r = await api('fileData', { id: rec.id }, { timeout: 120000 });
+    if (!r?.base64) return null;
+    const bin = atob(r.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: /^image\/[\w.+-]+$/.test(r.mime || '') ? r.mime : 'image/jpeg' });
   },
 };

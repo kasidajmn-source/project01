@@ -73,7 +73,8 @@ export function learned(pid) {
     o.days.add(date);
     bag[kind].set(k, o);
   };
-  for (const d of store.dailyOf(pid)) {
+  for (const d of store.dailyOf(pid, '*')) {
+    (d.rows || []).forEach((r) => { add('work', r.w, d.date); add('unit', r.u, d.date); });
     const day = d.date;
     (d.manpower || []).forEach((r) => add('trade', tradeLabel(r.trade), day));
     (d.equipment || []).forEach((r) => add('equip', r.name, day));

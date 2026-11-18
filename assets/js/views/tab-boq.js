@@ -1,6 +1,6 @@
 // แท็บ BOQ: ดู / แก้ไข / นำเข้า / ส่งออก
 import { store } from '../store.js';
-import { amount, unitPrice, ratio, boqTotal, num, PRICE_BASIS, METHODS } from '../calc.js';
+import { amount, unitPrice, boqTotal, num, PRICE_BASIS, METHODS, isAutoItem, itemRatioFn, attendDays, todayISO } from '../calc.js';
 import { esc, fmt, icon, emptyState, toast, confirmBox, promptBox, setBusy, guard, uid, menu } from '../ui.js';
 import { openBoqImport } from './boq-import.js';
 import { renderPlan } from './tab-plan.js';
@@ -33,7 +33,9 @@ function startEdit(el, ctx, items) {
 }
 function stopEdit() { st.editing = false; st.draft = []; guard.dirty = false; }
 window.addEventListener('pt:discard', () => { st.editing = false; st.draft = []; });
-const blankRow = (group) => ({ id: '', group, no: '', desc: '', unit: '', qty: '', mat: '', labor: '', weight: '' });
+const blankRow = (group) => ({ id: '', group, no: '', desc: '', unit: '', qty: '', mat: '', labor: '', weight: '', auto: '' });
+/** โครงการนี้คิดผลงานจาก BOQ (รายการค่าที่พัก/ค่าเดินทางคิดตามการเข้างานได้) */
+const usesBoq = (p) => !['manual', 'time'].includes(p.progressMethod);
 
 // ---------- โหมดดู ----------
 function renderView(el, ctx) {
@@ -68,6 +70,9 @@ function renderView(el, ctx) {
   }
   const total = boqTotal(items, basis);
   const cols = showW ? 11 : 10;
+  const att = store.attendanceOf(p.id);
+  const rf = itemRatioFn(p, items, a.cum, att, todayISO());
+  const autos = usesBoq(p) ? items.filter(isAutoItem) : [];
 
   el.innerHTML = `
   <div class="toolbar">
@@ -93,16 +98,17 @@ function renderView(el, ctx) {
         </tr></thead>
         ${groups.map((G) => {
           const gAmt = G.items.reduce((s, i) => s + amount(i, basis), 0);
-          const gEarn = G.items.reduce((s, i) => s + amount(i, basis) * ratio(a.cum[i.id] || 0, i.qty, p.allowOver), 0);
+          const gEarn = G.items.reduce((s, i) => s + amount(i, basis) * rf(i), 0);
           return `<tbody>
             <tr class="grp"><td colspan="${cols - 4}"><b>${esc(G.name)}</b></td><td class="r num">${fmt.money(gAmt)}</td>${showW ? '<td></td>' : ''}<td colspan="2"></td><td class="num"><b>${gAmt ? fmt.pct(gEarn / gAmt) : '–'}</b></td></tr>
             ${G.items.map((it) => {
-              const done = a.cum[it.id] || 0;
-              const r = ratio(done, it.qty, p.allowOver);
+              const auto = usesBoq(p) && isAutoItem(it);
+              const r = rf(it);
+              const done = auto ? Math.max(a.cum[it.id] || 0, r * num(it.qty)) : (a.cum[it.id] || 0);
               const over = done > num(it.qty) + 1e-9;
-              return `<tr>
+              return `<tr${auto ? ' class="is-auto"' : ''}>
                 <td class="c-no">${esc(it.no)}</td>
-                <td class="c-desc">${esc(it.desc)}</td>
+                <td class="c-desc">${esc(it.desc)}${auto ? ' <span class="tag tag-auto" title="ผลงาน = ½ สัดส่วนวันที่มีคนเข้างาน + ½ ความคืบหน้าของงานอื่น">ตามการเข้างาน</span>' : ''}</td>
                 <td>${esc(it.unit)}</td>
                 <td class="r num">${fmt.num(it.qty)}</td>
                 <td class="r num">${fmt.money(it.mat)}</td>
@@ -120,7 +126,10 @@ function renderView(el, ctx) {
       </table>
     </div>
   </section>
-  ${noBoq ? `<p class="hint">โครงการนี้คิดความคืบหน้าแบบ "${esc(METHODS[p.progressMethod].label)}" ตัวเลขในตารางเป็นข้อมูลอ้างอิง</p>` : ''}`;
+  ${noBoq ? `<p class="hint">โครงการนี้คิดความคืบหน้าแบบ "${esc(METHODS[p.progressMethod].label)}" ตัวเลขในตารางเป็นข้อมูลอ้างอิง</p>` : ''}
+  ${autos.length ? `<p class="hint" id="boq-auto-hint">รายการที่มีป้าย <b>ตามการเข้างาน</b> (${autos.length} รายการ เช่น ค่าที่พัก ค่าเดินทาง) คิดผลงานเท่า ๆ กันจาก 2 ส่วน: ครึ่งหนึ่งจาก${att
+    ? `วันที่มีผู้ปฏิบัติงานเข้างานตามรายงานประจำวัน (<b>${attendDays(att, todayISO())}</b> วัน) ÷ จำนวนวันตามสัญญา (หรือปริมาณ ถ้าหน่วยเป็นวัน/สัปดาห์/เดือน)`
+    : 'เวลาที่ผ่านไปของสัญญา (ยังไม่มีรายงานประจำวัน — เมื่อเริ่มบันทึกจะใช้วันที่มีคนเข้างานแทน)'} และอีกครึ่งจากความคืบหน้าของงานอื่น — งานอื่นเสร็จครบ = 100% · ถ้าบันทึกปริมาณเองมากกว่าจะใช้ค่าที่บันทึก · เปลี่ยนได้ที่ "แก้ไข BOQ" ช่อง "นับผลงาน"</p>` : ''}`;
   bindView(el, ctx);
 }
 
@@ -141,17 +150,18 @@ function importDone(el, ctx, items, how) {
 async function exportBoq({ p, a }) {
   const items = store.boqOf(p.id);
   const basis = p.priceBasis || 'total';
+  const rf = itemRatioFn(p, items, a.cum, store.attendanceOf(p.id), todayISO());
   const rows = [
     [`BOQ และความคืบหน้า: ${p.name}`], [`ข้อมูล ณ ${fmt.dateLong(new Date().toISOString().slice(0, 10))}`], [],
-    ['หมวดงาน', 'ลำดับ', 'รายการ', 'หน่วย', 'ปริมาณ', 'ค่าวัสดุ/หน่วย', 'ค่าแรง/หน่วย', 'รวมต่อหน่วย', 'จำนวนเงิน', 'น้ำหนัก %', 'ทำได้สะสม', 'ความคืบหน้า %', 'แผน: เริ่มวันที่', 'แผน: ถึงวันที่'],
+    ['หมวดงาน', 'ลำดับ', 'รายการ', 'หน่วย', 'ปริมาณ', 'ค่าวัสดุ/หน่วย', 'ค่าแรง/หน่วย', 'รวมต่อหน่วย', 'จำนวนเงิน', 'น้ำหนัก %', 'ทำได้สะสม', 'ความคืบหน้า %', 'แผน: เริ่มวันที่', 'แผน: ถึงวันที่', 'นับผลงาน'],
     ...items.map((i) => [i.group, i.no, i.desc, i.unit, num(i.qty), num(i.mat), num(i.labor), unitPrice(i, basis), amount(i, basis),
-      i.weight === '' ? '' : num(i.weight), a.cum[i.id] || 0, +(ratio(a.cum[i.id] || 0, i.qty, p.allowOver) * 100).toFixed(2),
-      num(i.ps) > 0 ? num(i.ps) : '', num(i.pe) > 0 ? num(i.pe) : '']),
+      i.weight === '' ? '' : num(i.weight), a.cum[i.id] || 0, +(rf(i) * 100).toFixed(2),
+      num(i.ps) > 0 ? num(i.ps) : '', num(i.pe) > 0 ? num(i.pe) : '', usesBoq(p) && isAutoItem(i) ? 'ตามการเข้างาน' : '']),
     [], ['', '', 'รวมทั้งสิ้น', '', '', '', '', '', boqTotal(items, basis), '', '', +(a.actual * 100).toFixed(2)],
   ];
   const safe = String(p.code || '').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'project';
   const how = await exportWorkbook(`BOQ_${safe}_${new Date().toISOString().slice(0, 10)}`, [
-    { name: 'BOQ', rows, cols: [24, 7, 48, 8, 10, 12, 12, 12, 14, 9, 12, 12, 11, 11] },
+    { name: 'BOQ', rows, cols: [24, 7, 48, 8, 10, 12, 12, 12, 14, 9, 12, 12, 11, 11, 14] },
   ]);
   toast(how === 'xlsx' ? 'ส่งออกไฟล์ Excel แล้ว' : 'ส่งออกเป็น CSV แล้ว (โหลดตัวสร้าง Excel ไม่ได้)');
 }
@@ -182,7 +192,7 @@ function renderEdit(el, ctx) {
         <thead><tr>
           <th>หมวดงาน</th><th class="c-no">ลำดับ</th><th>รายการ</th><th>หน่วย</th><th class="r">ปริมาณ</th>
           <th class="r">ค่าวัสดุ/หน่วย</th><th class="r">ค่าแรง/หน่วย</th><th class="r">จำนวนเงิน</th>
-          ${showW ? '<th class="r">น้ำหนัก %</th>' : ''}<th></th>
+          ${showW ? '<th class="r">น้ำหนัก %</th>' : ''}${usesBoq(p) ? '<th title="ค่าที่พัก ค่าเดินทาง ฯลฯ คิดผลงานตามการเข้างานได้">นับผลงาน</th>' : ''}<th></th>
         </tr></thead>
         <tbody id="be-body"></tbody>
       </table>
@@ -234,6 +244,14 @@ function drawRows(el, ctx) {
   const showW = p.progressMethod === 'boq_weight';
   const body = el.querySelector('#be-body');
   const cell = (i, f, cls = '', attrs = '') => `<td><input class="${cls}" data-i="${i}" data-f="${f}" value="${esc(st.draft[i][f] ?? '')}" ${attrs}></td>`;
+  const autoLabel = (it) => (isAutoItem({ desc: it.desc }) ? 'ตามชื่อ: เข้างาน' : 'ตามชื่อ: ปริมาณ');
+  const autoCell = (i) => {
+    const v = st.draft[i].auto === 'attend' || st.draft[i].auto === 'off' ? st.draft[i].auto : '';
+    return `<td><select class="in-auto" data-i="${i}" data-f="auto" aria-label="วิธีนับผลงานของรายการ">
+      <option value=""${v === '' ? ' selected' : ''}>${autoLabel(st.draft[i])}</option>
+      <option value="attend"${v === 'attend' ? ' selected' : ''}>ตามการเข้างาน</option>
+      <option value="off"${v === 'off' ? ' selected' : ''}>ตามปริมาณ</option></select></td>`;
+  };
   body.innerHTML = st.draft.map((it, i) => `<tr>
     ${cell(i, 'group', 'in-group', 'list="dl-groups" placeholder="หมวด"')}
     ${cell(i, 'no', 'in-no')}
@@ -244,6 +262,7 @@ function drawRows(el, ctx) {
     ${cell(i, 'labor', 'in-num', 'inputmode="decimal"')}
     <td class="r num" data-amt="${i}">${fmt.money(amount(it, basis))}</td>
     ${showW ? cell(i, 'weight', 'in-num in-w', 'inputmode="decimal"') : ''}
+    ${usesBoq(p) ? autoCell(i) : ''}
     <td class="row-tools">
       <button class="icon-btn" data-mv="${i}" data-dir="-1" title="เลื่อนขึ้น" aria-label="เลื่อนขึ้น">${icon('arrowUp')}</button>
       <button class="icon-btn" data-mv="${i}" data-dir="1" title="เลื่อนลง" aria-label="เลื่อนลง">${icon('arrowDown')}</button>
@@ -257,6 +276,10 @@ function drawRows(el, ctx) {
     if (!t.dataset.f) return;
     const i = +t.dataset.i;
     st.draft[i][t.dataset.f] = t.value;
+    if (t.dataset.f === 'desc') {
+      const o = body.querySelector(`select[data-i="${i}"][data-f="auto"] option[value=""]`);
+      if (o) o.textContent = autoLabel(st.draft[i]);
+    }
     if (['qty', 'mat', 'labor'].includes(t.dataset.f)) {
       body.querySelector(`[data-amt="${i}"]`).textContent = fmt.money(amount(st.draft[i], basis));
       updateTotal(el, p);
@@ -274,8 +297,12 @@ function drawRows(el, ctx) {
       body.querySelector(`[data-mv="${j}"][data-dir="${mv.dataset.dir}"]`)?.focus();
     }
   };
+  body.onchange = (e) => {
+    const t = e.target;
+    if (t.dataset.f === 'auto') { st.draft[+t.dataset.i].auto = t.value; guard.dirty = true; }
+  };
   body.onkeydown = (e) => {
-    if (e.key !== 'Enter' || !e.target.dataset.f) return;
+    if (e.key !== 'Enter' || !e.target.dataset.f || e.target.tagName === 'SELECT') return;
     e.preventDefault();
     const i = +e.target.dataset.i, f = e.target.dataset.f;
     if (i === st.draft.length - 1) { st.draft.push(blankRow(st.draft[i].group)); drawRows(el, ctx); }

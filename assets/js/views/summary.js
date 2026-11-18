@@ -153,7 +153,7 @@ async function exportSummary(rows, pf) {
   ]);
   const groups = [['โครงการ', 'หมวดงาน', 'มูลค่า (บาท)', 'สัดส่วน %', 'ผลงาน %', 'รายการเสร็จ', 'รายการทั้งหมด']];
   for (const { p, a } of rows) {
-    for (const g of groupBreakdown(p, store.boqOf(p.id), a.cum)) {
+    for (const g of groupBreakdown(p, store.boqOf(p.id), a.cum, undefined, store.attendanceOf(p.id))) {
       groups.push([p.name, g.name, r2(g.amount), a.boqTotal ? r2((g.amount / a.boqTotal) * 100) : '', r2(g.pct * 100), g.done, g.count]);
     }
   }

@@ -54,12 +54,13 @@ export function renderProject(el, id, tab = 'overview', sub = '') {
     updates: store.updatesOf(p.id).length,
     docs: store.filesOf(p.id).length,
     subs: ps.pending,
-    members: R.members(p).length,
+    members: store.mode === 'gas' && store.accessQueue(p.id).length ? '!' : R.members(p).length,
     chat: store.unreadOf(`project:${p.id}`) + (R.canReadChannel('internal', p, store.me) ? store.unreadOf(`internal:${p.id}`) : 0),
     // ยังไม่ได้บันทึกรายงานของวันนี้ (แจ้งเฉพาะผู้บันทึกได้ ในโครงการที่กำลังดำเนินการ)
-    daily: store.can(p, 'recordProgress') && R.projectActive(p, store.thaiNow().date) && !store.dailyAt(p.id, store.thaiNow().date) ? '!' : 0,
+    daily: R.projectActive(p, store.thaiNow().date) && ((store.can(p, 'recordProgress') && !store.isContractorOf(p) && !store.dailyAt(p.id, store.thaiNow().date))
+      || (store.isContractorOf(p) && store.canWriteDaily(p, 'contractor') && !store.dailyAt(p.id, store.thaiNow().date, 'contractor'))) ? '!' : 0,
   };
-  const tone = { subs: ps.late ? 'is-bad' : ps.warn ? 'is-warn' : '', chat: 'is-warn', daily: 'is-warn' };
+  const tone = { subs: ps.late ? 'is-bad' : ps.warn ? 'is-warn' : '', chat: 'is-warn', daily: 'is-warn', members: store.mode === 'gas' && store.accessQueue(p.id).length ? 'is-warn' : '' };
   const pid = encodeURIComponent(p.id);
   const period = p.startDate || p.endDate
     ? `${fmt.date(p.startDate)} – ${fmt.date(p.endDate)}${a.totalDays ? ` <small>(${fmt.num(a.totalDays, 0)} วัน)</small>` : ''}`

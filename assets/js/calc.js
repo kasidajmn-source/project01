@@ -137,32 +137,89 @@ function lastManual(ups) {
   return null;
 }
 
-/** ความคืบหน้าจากปริมาณสะสม ตามวิธีคำนวณที่ตั้งไว้ในโครงการ */
-export function progressFromCum(p, items, cum, manual) {
+// ---------- 1.0.15 รายการค่าใช้จ่ายตามการเข้างาน (ค่าที่พัก ค่าเดินทาง ฯลฯ) ----------
+/** ชื่อรายการที่ระบบถือว่าเป็นค่าใช้จ่ายตามการเข้างาน (เมื่อ auto ว่าง) */
+export const OVERHEAD_RE = /ที่พัก|เดินทาง|เบี้ยเลี้ยง|ค่าครองชีพ|ค่าเช่าบ้าน|ค่าพาหนะ|accommodation|travel|lodging|per ?diem/i;
+/** รายการนี้คิดความคืบหน้าอัตโนมัติจากการเข้างานหรือไม่ — auto: '' = ดูจากชื่อรายการ · 'attend' = คิดอัตโนมัติ · 'off' = กรอกปริมาณเอง */
+export function isAutoItem(it) {
+  if (!it) return false;
+  if (it.auto === 'attend') return true;
+  if (it.auto === 'off') return false;
+  return OVERHEAD_RE.test(String(it.desc || ''));
+}
+/** จำนวนวันที่มีคนเข้างาน ถึงวันที่ iso — att = วันที่ (ISO) เรียงจากน้อยไปมาก */
+export function attendDays(att, iso) {
+  if (!Array.isArray(att)) return 0;
+  let n = 0;
+  for (const d of att) { if (iso && d > iso) break; n++; }
+  return n;
+}
+/** สัดส่วนการเข้างานของรายการ: วันที่มีคนเข้างาน ÷ จำนวนวันของรายการ
+ *  หน่วย วัน/เดือน/สัปดาห์ → ใช้ปริมาณในหน่วยนั้น · หน่วยอื่น (เหมา งาน เที่ยว ฯลฯ) → ใช้จำนวนวันตามสัญญา
+ *  att = null (โครงการไม่ได้ใช้รายงานประจำวัน) → ใช้เวลาที่ผ่านไปของสัญญาแทน */
+export function attendFrac(p, it, att, iso) {
+  if (!Array.isArray(att)) return iso ? timeFraction(p, iso) : 0;
+  const u = String(it.unit || '').trim().toLowerCase();
+  const q = num(it.qty);
+  let den;
+  if (q > 0 && /^(วัน|day)/.test(u)) den = q;
+  else if (q > 0 && /^(สัปดาห์|อาทิตย์|week|wk)/.test(u)) den = q * 7;
+  else if (q > 0 && /^(เดือน|month|mo)/.test(u)) den = q * 30;
+  else den = contractDays(p);
+  return den > 0 ? clamp(attendDays(att, iso) / den) : 0;
+}
+
+/** ฟังก์ชันสัดส่วนงานที่ทำได้ของแต่ละรายการ (0–1)
+ *  รายการค่าใช้จ่ายตามการเข้างาน = ½ × สัดส่วนการเข้างาน + ½ × ความคืบหน้าของงานอื่น (งานอื่นเสร็จครบ = 100%)
+ *  ถ้ากรอกปริมาณของรายการนั้นเองมากกว่า ใช้ค่าที่กรอก */
+export function itemRatioFn(p, items, cum, att, iso) {
+  const ao = !!p.allowOver;
+  const base = (i) => ratio(cum[i.id] || 0, i.qty, ao);
+  const method = p.progressMethod || 'boq_value';
+  if (method === 'manual' || method === 'time' || !items.some(isAutoItem)) return base;
+  const others = items.filter((i) => !isAutoItem(i));
+  const phys = others.length ? Math.min(1, progressFromCum(p, others, cum, null)) : null;
+  const memo = new Map();
+  return (i) => {
+    const r0 = base(i);
+    if (!isAutoItem(i)) return r0;
+    if (!memo.has(i)) {
+      const a = attendFrac(p, i, att, iso);
+      const ph = phys == null ? a : phys;
+      memo.set(i, ph >= 0.999 ? 1 : 0.5 * a + 0.5 * ph);
+    }
+    return Math.max(r0, memo.get(i));
+  };
+}
+
+/** ความคืบหน้าจากปริมาณสะสม ตามวิธีคำนวณที่ตั้งไว้ในโครงการ
+ *  att/iso (1.0.15) = วันที่มีคนเข้างาน และวันที่คำนวณ — ใช้กับรายการค่าใช้จ่ายตามการเข้างาน */
+export function progressFromCum(p, items, cum, manual, att, iso) {
   const method = p.progressMethod || 'boq_value';
   const ao = !!p.allowOver;
   if (method === 'manual' || !items.length) {
     return manual == null ? 0 : clamp(manual / 100, 0, ao ? 5 : 1);
   }
+  const r = itemRatioFn(p, items, cum, att, iso);
   if (method === 'boq_qty') {
     const valid = items.filter((i) => num(i.qty) > 0);
     if (!valid.length) return 0;
-    return valid.reduce((s, i) => s + ratio(cum[i.id] || 0, i.qty, ao), 0) / valid.length;
+    return valid.reduce((s, i) => s + r(i), 0) / valid.length;
   }
   if (method === 'boq_weight') {
     const tw = items.reduce((s, i) => s + num(i.weight), 0);
-    if (tw > 0) return items.reduce((s, i) => s + num(i.weight) * ratio(cum[i.id] || 0, i.qty, ao), 0) / tw;
+    if (tw > 0) return items.reduce((s, i) => s + num(i.weight) * r(i), 0) / tw;
   }
   const basis = p.priceBasis || 'total';
   const tot = boqTotal(items, basis);
   if (tot <= 0) return 0;
-  return items.reduce((s, i) => s + amount(i, basis) * ratio(cum[i.id] || 0, i.qty, ao), 0) / tot;
+  return items.reduce((s, i) => s + amount(i, basis) * r(i), 0) / tot;
 }
 
-export function progressAt(p, items, updates, iso) {
+export function progressAt(p, items, updates, iso, att) {
   if (p.progressMethod === 'time') return timeFraction(p, iso);
   const ups = sortUpdates(updates).filter((u) => !iso || u.date <= iso);
-  return progressFromCum(p, items, cumulative(ups), lastManual(ups));
+  return progressFromCum(p, items, cumulative(ups), lastManual(ups), att, iso || todayISO());
 }
 
 // ---------- แผนงานรายรายการ BOQ (Gantt) ----------
@@ -251,32 +308,41 @@ export function planSeries(p, steps = 60, items = []) {
   return [...dates].filter((d) => d >= p.startDate).sort().map((date) => ({ date, v: planAt(p, date, items) }));
 }
 
-/** ผลงานจริงสะสม ณ แต่ละวันที่มีการบันทึก */
-export function actualSeries(p, items, updates, today = todayISO()) {
+/** ผลงานจริงสะสม ณ แต่ละวันที่มีการบันทึก
+ *  att (1.0.15) = วันที่มีคนเข้างาน — วันที่เข้างานแต่ไม่มีบันทึกปริมาณ ก็เป็นจุดในกราฟด้วยเมื่อมีรายการค่าใช้จ่ายตามการเข้างาน */
+export function actualSeries(p, items, updates, today = todayISO(), att) {
   if (p.progressMethod === 'time') {
     if (!p.startDate || today < p.startDate) return [];
     const end = p.endDate && p.endDate < today ? p.endDate : today;
     return [{ date: p.startDate, v: 0 }, { date: end, v: timeFraction(p, end) }];
   }
   const ups = sortUpdates(updates).filter((u) => u.date);
+  const dates = new Set(ups.map((u) => u.date));
+  if (Array.isArray(att) && items.some(isAutoItem) && p.progressMethod !== 'manual') {
+    for (const d of att) if (d <= today && (!p.startDate || d >= p.startDate)) dates.add(d);
+  }
   const out = [];
-  if (p.startDate && (!ups.length || ups[0].date >= p.startDate)) out.push({ date: p.startDate, v: 0 });
+  const sorted = [...dates].sort();
+  if (p.startDate && (!sorted.length || sorted[0] >= p.startDate)) out.push({ date: p.startDate, v: 0 });
   const cum = Object.create(null);
   let manual = null;
-  ups.forEach((u, i) => {
-    for (const k in u.entries || {}) cum[k] = (cum[k] || 0) + num(u.entries[k]);
-    if (hasManual(u)) manual = +u.manualPct;
-    if (i === ups.length - 1 || ups[i + 1].date !== u.date) {
-      const v = progressFromCum(p, items, cum, manual);
-      if (out.length && out[out.length - 1].date === u.date) out[out.length - 1].v = v;
-      else out.push({ date: u.date, v });
+  let k = 0;
+  for (const d of sorted) {
+    while (k < ups.length && ups[k].date <= d) {
+      const u = ups[k++];
+      for (const key in u.entries || {}) cum[key] = (cum[key] || 0) + num(u.entries[key]);
+      if (hasManual(u)) manual = +u.manualPct;
     }
-  });
+    const v = progressFromCum(p, items, cum, manual, att, d);
+    if (out.length && out[out.length - 1].date === d) out[out.length - 1].v = v;
+    else out.push({ date: d, v });
+  }
   return out;
 }
 
-export function groupBreakdown(p, items, cum, today = todayISO()) {
-  const basis = p.priceBasis || 'total', ao = !!p.allowOver;
+export function groupBreakdown(p, items, cum, today = todayISO(), att) {
+  const basis = p.priceBasis || 'total';
+  const rf = itemRatioFn(p, items, cum, att, today);
   const map = new Map();
   for (const it of items) {
     const g = it.group || 'ไม่ระบุหมวด';
@@ -284,7 +350,7 @@ export function groupBreakdown(p, items, cum, today = todayISO()) {
     map.get(g).items.push(it);
     const o = map.get(g);
     const a = amount(it, basis);
-    const r = ratio(cum[it.id] || 0, it.qty, ao);
+    const r = rf(it);
     o.amount += a;
     o.earned += a * r;
     o.count++;
@@ -303,13 +369,13 @@ export function groupBreakdown(p, items, cum, today = todayISO()) {
   });
 }
 
-/** วิเคราะห์โครงการ ณ วันนี้ */
-export function analyze(p, items, updates, S, today = todayISO()) {
+/** วิเคราะห์โครงการ ณ วันนี้ — att (1.0.15) = วันที่มีคนเข้างานจากรายงานประจำวัน (null = ไม่ได้ใช้รายงานประจำวัน) */
+export function analyze(p, items, updates, S, today = todayISO(), att) {
   const ups = sortUpdates(updates).filter((u) => u.date <= today);
   const cum = cumulative(ups);
   const actual = p.progressMethod === 'time'
     ? timeFraction(p, today)
-    : progressFromCum(p, items, cum, lastManual(ups));
+    : progressFromCum(p, items, cum, lastManual(ups), att, today);
   const started = !!p.startDate && today >= p.startDate;
   const planDate = p.endDate && today > p.endDate ? p.endDate : today;
   const plan = started ? planAt(p, planDate, items) : 0;

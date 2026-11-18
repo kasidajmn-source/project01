@@ -245,11 +245,88 @@
     if (permsOf(p, role).indexOf(perm) >= 0) return true;
     return !!user.isAdmin && perm !== 'submit' && perm !== 'approve';
   }
+  /** 1.0.15 ผู้ใช้ใหม่ต้องลงทะเบียนและได้รับอนุมัติก่อน (Google: เปิดเป็นค่าเริ่มต้น) */
+  function approvalOn(settings) { return String(settings && settings.accessApproval) === '1'; }
   function canCreateProject(settings, user) {
     if (!user || !user.email) return false;
     if (user.isAdmin) return true;
     var list = parseList(settings && settings.projectCreators);
-    return !list.length || listHas(list, user.email);
+    // ไม่ได้กำหนดรายชื่อ: เดิม = ทุกคนสร้างได้ · โหมดลงทะเบียน = เฉพาะผู้ดูแลระบบและผู้ควบคุมงานที่ได้รับอนุมัติ
+    if (!list.length) return !approvalOn(settings);
+    return listHas(list, user.email);
+  }
+
+  // ---------- 1.0.15 ลงทะเบียนขอสิทธิ์ ----------
+  // by: admin = ผู้ดูแลระบบอนุมัติ · owner = ผู้ควบคุมงานที่สร้างโครงการ (เจ้าของโครงการ) อนุมัติ
+  var ACCESS_ROLES = {
+    supervisor: { label: 'ผู้ควบคุมงาน', desc: 'สร้างและดูแลโครงการของตนเอง', by: 'admin' },
+    exec: { label: 'ผู้บริหาร', desc: 'ดูข้อมูลทุกโครงการ และรับรายงานสรุป', by: 'admin' },
+    contractor: { label: 'ผู้รับจ้าง', desc: 'ส่งเอกสารขออนุมัติ และบันทึก Daily Report & Request ของโครงการ', by: 'owner' },
+    committee: { label: 'คณะกรรมการตรวจรับ', desc: 'พิจารณาเรื่องที่ต้องผ่านคณะกรรมการของโครงการ', by: 'owner' },
+    head: { label: 'หัวหน้า/ผู้บริหารโครงการ', desc: 'ดูข้อมูลโครงการ รับอีเมลผลการพิจารณา', by: 'owner' },
+    viewer: { label: 'ผู้ติดตาม', desc: 'ดูข้อมูลโครงการอย่างเดียว', by: 'owner' },
+  };
+  var ACCESS_STATUS = { pending: 'รออนุมัติ', approved: 'อนุมัติแล้ว', rejected: 'ไม่อนุมัติ', cancelled: 'ยกเลิก' };
+  /** ข้อมูลคำขอจากผู้ลงทะเบียน (อีเมลมาจากการยืนยันรหัสเท่านั้น ไม่รับจากแบบฟอร์ม) */
+  function cleanAccessRequest(input, email) {
+    input = isPlainObj(input) ? input : {};
+    var role = ownKey(ACCESS_ROLES, input.role) ? input.role : '';
+    if (!role) throw fail('กรุณาเลือกตำแหน่งที่ขอสิทธิ์', 'invalid');
+    var o = {
+      email: norm(email), role: role,
+      name: cut(input.name, 120), org: cut(input.org, 200), phone: cut(String(input.phone || '').replace(/[^\d+\-\s()]/g, ''), 30),
+      projectCode: ACCESS_ROLES[role].by === 'owner' ? cut(input.projectCode, 60) : '', note: cut(input.note, 1000),
+      projectId: ACCESS_ROLES[role].by === 'owner' && /^[\w-]{1,64}$/.test(String(input.projectId || '')) ? String(input.projectId) : '',
+      scope: ACCESS_ROLES[role].by === 'owner' ? cut(input.scope, 200) : '',
+    };
+    if (!validEmail(o.email)) throw fail('อีเมลไม่ถูกต้อง', 'invalid');
+    if (!o.name) throw fail('กรุณาระบุชื่อ-นามสกุล', 'invalid');
+    if (ACCESS_ROLES[role].by === 'owner' && !o.projectCode && !o.projectId) throw fail('กรุณาเลือกโครงการที่ขอเข้าร่วม', 'invalid');
+    return o;
+  }
+  /** ผู้มีสิทธิ์อนุมัติคำขอนี้ไหม: ตำแหน่งระดับระบบ = ผู้ดูแลระบบ · ตำแหน่งในโครงการ = เจ้าของโครงการ (ผู้ควบคุมงานที่สร้างโครงการ) */
+  function canDecideAccess(user, req, project) {
+    if (!user || !req || !ownKey(ACCESS_ROLES, req.role)) return false;
+    if (ACCESS_ROLES[req.role].by === 'admin') return !!user.isAdmin;
+    return !!project && project.id === req.projectId && !!project.ownerEmail && norm(project.ownerEmail) === norm(user.email);
+  }
+  /** 1.0.15 โครงการที่ผู้ลงทะเบียนเลือกขอเข้าร่วมได้ (ยังไม่ปิด/ยกเลิก และมีผู้ควบคุมงานเจ้าของโครงการ) — แสดงหลังยืนยันอีเมลแล้วเท่านั้น */
+  function joinableProjects(projects) {
+    return (projects || []).filter(function (p) { return p && p.ownerEmail && ['done', 'cancelled'].indexOf(p.status) < 0; })
+      .map(function (p) { return { id: p.id, code: cut(p.code, 60), name: cut(p.name, 200) }; })
+      .sort(function (a, b) { return String(a.code || a.name).localeCompare(String(b.code || b.name)); }).slice(0, 300);
+  }
+  /** หาโครงการจากรหัสโครงการ (ไม่สนตัวพิมพ์เล็ก/ใหญ่และช่องว่าง) — รหัสซ้ำกันหลายโครงการ = ไม่ระบุได้ */
+  function projectByCode(projects, code) {
+    var c = String(code || '').replace(/\s+/g, '').toLowerCase();
+    if (!c) return null;
+    var hit = (projects || []).filter(function (p) { return p && p.status !== 'cancelled' && String(p.code || '').replace(/\s+/g, '').toLowerCase() === c; });
+    return hit.length === 1 ? hit[0] : null;
+  }
+  /** อีเมลถึงผู้อนุมัติ */
+  function accessRequestEmail(req, project, link) {
+    var R0 = ACCESS_ROLES[req.role] || {};
+    var rows = [['ชื่อ', esc(req.name)], ['อีเมล (ยืนยันแล้ว)', esc(req.email)], ['ตำแหน่งที่ขอ', '<b>' + esc(R0.label || req.role) + '</b>']];
+    if (project) rows.push(['โครงการ', esc((project.code ? project.code + ' ' : '') + project.name)]);
+    if (req.scope) rows.push(['ขอบเขตงาน', esc(req.scope)]);
+    if (req.org) rows.push(['หน่วยงาน/บริษัท', esc(req.org)]);
+    if (req.phone) rows.push(['โทรศัพท์', esc(req.phone)]);
+    if (req.note) rows.push(['หมายเหตุ', esc(req.note)]);
+    return {
+      subject: 'คำขอสิทธิ์: ' + (req.name || req.email) + ' — ' + (R0.label || req.role) + (project ? ' (' + (project.code || project.name) + ')' : ''),
+      html: layout('มีผู้ขอสิทธิ์ใช้ระบบ', esc(req.name || req.email) + ' ยืนยันอีเมลแล้ว และขอสิทธิ์เป็น<b>' + esc(R0.label || req.role) + '</b>', rows,
+        '<p>' + (project ? 'คุณเป็นผู้ควบคุมงานที่สร้างโครงการนี้ จึงเป็นผู้อนุมัติ' : 'ตำแหน่งนี้ต้องได้รับอนุมัติจากผู้ดูแลระบบ') + ' — กดปุ่มด้านล่างเพื่อดูรายละเอียดแล้วเลือก "อนุมัติ" หรือ "ไม่อนุมัติ" (หรืออนุมัติในเว็บที่หน้า' + (project ? 'สมาชิกของโครงการ' : 'ตั้งค่า › คำขอสิทธิ์') + ') ลิงก์ใช้ได้ 14 วัน</p>' +
+        '<p style="color:#737D90;font-size:13px">ถ้าไม่รู้จักผู้ขอ ให้เลือก "ไม่อนุมัติ" — ห้ามส่งต่ออีเมลนี้ให้ผู้อื่น</p>', link, 'พิจารณาคำขอ'),
+    };
+  }
+  /** อีเมลแจ้งผลถึงผู้ขอ */
+  function accessResultEmail(req, project, ok, reason, link) {
+    var R0 = ACCESS_ROLES[req.role] || {};
+    return {
+      subject: (ok ? 'อนุมัติสิทธิ์แล้ว: ' : 'ไม่อนุมัติคำขอสิทธิ์: ') + (R0.label || req.role) + (project ? ' — ' + project.name : ''),
+      html: layout(ok ? 'ได้รับอนุมัติสิทธิ์แล้ว' : 'คำขอสิทธิ์ไม่ได้รับอนุมัติ', '', [['ตำแหน่ง', esc(R0.label || req.role)]].concat(project ? [['โครงการ', esc(project.name)]] : []).concat(reason ? [['เหตุผล', esc(reason)]] : []),
+        ok ? '<p>เข้าสู่ระบบด้วยอีเมลนี้ (' + esc(req.email) + ') ระบบจะส่งรหัสยืนยัน 6 หลักให้ทางอีเมล</p>' : '<p>สอบถามผู้ควบคุมงานหรือผู้ดูแลระบบของหน่วยงาน</p>', ok ? link : '', 'เข้าสู่ระบบ'),
+    };
   }
 
   // ---------- ขั้นตอนอนุมัติ ----------
@@ -564,6 +641,8 @@
       seen[e] = true;
       var role = MEMBER_ROLES.indexOf(m.role) >= 0 ? m.role : 'viewer';
       var rec = { email: e, name: String(m.name || '').trim().slice(0, 120), role: role, notify: ownKey(NOTIFY, m.notify) ? m.notify : DEFAULT_NOTIFY[role] };
+      // 1.0.15 ขอบเขตงานที่รับผิดชอบ (จากการลงทะเบียน หรือเจ้าของโครงการกรอก)
+      if (m.scope) rec.scope = cut(m.scope, 200);
       if (role === 'committee') {
         var st = seatOf_(m.seat);
         if (st !== '' && seats[st]) throw fail('ลำดับกรรมการ "' + seatLabel(st) + '" ซ้ำกัน', 'invalid');
@@ -612,6 +691,7 @@
       o[k] = n;
     });
     if (o.slaWarnDays && o.slaLateDays && o.slaLateDays < o.slaWarnDays) throw fail('จำนวนวันของสีแดงต้องไม่น้อยกว่าสีเหลือง', 'invalid');
+    if (o.accessApproval != null) o.accessApproval = String(o.accessApproval) === '1' ? '1' : '0';
     return o;
   }
 
@@ -1261,10 +1341,31 @@
       return o;
     }).filter(function (r) { return r[keys[0]]; });
   }
-  /** รายงานประจำวันของผู้ควบคุมงาน (ระเบียบฯ ข้อ 178) */
+  /** 1.0.15 ชนิดรายงานประจำวัน: '' = ผู้ควบคุมงาน (FM-002) · 'contractor' = ผู้รับจ้าง (PT-F07 Daily Report and Daily Request) */
+  var DAILY_KINDS = { '': 'รายงานผู้ควบคุมงาน', contractor: 'Daily Report & Request ผู้รับจ้าง' };
+  function dailyKind(d) { return d && d.kind === 'contractor' ? 'contractor' : ''; }
+  /** ผู้ที่บันทึกรายงานชนิดนี้ได้: ผู้ควบคุมงาน = สิทธิ์บันทึกความคืบหน้า · ผู้รับจ้าง = ผู้รับจ้างในโครงการ (หรือผู้ควบคุมงานบันทึกแทน) */
+  function canWriteDaily(p, user, kind) {
+    if (!p || !user) return false;
+    var isCon = roleOf(p, user.email) === 'contractor' && !isOwner(p, user);
+    // ผู้รับจ้างบันทึกได้เฉพาะรายงานของผู้รับจ้าง (แม้เจ้าของโครงการให้สิทธิ์บันทึกความคืบหน้า)
+    if (isCon) return kind === 'contractor';
+    return can(p, user, 'recordProgress');
+  }
+  /** แถวงานที่ทำ: { w: รายละเอียด, q: ปริมาณ, u: หน่วย, boq: รหัสรายการ BOQ (ถ้าเลือก) } */
+  function cleanWorkRows(list) {
+    return (Array.isArray(list) ? list : []).slice(0, 60).map(function (r) {
+      r = isPlainObj(r) ? r : {};
+      var b = typeof r.boq === 'string' && safeKey(r.boq) && /^[\w-]{1,80}$/.test(r.boq) ? r.boq : '';
+      var q = r.q == null ? '' : String(r.q).trim();
+      return { w: cut(r.w, 300), q: cut(q, 40), u: cut(r.u, 40), boq: b };
+    }).filter(function (r) { return r.w || r.boq; });
+  }
+  /** รายงานประจำวันของผู้ควบคุมงาน (ระเบียบฯ ข้อ 178) และของผู้รับจ้าง (1.0.15) */
   function cleanDaily(input, p, actor, nowIso, existing) {
-    if (!can(p, actor, 'recordProgress')) throw fail('คุณไม่มีสิทธิ์บันทึกรายงานประจำวันของโครงการนี้', 'forbidden');
     input = input || {};
+    var kind = existing ? dailyKind(existing) : dailyKind(input);
+    if (!canWriteDaily(p, actor, kind)) throw fail(kind === 'contractor' ? 'คุณไม่มีสิทธิ์บันทึก Daily Report ของผู้รับจ้างในโครงการนี้' : 'คุณไม่มีสิทธิ์บันทึกรายงานประจำวันของโครงการนี้', 'forbidden');
     if (!validIsoDate(input.date)) throw fail('กรุณาระบุวันที่ให้ถูกต้อง', 'invalid');
     // บันทึกล่วงหน้าไม่ได้ (เผื่อเขตเวลา 1 วัน)
     var todayTh = new Date(Date.parse(nowIso || new Date().toISOString()) + 7 * 3600e3).toISOString().slice(0, 10);
@@ -1277,12 +1378,12 @@
     files.forEach(function (fid) { if (Object.prototype.hasOwnProperty.call(capIn, fid) && String(capIn[fid] || '').trim()) caps[fid] = cut(capIn[fid], 300); });
     var pm = w.pm25 === '' || w.pm25 == null || !isFinite(+w.pm25) ? '' : Math.max(0, Math.min(1000, Math.round(+w.pm25)));
     var d = {
-      id: existing ? existing.id : input.id, projectId: p.id, date: input.date,
+      id: existing ? existing.id : input.id, projectId: p.id, date: input.date, kind: kind,
       weather: { am: ownKey(WEATHER, w.am) ? w.am : '', pm: ownKey(WEATHER, w.pm) ? w.pm : '', night: ownKey(WEATHER, w.night) ? w.night : '', pm25: pm },
       workHours: cut(input.workHours, 40), manpower: rows_(input.manpower, ['trade', 'count'], 40), equipment: rows_(input.equipment, ['name', 'count'], 40),
-      work: cut(input.work, 4000), materials: cut(input.materials, 2000),
+      work: cut(input.work, 4000), rows: cleanWorkRows(input.rows), materials: cut(input.materials, 2000),
       stoppage: { stopped: !!st.stopped, hours: Math.max(0, Math.min(24, +st.hours || 0)), reason: cut(st.reason, 500) },
-      safety: cut(input.safety, 2000), instructions: cut(input.instructions, 2000), files: files, captions: caps,
+      safety: cut(input.safety, 2000), instructions: kind === 'contractor' ? '' : cut(input.instructions, 2000), files: files, captions: caps,
       // 1.0.14 งานที่ผู้รับจ้างขอทำวันถัดไป (Daily Request) — ใช้ในแบบ PT-F07
       request: (Array.isArray(input.request) ? input.request : []).slice(0, 30).map(function (r) {
         r = isPlainObj(r) ? r : {};
@@ -1291,10 +1392,30 @@
       createdBy: existing ? existing.createdBy : (actor.name || ''), createdByEmail: existing ? existing.createdByEmail : norm(actor.email),
       createdAt: existing ? existing.createdAt : nowIso, updatedAt: nowIso,
     };
-    if (!d.work && !d.manpower.length && !d.stoppage.stopped) throw fail('กรุณาบันทึกงานที่ทำ จำนวนคนงาน หรือการหยุดงาน', 'invalid');
+    if (!d.work && !d.rows.length && !d.manpower.length && !d.stoppage.stopped && !(kind === 'contractor' && d.request.length)) throw fail('กรุณาบันทึกงานที่ทำ จำนวนคนงาน หรือการหยุดงาน', 'invalid');
     return d;
   }
   function manpowerTotal(d) { return (d && d.manpower || []).reduce(function (a, r) { return a + (+r.count || 0); }, 0); }
+  /** 1.0.15 วันที่มีคนเข้างาน (มีผู้ปฏิบัติงานในรายงานประจำวันชนิดใดก็ได้) เรียงจากน้อยไปมาก — ไม่มีรายงานเลย = null */
+  function attendanceDates(list) {
+    list = Array.isArray(list) ? list : [];
+    if (!list.length) return null;
+    var seen = Object.create(null), out = [];
+    list.forEach(function (d) {
+      if (d && validIsoDate(d.date) && manpowerTotal(d) > 0 && !seen[d.date]) { seen[d.date] = true; out.push(d.date); }
+    });
+    return out.sort();
+  }
+  /** 1.0.15 หมวดไฟล์ของรายงานประจำวัน: รูปถ่าย และไฟล์ PDF ของรายงาน */
+  var DAILY_PHOTO_CATEGORY = 'รูปถ่ายความคืบหน้า';
+  var DAILY_DOC_CATEGORY = 'รายงานประจำวัน/สัปดาห์';
+  /** ผู้สร้างไฟล์ PDF ของรายงานประจำวันลบ/แทนไฟล์ของตนได้ (แม้ไม่มีสิทธิ์จัดการคลังเอกสาร) */
+  function ownsDailyDoc(p, user, f) {
+    return !!(p && user && f && f.updateId && !f.subId && f.category === DAILY_DOC_CATEGORY
+      && norm(f.uploadedByEmail) === norm(user.email) && canWriteDaily(p, user, 'contractor'));
+  }
+  /** รายงานของผู้ควบคุมงานเท่านั้น (รายงานทางอีเมล/สรุปประจำสัปดาห์) */
+  function supDaily(list) { return (Array.isArray(list) ? list : []).filter(function (d) { return dailyKind(d) === ''; }); }
   /** รายการในคลังแบบฟอร์ม/ระเบียบ (ผู้ดูแลระบบจัดการ) */
   function cleanLibrary(input, actor, nowIso, existing) {
     if (!actor || !actor.isAdmin) throw fail('เฉพาะผู้ดูแลระบบเท่านั้นที่จัดการคลังแบบฟอร์มได้', 'forbidden');
@@ -1461,8 +1582,13 @@
     }).map(function (m) { return m.email; }));
   }
 
-  /** รายงานประจำวันเป็นบันทึกภายในของผู้ควบคุมงาน — ผู้รับจ้างไม่เห็น */
-  function canSeeDaily(p, user) { return canView(p, user) && roleOf(p, user && user.email) !== 'contractor'; }
+  /** แท็บรายงานประจำวัน: ทุกคนในโครงการ (1.0.15 ผู้รับจ้างเห็นและบันทึก Daily Report & Request ของตน) */
+  function canSeeDaily(p, user) { return canView(p, user); }
+  /** รายงานของผู้ควบคุมงานเป็นบันทึกภายใน — ผู้รับจ้างเห็นเฉพาะรายงานของผู้รับจ้าง */
+  function canSeeDailyRec(p, user, d) {
+    if (!canView(p, user) || !d) return false;
+    return dailyKind(d) === 'contractor' || roleOf(p, user && user.email) !== 'contractor';
+  }
   /** เอกสาร "เฉพาะเจ้าหน้าที่" ไม่แสดงต่อผู้ที่เป็นผู้รับจ้างอย่างเดียว */
   function canSeeLibrary(item, user, projects) {
     if (!item || !user) return false;
@@ -1597,7 +1723,7 @@
     var sunday = dowOf(c.today) === 0;
     (c.projects || []).forEach(function (p) {
       if (!projectActive(p, c.today)) return;
-      var d = (c.daily || []).filter(function (x) { return x.projectId === p.id && x.date === c.today; })[0] || null;
+      var d = supDaily(c.daily).filter(function (x) { return x.projectId === p.id && x.date === c.today; })[0] || null;
       if (!d && sunday) return;
       var to = reportRecipients(p, 'daily', !!d).filter(function (e) { return !d || e !== norm(d.createdByEmail); });
       if (!to.length) return;
@@ -1616,7 +1742,7 @@
       var to = reportRecipients(p, 'weekly');
       if (!to.length) return;
       var by = function (t) { return (c[t] || []).filter(function (x) { return x.projectId === p.id; }); };
-      var m = weeklyReportEmail({ p: p, progress: (c.progress || {})[p.id], daily: by('daily'), subs: by('subs'), reqs: by('reqs'), meetings: by('meetings'), updates: by('updates'), settings: c.settings, from: from, to: c.today, nowIso: c.nowIso, appUrl: c.appUrl });
+      var m = weeklyReportEmail({ p: p, progress: (c.progress || {})[p.id], daily: supDaily(by('daily')), subs: by('subs'), reqs: by('reqs'), meetings: by('meetings'), updates: by('updates'), settings: c.settings, from: from, to: c.today, nowIso: c.nowIso, appUrl: c.appUrl });
       out.push(MSG(to, 'report', 'report-weekly', p.id, m));
     });
     return out;
@@ -1666,6 +1792,8 @@
   }
 
   root.PTRules = {
+    approvalOn: approvalOn, ACCESS_ROLES: ACCESS_ROLES, ACCESS_STATUS: ACCESS_STATUS, cleanAccessRequest: cleanAccessRequest, canDecideAccess: canDecideAccess,
+    projectByCode: projectByCode, joinableProjects: joinableProjects, accessRequestEmail: accessRequestEmail, accessResultEmail: accessResultEmail, pageLink: pageLink,
     ROLES: ROLES, MEMBER_ROLES: MEMBER_ROLES, OWNER_ACTS: OWNER_ACTS, PERMS: PERMS, PERM_KEYS: PERM_KEYS,
     MAX_SEAT: MAX_SEAT, MAX_TITLE: MAX_TITLE, MAX_DETAIL: MAX_DETAIL, MAX_COMMENT: MAX_COMMENT, STEP_MODES: STEP_MODES, VOTE_STATUS: VOTE_STATUS, seatLabel: seatLabel, seatOf: seatOf, committeeSeats: committeeSeats, stepMode: stepMode,
     voters: voters, voteChair: voteChair, tally: tally, ballotOf: ballotOf, optionLabel: optionLabel,
@@ -1689,9 +1817,9 @@
     canReadChannel: canReadChannel, canPostChannel: canPostChannel, canSeeMeeting: canSeeMeeting, canCreateMeeting: canCreateMeeting,
     canEditMeeting: canEditMeeting, canToggleAction: canToggleAction, newMessage: newMessage, canDeleteMessage: canDeleteMessage,
     cleanMeeting: cleanMeeting, toggleAction: toggleAction, meetingWhen: meetingWhen, meetingEmail: meetingEmail, validLocalDT: validLocalDT,
-    WEATHER: WEATHER, SUB_ATTACH: SUB_ATTACH, WORK_TYPES: WORK_TYPES, cleanSubForm: cleanSubForm, LIB_KINDS: LIB_KINDS, LIB_USE: LIB_USE, cleanDaily: cleanDaily, manpowerTotal: manpowerTotal, cleanLibrary: cleanLibrary, libraryFor: libraryFor,
+    WEATHER: WEATHER, SUB_ATTACH: SUB_ATTACH, WORK_TYPES: WORK_TYPES, cleanSubForm: cleanSubForm, LIB_KINDS: LIB_KINDS, LIB_USE: LIB_USE, cleanDaily: cleanDaily, manpowerTotal: manpowerTotal, DAILY_KINDS: DAILY_KINDS, dailyKind: dailyKind, canWriteDaily: canWriteDaily, cleanWorkRows: cleanWorkRows, attendanceDates: attendanceDates, supDaily: supDaily, DAILY_PHOTO_CATEGORY: DAILY_PHOTO_CATEGORY, DAILY_DOC_CATEGORY: DAILY_DOC_CATEGORY, ownsDailyDoc: ownsDailyDoc, cleanLibrary: cleanLibrary, libraryFor: libraryFor,
     statusOf: statusOf, dailyReportEmail: dailyReportEmail, weeklyReportEmail: weeklyReportEmail, monthlyReportEmail: monthlyReportEmail, reportRecipients: reportRecipients,
-    canSeeDaily: canSeeDaily, canSeeLibrary: canSeeLibrary, projectActive: projectActive, WEEKDAYS: WEEKDAYS, jobSettings: jobSettings, dueJobs: dueJobs,
+    canSeeDaily: canSeeDaily, canSeeDailyRec: canSeeDailyRec, canSeeLibrary: canSeeLibrary, projectActive: projectActive, WEEKDAYS: WEEKDAYS, jobSettings: jobSettings, dueJobs: dueJobs,
     prevMonth: prevMonth, monthEnd: monthEnd, reminderPlan: reminderPlan, dailyPlan: dailyPlan, weeklyPlan: weeklyPlan, monthRow: monthRow, monthlyPlan: monthlyPlan,
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
