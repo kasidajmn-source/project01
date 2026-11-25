@@ -9,7 +9,7 @@ import { libraryBox, bindLibraryBox } from './library.js';
 import { openReportDialog } from './reports.js';
 import { preview } from './tab-docs.js';
 import { suggestions, learned, splitLine, joinLine, tradeLabel } from '../vocab.js';
-import { saveDailyPdf, saveFormWindowPdf, savedSignature, rememberSignature } from '../daily-pdf.js';
+import { saveDailyPdf, savedSignature, rememberSignature, openDailyForm, dailyFormCtx, mountFormPreview, dailyDocStale } from '../daily-pdf.js';
 import '../annotate.js';
 
 /** ชื่อผู้บันทึกโดยตัดวงเล็บท้ายชื่อ เช่น "นายช่างวิไล (ผู้ควบคุมงาน)" → "นายช่างวิไล" (ไม่ใช้ regex เพื่อไม่ให้ช้ากับข้อความยาวผิดปกติ) */
@@ -101,12 +101,12 @@ function renderList(el, ctx, kind) {
   const seeC = kind === '' && !store.isContractorOf(p);
   const outdated = kind === 'contractor' && store.mode === 'gas' && store.serverOutdated('1.0.15');
   const forms = kind === '' ? [
-    ['daily', 'บันทึกการควบคุมงานประจำวัน (เปล่า)', { p, date: t }],
-    ['cdaily', 'Daily Report & Request ของผู้รับจ้าง', () => ({ p, date: t, daily: store.dailyAt(p.id, t, 'contractor') || store.dailyAt(p.id, t) })],
+    ['daily', 'บันทึกการควบคุมงานประจำวัน (เปล่า)', dailyFormCtx(p, 'daily', { day: t, mode: 'header' })],
+    ['cdaily', 'Daily Report & Request ของผู้รับจ้าง', () => dailyFormCtx(p, 'cdaily', { day: t, rec: store.dailyAt(p.id, t, 'contractor') || store.dailyAt(p.id, t) })],
     ['material', 'ผลการตรวจวัสดุก่อสร้าง (เปล่า)', { p, date: t }],
     ['weekly', 'รายงานประจำสัปดาห์', () => ({ p, to: t })],
     ['instruction', 'ใบสั่งการ', { p }],
-    ['inspect', 'บันทึกการตรวจรับงาน', { p }],
+    ['pay', 'ใบส่งงวดงาน (F-04-03-09)', { p }],
   ] : [];
   const todayRec = store.dailyAt(p.id, t, kind);
   const reqText = (d) => (d.request || []).map((r) => r.work).filter(Boolean).join(' · ');
@@ -164,20 +164,21 @@ function renderList(el, ctx, kind) {
     </aside>
   </div>`;
   if (kind === '') bindLibraryBox(el, forms);
-  el.querySelector('[data-blank]')?.addEventListener('click', () => openForm('cdaily', { p, date: t }));
+  el.querySelector('[data-blank]')?.addEventListener('click', () => openDailyForm(p, 'cdaily', { day: t, mode: 'header' }));
   el.querySelectorAll('[data-print]').forEach((b) => b.addEventListener('click', () => {
     const d = list.find((x) => x.id === b.dataset.print);
-    openForm(K.form, formCtx(p, d));
+    openDailyForm(p, K.form, { rec: d });
   }));
   el.querySelectorAll('[data-mail]').forEach((b) => b.addEventListener('click', () => openReportDialog(b.dataset.mail, { projectId: p.id, date: t })));
 }
 
-/** ข้อมูลให้แบบฟอร์ม + ปุ่ม "บันทึกเข้าเอกสาร" (ถ้าบันทึกรายงานนี้ได้) */
-function formCtx(p, d) {
-  const ctx = { p, daily: d };
-  if (d && store.canWriteDaily(p, R.dailyKind(d))) ctx.saveDoc = (w, onProgress) => saveFormWindowPdf(w, p, d, { onProgress });
-  return ctx;
+/** 1.0.16 มุมมองรายงาน: แบบฟอร์ม (เหมือนหน้าต่างแบบฟอร์มและไฟล์ PDF) หรือข้อมูลรายงาน — จำในเครื่อง */
+const VMODE_KEY = 'pt.dy.view';
+function viewMode() {
+  try { const v = localStorage.getItem(VMODE_KEY); if (v === 'form' || v === 'data') return v; } catch { /* ใช้ค่าเริ่มต้น */ }
+  return window.matchMedia?.('(min-width: 900px)').matches ? 'form' : 'data';
 }
+let stopPreview = null;
 
 // ---------- ดูรายงาน ----------
 function renderView(el, ctx, d, kind) {
@@ -187,6 +188,8 @@ function renderView(el, ctx, d, kind) {
   const canW = store.canWriteDaily(p, kind);
   const files = (d.files || []).map((id) => store.data.files.find((f) => f.id === id)).filter(Boolean);
   const docs = store.dailyDocs(d);
+  const stale = dailyDocStale(d, docs);
+  const vm = viewMode();
   const row = (k, v) => (v ? `<div><dt>${esc(k)}</dt><dd>${v}</dd></div>` : '');
   const same = store.dailyOf(p.id, kind);
   const prevD = same.find((x) => x.date < d.date);
@@ -227,11 +230,18 @@ function renderView(el, ctx, d, kind) {
       <span class="muted small">บันทึกโดย ${esc(d.createdBy || d.createdByEmail)} · ${esc(fmt.dateTime(d.updatedAt || d.createdAt))}</span></header>
     ${other ? `<p class="notice dy-other">${icon(KIND[R.dailyKind(other)].ic)}<span>${kind === '' ? 'ผู้รับจ้างส่ง Daily Report & Request ของวันนี้แล้ว' : 'มีรายงานของผู้ควบคุมงานวันนี้แล้ว'} — <a class="link" href="${baseOf(p, R.dailyKind(other))}/${other.date}">เปิดดู</a></span></p>`
       : (kind === 'contractor' && store.canWriteDaily(p, '') && !store.isContractorOf(p) ? `<p class="notice dy-other">${icon('clipboard')}<span>ยังไม่มีรายงานของผู้ควบคุมงานวันนี้ — <a class="link" href="${baseOf(p, '')}/${d.date}/edit?from=c">บันทึกโดยดึงข้อมูลจากรายงานนี้</a></span></p>` : '')}
+    <div class="seg seg-sm dy-vmode" role="group" aria-label="มุมมองรายงาน">
+      <button type="button" data-vmode="form" aria-pressed="${vm === 'form'}">${icon('file')}แบบฟอร์ม ${esc(K.code)}</button>
+      <button type="button" data-vmode="data" aria-pressed="${vm === 'data'}">${icon('list')}ข้อมูลรายงาน</button>
+    </div>
+    <div class="dy-pv" id="dy-pv"${vm === 'form' ? '' : ' hidden'}><button type="button" class="btn btn-sm dy-pv-open" data-act="pv-open">${icon('edit')}เปิดแบบฟอร์มเต็มหน้า</button></div>
+    <div class="dy-data" id="dy-data"${vm === 'data' ? '' : ' hidden'}>
     <dl class="facts dy-facts">
       ${row('สภาพอากาศ', esc(weatherText(d)))}
       ${row('เวลาทำงาน', esc(d.workHours))}
       ${row('ผู้ปฏิบัติงาน', `<b>${R.manpowerTotal(d)} คน</b>${d.manpower.length ? ` <small class="muted">(${esc(d.manpower.map((r) => `${tradeLabel(r.trade)} ${r.count}`).join(', '))})</small>` : ''}`)}
       ${row('เครื่องจักร', esc(d.equipment.map((r) => `${r.name} ${r.count}`).join(', ')))}
+      ${linked && linked.manualPct !== '' && linked.manualPct != null ? row('ความคืบหน้ารวม', `<b>${fmt.num(+linked.manualPct)}%</b> <small class="muted">บันทึกพร้อมรายงานนี้</small>`) : ''}
       ${d.stoppage?.stopped ? row('หยุดงาน', `<b class="is-bad">${esc(`${d.stoppage.hours ? `${d.stoppage.hours} ชั่วโมง ` : ''}${d.stoppage.reason || ''}`)}</b>`) : ''}
     </dl>
     ${rows ? `<h3 class="dy-h">งานที่ดำเนินการ${kind === '' && linked ? ' <small class="muted">ปริมาณตามรายการ BOQ บันทึกเป็นความคืบหน้าของวันนี้แล้ว</small>' : ''}</h3>${table(['รายการ BOQ', 'รายละเอียดของงาน', 'ปริมาณ'], rows.map((r) => {
@@ -245,21 +255,39 @@ function renderView(el, ctx, d, kind) {
     ${[['ความปลอดภัย/อุบัติเหตุ', d.safety], ['ข้อสั่งการ/ข้อแนะนำต่อผู้รับจ้าง', d.instructions]]
     .filter(([, v]) => v).map(([k, v]) => `<h3 class="dy-h">${esc(k)}</h3><div class="dy-text">${esc(v)}</div>`).join('')}
     ${files.length ? `<h3 class="dy-h">ภาพประกอบ (${files.length})</h3><div class="dy-figs">${files.map((f, i) => `<figure><button class="fthumb" data-f="${esc(f.id)}" title="${esc(f.name)}"><img alt="" data-thumb="${esc(f.id)}"></button><figcaption><b>รูปที่ ${i + 1}</b> ${esc(d.captions?.[f.id] || '')}</figcaption></figure>`).join('')}</div>` : ''}
+    </div>
     <h3 class="dy-h">ไฟล์รายงาน (PDF) <small class="muted">เก็บในแท็บเอกสาร หมวด ${esc(R.DAILY_DOC_CATEGORY)}</small></h3>
     <div class="dy-docs" id="dy-docs">${docs.length ? docs.map((f) => `<button type="button" class="btn btn-sm" data-doc="${esc(f.id)}" title="${esc(f.note || '')}">${icon('file')}${esc(f.name)}<small class="muted">${esc(fmt.dateTime(f.uploadedAt))}</small></button>`).join('')
       : `<span class="muted small">ยังไม่มีไฟล์${canW ? ' — กดเมนู "สร้างไฟล์ PDF เก็บในแท็บเอกสาร" หรือ "เปิดแบบฟอร์มเพื่อลงชื่อ"' : ''}</span>`}</div>
+    ${stale ? `<p class="notice notice-warn dy-stale">${icon('alert')}<span>ไฟล์ PDF สร้างก่อนแก้ไขรายงานครั้งล่าสุด — ข้อมูลในไฟล์อาจไม่ตรงกับรายงาน${canW ? ' <button type="button" class="btn btn-sm" data-act="pdf2">สร้างไฟล์ใหม่</button>' : ''}</span></p>` : ''}
   </section>`;
-  const fctx = formCtx(p, d);
-  el.querySelector('[data-act="print"]').addEventListener('click', () => openForm(K.form, fctx));
+  // มุมมองแบบฟอร์ม/ข้อมูล
+  stopPreview?.(); stopPreview = null;
+  const pv = el.querySelector('#dy-pv');
+  const showMode = (m) => {
+    el.querySelectorAll('[data-vmode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.vmode === m)));
+    pv.hidden = m !== 'form';
+    el.querySelector('#dy-data').hidden = m !== 'data';
+    if (m === 'form' && !stopPreview) stopPreview = mountFormPreview(pv, p, d);
+  };
+  el.querySelectorAll('[data-vmode]').forEach((b) => b.addEventListener('click', () => {
+    try { localStorage.setItem(VMODE_KEY, b.dataset.vmode); } catch { /* ไม่จำ */ }
+    showMode(b.dataset.vmode);
+  }));
+  showMode(vm);
+  el.querySelector('[data-act="pv-open"]').addEventListener('click', () => openDailyForm(p, K.form, { rec: d }));
+  el.querySelector('[data-act="print"]').addEventListener('click', () => openDailyForm(p, K.form, { rec: d }));
   el.querySelector('[data-act="instr"]')?.addEventListener('click', () => openForm('instruction', { p, daily: d }));
   el.querySelector('[data-act="cdaily"]')?.addEventListener('click', () => {
+    // มี Daily Report ของผู้รับจ้าง = ฉบับของโครงการ · ยังไม่มี = สำเนาจากรายงานนี้ (ใช้ภายนอก)
     const c = store.dailyAt(p.id, d.date, 'contractor');
-    openForm('cdaily', c ? formCtx(p, c) : { p, daily: d });
+    openDailyForm(p, 'cdaily', c ? { rec: c } : { rec: d, mode: 'copy' });
   });
   el.querySelector('[data-act="mat"]')?.addEventListener('click', () => openForm('material', { p, date: d.date }));
   el.querySelector('[data-act="mail"]')?.addEventListener('click', () => openReportDialog('daily', { projectId: p.id, date: d.date }));
-  el.querySelector('[data-act="sign"]')?.addEventListener('click', () => openForm(K.form, fctx));
+  el.querySelector('[data-act="sign"]')?.addEventListener('click', () => openDailyForm(p, K.form, { rec: d }));
   el.querySelector('[data-act="pdf"]')?.addEventListener('click', () => makePdf(p, d, { sign: savedSignature() }));
+  el.querySelector('[data-act="pdf2"]')?.addEventListener('click', () => makePdf(p, d, { sign: savedSignature() }));
   el.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => preview(files.find((f) => f.id === b.dataset.f))));
   el.querySelectorAll('[data-doc]').forEach((b) => b.addEventListener('click', () => preview(docs.find((f) => f.id === b.dataset.doc))));
   loadThumbs(el, files);
@@ -325,7 +353,24 @@ const readRowsOf = (box) => [...box.querySelectorAll('.dy-row')].map((r) => {
 });
 
 /** แถวงานที่ดำเนินการ (1.0.15): หมวด BOQ → รายการ BOQ → รายละเอียด (พิมพ์เองได้ ไม่ต้องตรงกับชื่อรายการ) → ปริมาณ → หน่วย */
-function workRows(boq, remain) {
+/** 1.0.16 % สะสมของรายการ BOQ ⇄ ปริมาณของวันนี้ — before = ปริมาณสะสมก่อนรายงานนี้ */
+const numOf = (v) => { const x = parseFloat(String(v ?? '').replace(/,/g, '')); return Number.isFinite(x) ? x : null; };
+const trimNum = (x) => String(Math.round(x * 10000) / 10000);
+export function pctFromQty(it, before, q) {
+  const qty = +it?.qty || 0;
+  const n = numOf(q);
+  if (!(qty > 0) || n == null) return '';
+  return String(Math.round(((before + n) / qty) * 10000) / 100);
+}
+export function qtyFromPct(it, before, pct) {
+  const qty = +it?.qty || 0;
+  const n = numOf(pct);
+  if (!(qty > 0) || n == null) return { q: '', low: false };
+  const q = (Math.min(Math.max(n, 0), 1000) / 100) * qty - before;
+  return { q: q > 0 ? trimNum(q) : '0', low: q < -1e-9 };
+}
+
+function workRows(boq, { remain = null, before = null } = {}) {
   const NONE = 'ไม่ระบุหมวด';
   const groups = [...new Set(boq.map((b) => b.group || NONE))];
   const itemOf = (id) => (id ? boq.find((b) => b.id === id) : null);
@@ -335,15 +380,19 @@ function workRows(boq, remain) {
     const g = groupOf(r);
     const list = boq.filter((b) => !g || (b.group || NONE) === g);
     const left = it && remain ? remain(it) : null;
+    const prior = it && before ? before(it) : 0;
+    const pctOk = !!(it && before && +it.qty > 0);
+    const pctTip = pctOk ? `ก่อนรายงานนี้ทำได้แล้ว ${fmt.num(prior)} ${it.unit || ''} (${fmt.num((prior / +it.qty) * 100)}%) — พิมพ์ % สะสมหลังวันนี้ ระบบคำนวณปริมาณของวันนี้ให้` : 'เลือกรายการ BOQ ก่อน จึงกรอกเป็น % ได้';
     return `<div class="dy-row dy-wrow${boq.length ? '' : ' no-boq'}" data-row="${i}">
       ${boq.length ? `<select data-k="g" aria-label="หมวดงานใน BOQ"><option value="">— หมวด BOQ —</option>${groups.map((x) => `<option value="${esc(x)}"${x === g ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>
       <select data-k="boq" aria-label="รายการ BOQ"><option value="">${g ? '— เลือกรายการ —' : '— ไม่อยู่ใน BOQ —'}</option>${list.map((b) => `<option value="${esc(b.id)}"${b.id === r.boq ? ' selected' : ''}>${esc(`${boqLabel(b)}${b.unit ? ` (${b.unit})` : ''}`)}</option>`).join('')}</select>` : ''}
       <input data-k="w" value="${esc(r.w ?? '')}" list="dl-work" maxlength="300" placeholder="${esc(it ? `รายละเอียด (เว้นว่าง = ${it.desc})` : 'รายละเอียดของงาน เช่น เทคอนกรีตฐานราก F1–F4')}" aria-label="รายละเอียดของงาน">
       <input data-k="q" value="${esc(r.q ?? '')}" inputmode="decimal" maxlength="40" placeholder="${esc(left != null ? `เหลือ ${fmt.num(left)}` : 'ปริมาณ')}" aria-label="ปริมาณ"${left != null ? ` title="ปริมาณตาม BOQ ที่ยังเหลือ ${esc(fmt.num(left))} ${esc(it.unit || '')}"` : ''}>
       <input data-k="u" value="${esc(it ? (it.unit || r.u || '') : (r.u ?? ''))}" list="dl-unit" maxlength="40" placeholder="หน่วย" aria-label="หน่วย"${it ? ' readonly title="หน่วยตามรายการ BOQ"' : ''}>
+      ${boq.length && before ? `<label class="dy-pct" title="${esc(pctTip)}"><input data-k="pct" value="${esc(pctOk ? pctFromQty(it, prior, r.q) : '')}" inputmode="decimal" maxlength="8" placeholder="สะสม" aria-label="ความคืบหน้าสะสมของรายการ (%) หลังวันนี้"${pctOk ? '' : ' disabled'}><span aria-hidden="true">%</span></label>` : ''}
       <button type="button" class="icon-btn" data-rmrow aria-label="ลบแถว">${icon('x')}</button></div>`;
   };
-  return { html, itemOf, groupOf };
+  return { html, itemOf, groupOf, before };
 }
 
 function renderEditor(el, ctx, date, existing, kind, prefill = null) {
@@ -373,7 +422,21 @@ function renderEditor(el, ctx, date, existing, kind, prefill = null) {
   const cum = store.analysis(p.id)?.cum || {};
   const mine = linked?.entries || {};
   const remain = (it) => Math.max(0, (+it.qty || 0) - ((cum[it.id] || 0) - (+mine[it.id] || 0)));
-  const WR = workRows(boq, kind === '' ? remain : null);
+  // 1.0.16 ปริมาณสะสมของรายการ ณ วันที่ของรายงาน (ไม่นับปริมาณของรายงานนี้) — ใช้แปลง % สะสม ⇄ ปริมาณของวันนี้
+  const linkId = existing ? store.dailyUpdateId(existing.id) : '';
+  const upsAll = store.updatesOf(p.id).filter((u) => u.id !== linkId);
+  let curDate = date; // วันที่ในฟอร์ม (เปลี่ยนได้ระหว่างกรอก)
+  const before = (it) => upsAll.filter((u) => u.date <= curDate).reduce((a, u) => a + (+(u.entries || {})[it.id] || 0), 0);
+  const WR = workRows(boq, { remain: kind === '' ? remain : null, before });
+  // 1.0.16 โครงการที่คิดความคืบหน้าแบบกรอก % เอง (หรือยังไม่มี BOQ): ใส่ % รวมในรายงานประจำวันได้เลย
+  const canProg = kind === '' && store.can(p, 'recordProgress') && !store.isContractorOf(p);
+  const manualMode = canProg && p.progressMethod !== 'time' && (p.progressMethod === 'manual' || !boq.length);
+  const prevManual = (() => {
+    const ups = upsAll.filter((u) => u.date <= date && u.manualPct !== '' && u.manualPct != null && Number.isFinite(+u.manualPct))
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+    return ups.length ? +ups[ups.length - 1].manualPct : null;
+  })();
+  const myManual = linked && linked.manualPct !== '' && linked.manualPct != null ? linked.manualPct : '';
   const blank = (o) => [o];
   // งานที่ทำ: แถวที่บันทึกแบบ 1.0.15 หรือแปลงจากข้อความเดิม + ปริมาณ BOQ ที่บันทึกพร้อมรายงาน (1.0.14)
   let work;
@@ -425,10 +488,12 @@ function renderEditor(el, ctx, date, existing, kind, prefill = null) {
       <div class="field"><span>ผู้ปฏิบัติงาน/คนงาน <b id="dy-men" class="num"></b></span>${rowsBox('dy-mp', COLS['dy-mp'], st.manpower)}</div>
       <div class="field"><span>เครื่องจักร/เครื่องมือ</span>${rowsBox('dy-eq', COLS['dy-eq'], st.equipment)}</div>
       <div class="field span-2"><span>${kind === 'contractor' ? 'งานที่ทำได้วันนี้' : 'งานที่ดำเนินการ'} <small class="muted">${boq.length
-        ? `เลือกหมวดและรายการ BOQ แล้วใส่ปริมาณ — คำบรรยายพิมพ์เองได้ ไม่ต้องตรงกับชื่อรายการ${kind === '' ? ' · ปริมาณตามรายการ BOQ บันทึกเป็นความคืบหน้าของวันนี้ให้ (ใช้คิดเปอร์เซ็นต์ผลงาน รายงานประจำสัปดาห์ และ S-Curve)' : ''} · งานที่ไม่อยู่ใน BOQ ไม่ต้องเลือกรายการ`
+        ? `เลือกหมวดและรายการ BOQ แล้วใส่ปริมาณของวันนี้ <b>หรือ % สะสม</b> ของรายการ (ระบบคำนวณปริมาณให้) — คำบรรยายพิมพ์เองได้ ไม่ต้องตรงกับชื่อรายการ${kind === '' ? (canProg ? ' · <b>ระบบอัปเดตความคืบหน้าของโครงการให้อัตโนมัติ</b> (เปอร์เซ็นต์ผลงาน รายงานประจำสัปดาห์ S-Curve) — แบบฟอร์มพิมพ์เหมือนเดิม' : '') : ' · ผู้ควบคุมงานเป็นผู้ยืนยันเป็นความคืบหน้าของโครงการ'} · งานที่ไม่อยู่ใน BOQ ไม่ต้องเลือกรายการ`
         : 'ทีละรายการ ใส่ปริมาณและหน่วยถ้ามี — ตาราง "รายละเอียดของงาน / ปริมาณงาน" ในแบบฟอร์ม'}</small></span>
         <div class="dy-rows dy-wrows" id="dy-work">${st.work.map((r, i) => WR.html(r, i)).join('')}</div>
         <button type="button" class="btn btn-sm btn-ghost" data-addrow="dy-work">${icon('plus')}เพิ่มรายการ</button></div>
+      ${manualMode ? `<label class="field dy-mpct"><span>ความคืบหน้ารวมของโครงการ ณ วันนี้ (%) <small class="muted">อัปเดตความคืบหน้าของโครงการให้อัตโนมัติ — ไม่แสดงในแบบฟอร์ม${prevManual != null ? ` · ครั้งก่อน ${fmt.num(prevManual)}%` : ''}</small></span>
+        <input type="number" name="manualPct" min="0" max="100" step="0.01" inputmode="decimal" value="${esc(myManual)}" placeholder="${prevManual != null ? `เช่น ${fmt.num(prevManual)}` : 'เช่น 35'}"></label>` : ''}
       ${showReq ? `<div class="field span-2"><span>งานที่ขอทำวันถัดไป <small class="muted">Daily Request ในแบบ PT-F07${kind === 'contractor' ? ' — ผู้ควบคุมงานเห็นและพิจารณาได้' : ''}</small></span>${rowsBox('dy-req', COLS['dy-req'], st.req, 'เพิ่มงาน')}</div>`
         : `<p class="field span-2 hint dy-reqhint">${icon('users')}งานที่ขอทำวันถัดไป (Daily Request) ผู้รับจ้างกรอกเองในแท็บ "${esc(KIND.contractor.title)}"</p>`}
       <div class="field"><span>วัสดุที่นำเข้าหน่วยงาน</span>${rowsBox('dy-mat', COLS['dy-mat'], st.mats, 'เพิ่มวัสดุ')}</div>
@@ -488,6 +553,30 @@ function renderEditor(el, ctx, date, existing, kind, prefill = null) {
     box('dy-work').querySelector(`.dy-row[data-row="${i}"] [data-k="${sel.dataset.k === 'g' ? 'boq' : 'w'}"]`)?.focus();
     guard.dirty = true;
   });
+  // 1.0.16 % สะสม ⇄ ปริมาณของวันนี้
+  box('dy-work').addEventListener('input', (e) => {
+    const t = e.target;
+    const row = t.closest('.dy-row');
+    const pctEl = row?.querySelector('[data-k="pct"]');
+    if (!pctEl || pctEl.disabled) return;
+    const it = WR.itemOf(row.querySelector('[data-k="boq"]')?.value);
+    if (!it) return;
+    const prior = WR.before(it);
+    if (t.dataset.k === 'pct') {
+      // เกิน 100% ได้เฉพาะโครงการที่ยอมให้ปริมาณเกิน BOQ
+      const over = !p.allowOver && numOf(t.value) > 100;
+      const { q, low } = qtyFromPct(it, prior, over ? '100' : t.value);
+      row.querySelector('[data-k="q"]').value = t.value.trim() === '' ? '' : q;
+      t.classList.toggle('is-bad', low || over);
+      t.closest('.dy-pct').title = low ? `ต่ำกว่าผลงานสะสมก่อนหน้า (${fmt.num((prior / +it.qty) * 100)}%) — ปริมาณของวันนี้เป็น 0`
+        : over ? 'เกิน 100% — ใช้ปริมาณที่เหลือทั้งหมดของรายการ (ตั้ง "ยอมให้ปริมาณเกิน BOQ" ได้ที่ตั้งค่าโครงการ)' : `ก่อนรายงานนี้ทำได้แล้ว ${fmt.num(prior)} ${it.unit || ''} (${fmt.num((prior / +it.qty) * 100)}%)`;
+    } else if (t.dataset.k === 'q') {
+      pctEl.value = pctFromQty(it, prior, t.value);
+      pctEl.classList.remove('is-bad');
+    }
+  });
+  // เปลี่ยนวันที่ของรายงาน → ผลงานสะสมก่อนหน้าเปลี่ยน คำนวณ % ใหม่
+  form.elements.date.addEventListener('change', () => { curDate = form.elements.date.value || date; read('dy-work'); draw('dy-work'); });
   form.addEventListener('click', (e) => {
     const rm = e.target.closest('[data-rmrow]');
     if (rm) {
@@ -518,7 +607,7 @@ function renderEditor(el, ctx, date, existing, kind, prefill = null) {
     if (!inp) return;
     e.preventDefault();
     const rowEl = inp.closest('.dy-row');
-    const nextIn = [...rowEl.querySelectorAll('input[data-k]:not([readonly])')].find((x) => inp.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const nextIn = [...rowEl.querySelectorAll('input[data-k]:not([readonly]):not([data-k="pct"])')].find((x) => inp.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING);
     if (nextIn) { nextIn.focus(); return; }
     const b = rowEl.closest('.dy-rows');
     if (rowEl.nextElementSibling) { rowEl.nextElementSibling.querySelector('input[data-k]')?.focus(); return; }
@@ -658,6 +747,11 @@ function renderEditor(el, ctx, date, existing, kind, prefill = null) {
     };
     delete input.boq;
     if (!input.date) { toast('กรุณาระบุวันที่', 'bad'); return; }
+    if (f.manualPct) {
+      const mp = f.manualPct.value.trim();
+      if (mp !== '' && !(Number.isFinite(+mp) && +mp >= 0 && +mp <= 100)) { toast('ความคืบหน้ารวมต้องเป็นตัวเลข 0–100', 'bad'); f.manualPct.focus(); return; }
+      input.manualPct = mp === '' ? '' : +mp;
+    }
     const wantPdf = !!el.querySelector('#dy-pdf')?.checked;
     const signIt = wantPdf && !!el.querySelector('#dy-sign')?.checked ? sig : '';
     const btn = el.querySelector('[data-act="save"]');

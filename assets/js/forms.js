@@ -6,7 +6,7 @@
 //   · ช่องติ๊ก [data-ck] · รูป [data-photo] · จำที่กรอกไว้ในเครื่อง · บันทึก PDF
 //   PT-F01 เปลี่ยนเป็นหนังสือขออนุมัติ + บันทึกการขออนุมัติ/ผลการตรวจสอบ · เพิ่ม PT-F07 Daily Report and Daily Request
 import { store } from './store.js';
-import { analyze, planSeries, actualSeries, cumulative, sortUpdates, weightFn, weekNo, diffDays, itemRatioFn, isAutoItem } from './calc.js';
+import { analyze, planSeries, actualSeries, cumulative, sortUpdates, weightFn, weekNo, diffDays, itemRatioFn, isAutoItem, planAt, hasPlan, num, dayToIso } from './calc.js';
 import { download } from './ui.js';
 import { APP_VERSION } from './defaults.js';
 import { splitLine, tradeLabel, allSuggestions } from './vocab.js';
@@ -97,7 +97,11 @@ export const FORMS = {
   cdaily: { code: 'PT-F07', title: 'Daily Report and Daily Request (ผู้รับจ้าง)', use: 'ผู้รับจ้างรายงานงานที่ทำได้และขอทำงานวันถัดไป พร้อมความคืบหน้าตาม BOQ คนงาน เครื่องจักร และภาพประกอบการทำงาน', where: 'รายงานประจำวัน' },
   weekly: { code: 'PT-F03', title: 'รายงานผลการปฏิบัติงานประจำสัปดาห์', use: 'ผู้ควบคุมงานรายงานคณะกรรมการตรวจรับพัสดุทุกสัปดาห์ สรุปจากรายงานประจำวัน', where: 'รายงานประจำวัน' },
   meeting: { code: 'PT-F04', title: 'บันทึกการประชุม', use: 'บันทึกการประชุมโครงการ พร้อมรายชื่อผู้เข้าร่วมและงานที่มอบหมาย', where: 'การประชุม' },
-  inspect: { code: 'PT-F05', title: 'บันทึกการตรวจรับงานจ้าง (งวดงาน)', use: 'คณะกรรมการตรวจรับพัสดุตรวจรับงานงวด — มีช่องลงนามตามลำดับกรรมการของโครงการ', where: 'ส่งมอบ/ตรวจรับงาน' },
+  plan: { code: 'F-04-03-07', annex: true, land: true, title: 'ตารางแผนงานก่อสร้าง', use: 'ผู้รับจ้างเสนอแผนงานก่อสร้างรายเดือน ร้อยละของงานแต่ละหมวด ราคางานและผลงานที่คาดหมายแต่ละเดือน (S-Curve) — ข้อมูลจากโครงการและ BOQ', where: 'เรื่องขออนุมัติแผนงาน' },
+  safety: { code: 'F-04-03-08', annex: true, land: true, title: 'ตารางแผนงานความปลอดภัยงานก่อสร้าง', use: 'ผู้รับจ้างเสนอแผนงานความปลอดภัยรายเดือน และมอบอำนาจเจ้าหน้าที่ความปลอดภัย (จป.) ประจำสถานที่ก่อสร้าง', where: 'เรื่องขออนุมัติแผนงาน' },
+  pay: { code: 'F-04-03-09', annex: true, land: true, title: 'ใบส่งงวดงาน (แผนการเบิกจ่าย)', use: 'ผู้รับจ้างส่งงวดงาน — ตารางงวดงานตามสัญญา ร้อยละของงาน/การเบิก ราคาต่องวด ยอดสะสม ผลงานครั้งนี้ และส่วนของคณะกรรมการตรวจรับ', where: 'ส่งมอบ/ตรวจรับงวดงาน' },
+  engineer: { code: 'ผนวก ซ-5', short: 'วิศวกร/สถาปนิก', annex: true, title: 'หนังสือรับรองการเป็นวิศวกร/สถาปนิก', use: 'วิศวกร/สถาปนิกของผู้รับจ้างรับรองการควบคุมงานตลอดสัญญา — แนบกับเรื่องขออนุมัติวิศวกร/สถาปนิก พร้อมสำเนาใบอนุญาต', where: 'เรื่องขออนุมัติ (บุคลากร)' },
+  sign: { code: 'ป้ายโครงการ', short: 'ป้าย', annex: true, maker: true, title: 'ป้ายแสดงรายละเอียดงานก่อสร้าง', use: 'ไฟล์ป้ายขนาดจริง (PDF/PNG) พื้นน้ำเงิน ตัวอักษรขาว ขนาดตามราคางาน — ข้อมูลจากโครงการ ส่งร้านทำป้ายได้เลย', where: 'เริ่มงาน' },
   instruction: { code: 'PT-F06', title: 'ใบสั่งการ / ข้อแนะนำของผู้ควบคุมงาน', use: 'แจ้งข้อสั่งการหรือข้อแนะนำเป็นลายลักษณ์อักษรต่อผู้รับจ้าง พร้อมช่องรับทราบ', where: 'รายงานประจำวัน' },
 };
 /** แบบฟอร์มที่ใช้ข้อมูลรายงานประจำวันของวันที่เลือก */
@@ -123,6 +127,11 @@ body { font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: 
 .bar button.ghost { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.45); font-weight: 400; }
 .bar button:focus-visible { outline: 2px solid #F2A900; outline-offset: 2px; }
 .bar .bar-msg { flex: 1 1 280px; opacity: .88; line-height: 1.4; }
+.bar .bar-src { background: rgba(255,255,255,.16); border-radius: 3px; padding: 3px 8px; font-weight: 700; }
+.bar .bar-src[data-src="copy"] { background: #F2A900; color: #1B1B1B; }
+/* 1.0.16 ภาพแบบฟอร์มในหน้ารายงานประจำวัน (ไม่มีแถบเครื่องมือ) */
+body.inline-pv { margin: 0; background: #E9EDF3; }
+body.inline-pv .bar { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 header.fh { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 6px; margin-bottom: 10px; }
 header.fh .org { font-weight: 700; font-size: 15px; }
@@ -887,28 +896,343 @@ function formMeeting({ p, m, today }) {
   ${signs([sign('ผู้จดบันทึกการประชุม', m?.updatedByName || m?.createdByName || '', m?.date || today), sign('ประธานในที่ประชุม')])}${foot('meeting')}`;
 }
 
-// ---------- F05 บันทึกการตรวจรับงาน ----------
-function formInspect({ p, today }) {
-  const a = p ? store.analysis(p.id) : null;
-  const com = committee(p);
-  const seats = com.length ? com : [{ seat: 0 }, { seat: 1 }, { seat: 2 }];
-  return `${head('inspect', p)}
-  ${projectInfo(p, [['มูลค่าสัญญา', p?.contractValue ? `${money(p.contractValue)} บาท` : ''], ['งวดงานที่', ''], ['วันที่ผู้รับจ้างส่งมอบงาน', { html: FD('', 'long', { ph: '…………………………' }) }], ['วันที่ตรวจรับ', { html: FD(today, 'long') }]])}
-  <h2>ผลงานตามระบบ ณ วันที่พิมพ์</h2>
-  <p>ผลงานสะสม ${val(pct(a?.actual), '80px')} แผนงานสะสม ${val(pct(a?.plan), '80px')}</p>
-  <h2>รายการงานที่ส่งมอบในงวดนี้</h2>${LINES(6)}
-  <h2>ผลการตรวจรับ</h2>
-  <div style="line-height:2" data-ckg>
-    <div>${CK(false, 'res')}ผู้รับจ้างได้ปฏิบัติงานถูกต้องครบถ้วนตามสัญญา คณะกรรมการตรวจรับพัสดุเห็นควรรับงานงวดนี้</div>
-    <div>${CK(false, 'res')}ผู้รับจ้างได้ปฏิบัติงานไม่ถูกต้อง/ไม่ครบถ้วน ให้แก้ไขภายในวันที่ ${FD('', 'long', { ph: '…………………………' })}</div>
-    <div>รายละเอียด ${line('80%')}</div>
-  </div>
-  <h2>ค่าปรับ (ถ้ามี)</h2>
-  <p>ส่งมอบเกินกำหนด ${line('60px')} วัน อัตราค่าปรับร้อยละ ${line('60px')} ต่อวัน เป็นเงิน ${line('120px')} บาท</p>
-  <p class="small muted">อ้างอิง: พ.ร.บ. การจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ พ.ศ. 2560 และระเบียบกระทรวงการคลังฯ พ.ศ. 2560 ข้อ 176 (การตรวจรับในงานจ้างก่อสร้าง) — ตรวจสอบระเบียบและหนังสือเวียนฉบับปัจจุบันในคลังแบบฟอร์มและระเบียบ</p>
-  ${signs(seats.map((m) => sign(`${R.seatLabel(m.seat) || 'กรรมการ'}ตรวจรับพัสดุ`, m.email ? nameOf(p, m.email) : '')))}
-  ${foot('inspect')}`;
+// ---------- 1.0.17 แบบผนวกท้ายสัญญา กฟผ.: F-04-03-07 แผนงานก่อสร้าง · F-04-03-08 แผนงานความปลอดภัย · F-04-03-09 ใบส่งงวดงาน · หนังสือรับรองวิศวกร/สถาปนิก ----------
+const THAI_YEAR = (iso) => +String(iso).slice(0, 4) + 543;
+/** เดือนตามสัญญา [{ y, m, start, end }] (ไม่เกิน 48 เดือน) */
+function contractMonths(p) {
+  if (!p?.startDate || !p?.endDate || p.endDate < p.startDate) return [];
+  const out = [];
+  let y = +p.startDate.slice(0, 4), m = +p.startDate.slice(5, 7);
+  while (out.length < 48) {
+    const first = `${y}-${String(m).padStart(2, '0')}-01`;
+    const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+    if (first > p.endDate) break;
+    out.push({ y, m, start: first < p.startDate ? p.startDate : first, end: last > p.endDate ? p.endDate : last });
+    m++; if (m > 12) { m = 1; y++; }
+  }
+  return out;
 }
+/** ช่องย่อยของแต่ละเดือน (สัปดาห์/ครึ่งเดือน/เดือน) ตามความยาวสัญญา */
+function monthCols(months) {
+  const per = months.length <= 6 ? 4 : months.length <= 15 ? 2 : 1;
+  const cols = [];
+  months.forEach((mo, i) => {
+    const days = diffDays(mo.start, mo.end) + 1;
+    for (let k = 0; k < per; k++) {
+      const a = R.addDaysIso(mo.start, Math.floor((days * k) / per));
+      const b = R.addDaysIso(mo.start, Math.max(0, Math.floor((days * (k + 1)) / per) - 1));
+      cols.push({ mi: i, start: a, end: b < a ? a : b });
+    }
+  });
+  return { per, cols };
+}
+/** หัวตาราง ปี / เดือน */
+function monthHead(months, per, lead) {
+  const years = [];
+  months.forEach((mo) => { const last = years[years.length - 1]; if (last && last.y === mo.y) last.n += per; else years.push({ y: mo.y, n: per }); });
+  return `<tr class="an-h">${lead[0]}<th class="an-yl">ปี</th>${years.length ? years.map((x) => `<th colspan="${x.n}">${x.y + 543}</th>`).join('') : '<th class="an-emptyh"></th>'}${lead[1] || ''}</tr>
+    <tr class="an-h"><th class="an-yl">เดือน</th>${months.length ? months.map((mo) => `<th colspan="${per}">${SHORT_MONTHS[mo.m - 1]}</th>`).join('') : '<th class="an-emptyh"></th>'}</tr>`;
+}
+const gk = (on) => `<td class="gc"><span class="gk" data-ck="">${on ? '✓' : ''}</span></td>`;
+const annexTop = (p, kind, title) => `<div class="an-ref">เอกสารแนบท้ายสัญญาเลขที่ ${F(p?.contractNo || '', { ph: '……………………', bind: 'contractNo' })}</div>
+  <div class="an-org">${e(ORG)}</div>
+  <div class="an-title"><span>${e(title)}</span><span class="an-sheetno">แผ่นที่ ${F('1', { ph: '……' })} รวม ${F('1', { ph: '……' })} แผ่น</span></div>`;
+const annexFoot = (kind, rev = 'ประกาศใช้ 28/02/63') => `<div class="an-foot"><span></span><span>${e(FORMS[kind].code)} ${e(rev)}</span></div>`;
+const moneyOr = (v) => (v === '' || v == null || !Number.isFinite(+v) ? '' : money(+v));
+/** ช่องหัวกระดาษ 4 ช่อง (เรียน/วันที่ · งาน/สถานที่ · สัญญาเลขที่/ราคางาน · เริ่ม/สิ้นสุดสัญญา) */
+function annexHead(p, to, date) {
+  return `<table class="an an-top"><colgroup><col style="width:24%"><col style="width:28%"><col style="width:26%"><col style="width:22%"></colgroup><tr>
+    <td>${lf('เรียน', to)}${lfd('วันที่', date)}</td>
+    <td>${lf('งาน', p?.name || '', 'proj')}${lf('สถานที่', p?.location || '', 'location')}</td>
+    <td>${lf('สัญญาเลขที่', p?.contractNo || '', 'contractNo')}<div class="lf"><span>ราคางาน</span><span class="dl f${p?.contractValue ? ' has' : ''}" data-f>${e(moneyOr(p?.contractValue))}</span><span>บาท</span></div></td>
+    <td>${lfd('เริ่มสัญญาวันที่', p?.startDate || '')}${lfd('สิ้นสุดสัญญาวันที่', p?.endDate || '')}</td></tr></table>`;
+}
+const approvalBox = (head, lines) => `<div class="an-ap"><div class="an-aph">${e(head)}</div><div class="an-apb">${lines.join('')}</div></div>`;
+const apSign = (nameV = '', extra = []) => [`<div class="lf an-sgl"><span>ลงชื่อ</span><span class="dl">${SG('sg-in')}</span></div>`, `<div class="an-nm">(${F(nameV, { cls: 'nm', ph: '………………………………………' })})</div>`, ...extra];
+const apLine = (label, v = '', bind = '') => lf(label, v, bind);
+
+// ----- F-04-03-07 ตารางแผนงานก่อสร้าง -----
+function planRows(p) {
+  if (!p) return [];
+  const items = store.boqOf(p.id);
+  if (!items.length) return [];
+  const w = weightFn(p, items);
+  const total = items.reduce((a, it) => a + w(it), 0) || 1;
+  const groups = [];
+  items.forEach((it) => {
+    const g = it.group || 'ไม่ระบุหมวด';
+    let x = groups.find((y) => y.name === g);
+    if (!x) { x = { name: g, w: 0, ps: null, pe: null }; groups.push(x); }
+    x.w += w(it);
+    if (hasPlan(it)) { x.ps = x.ps == null ? num(it.ps) : Math.min(x.ps, num(it.ps)); x.pe = x.pe == null ? num(it.pe) : Math.max(x.pe, num(it.pe)); }
+  });
+  return groups.map((g) => ({ desc: g.name, pct: (g.w / total) * 100, from: g.ps ? dayToIso(p, g.ps) : '', to: g.pe ? dayToIso(p, g.pe) : '' }));
+}
+function formPlan({ p, today }) {
+  const months = contractMonths(p);
+  const { per, cols } = monthCols(months);
+  const rows = planRows(p);
+  const N = 25;
+  const shown = rows.length > N ? [...rows.slice(0, N - 1), { desc: `หมวดอื่นๆ (${rows.length - N + 1} หมวด)`, pct: rows.slice(N - 1).reduce((a, r) => a + r.pct, 0), from: '', to: '' }] : rows;
+  const items = p ? store.boqOf(p.id) : [];
+  // แผนสะสม ณ สิ้นเดือน (ร้อยละ)
+  const cum = months.map((mo) => Math.round(planAt(p, mo.end, items) * 10000) / 100);
+  const mon = cum.map((v, i) => Math.round((v - (i ? cum[i - 1] : 0)) * 100) / 100);
+  const cv = Number(p?.contractValue) || 0;
+  const pctTxt = (v) => (v ? v.toLocaleString('th-TH', { maximumFractionDigits: 2 }) : '');
+  const nc = Math.max(1, cols.length);
+  const body = pad(shown, N, null).map((r, i) => `<tr>${TD(r ? String(i + 1) : '', 'class="c"')}${TD(r ? r.desc : '', 'class="an-desc"')}<td class="an-sc"></td>${cols.length
+    ? cols.map((c) => gk(!!(r && r.from && r.to && c.start <= r.to && c.end >= r.from))).join('')
+    : gk(false)}${TD(r ? pctTxt(r.pct) : '', 'class="r"')}</tr>`).join('');
+  // S-Curve แผนงานทับตาราง (ซ้าย→ขวาตามเดือน · ล่าง→บน 0–100)
+  const pts = months.length ? [[0, 0], ...cum.map((v, i) => [((i + 1) / months.length) * 100, Math.min(100, Math.max(0, v))])] : [];
+  const curve = pts.length ? `<svg class="an-curve" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts.map(([x, y]) => `${x.toFixed(2)},${(100 - y).toFixed(2)}`).join(' ')}" fill="none" stroke="#C0392B" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>` : '';
+  const scale = [100, 80, 60, 40, 20, 0].map((v) => `<span style="top:${100 - v}%">${v}</span>`).join('');
+  const monthCells = (vals, fmtV) => (months.length ? vals.map((v) => `<td class="f r an-mv" colspan="${per}" data-f>${e(fmtV(v))}</td>`).join('') : '<td class="f" data-f></td>');
+  const sup = supervisorName(p);
+  const rep = contractorRep(p);
+  return `${annexTop(p, 'plan', 'ตารางแผนงานก่อสร้าง')}
+  ${annexHead(p, '', today)}
+  <div class="an-body">
+    <div class="an-left">
+      <div class="an-gwrap" style="--n:${N}">
+        <table class="an an-grid"><colgroup><col style="width:7mm"><col style="width:50mm"><col style="width:13mm">${Array.from({ length: nc }, () => '<col>').join('')}<col style="width:13mm"></colgroup>
+          ${monthHead(months, per, ['<th rowspan="2" class="an-no">ลำดับที่</th><th rowspan="2">รายละเอียด</th>', '<th rowspan="2" class="an-pc">ร้อยละ<br>ของงาน</th>'])}
+          <tbody class="an-rows">${body}</tbody>
+          <tr class="an-sum"><td colspan="3">ราคางานแต่ละเดือน</td>${monthCells(mon, (v) => (cv && v ? money((cv * v) / 100) : ''))}<td class="r an-tot">100</td></tr>
+          <tr class="an-sum"><td colspan="2" rowspan="2">% ผลงานที่คาดหมาย</td><td class="c an-mini">แต่ละเดือน</td>${monthCells(mon, pctTxt)}<td rowspan="2"></td></tr>
+          <tr class="an-sum"><td class="c an-mini">สะสม</td>${monthCells(cum, pctTxt)}</tr>
+        </table>
+        <div class="an-scale">${scale}</div>
+        ${curve}
+      </div>
+      <table class="an an-con"><colgroup><col style="width:66%"><col style="width:34%"></colgroup>
+        <tr><td>${lf('ข้าพเจ้า (บริษัท,ห้าง,ร้าน)', p?.contractor || '', 'contractor')}${lf('ขอมอบอำนาจให้', rep, 'rep')}<div>เป็นตัวแทนข้าพเจ้าควบคุมงานประจำ โดยข้าพเจ้าขอรับผิดชอบทุกประการ</div></td>
+          <td><div class="lf an-sgl"><span>ลงชื่อ</span><span class="dl">${SG('sg-in')}</span><span>ผู้รับจ้าง</span></div>${lf('บริษัท/ห้าง/ร้าน', p?.contractor || '', 'contractor')}${lfd('วันที่', '')}</td></tr>
+        <tr><td colspan="2" class="c an-for">สำหรับผู้รับจ้าง</td></tr>
+      </table>
+    </div>
+    <div class="an-right">
+      ${approvalBox('เห็นควรเสนอเพื่ออนุมัติ', [...apSign(sup), apLine('ผู้ควบคุมงาน', ''), lfd('วันที่', '')])}
+      ${approvalBox('เห็นควรอนุมัติ', [...apSign(''), apLine('ตำแหน่ง'), lfd('วันที่', '')])}
+      ${approvalBox('อนุมัติ', [...apSign(''), apLine('ตำแหน่ง'), lfd('วันที่', '')])}
+      <div class="an-for c">สำหรับ กฟผ.</div>
+    </div>
+  </div>
+  ${annexFoot('plan')}`;
+}
+
+// ----- F-04-03-08 ตารางแผนงานความปลอดภัยงานก่อสร้าง -----
+function formSafety({ p, today }) {
+  const months = contractMonths(p);
+  const { per, cols } = monthCols(months);
+  const N = 29;
+  const nc = Math.max(1, cols.length);
+  const body = Array.from({ length: N }, () => `<tr>${TD('', 'class="c"')}${TD('', 'class="an-desc" data-sug="safety"')}<td class="an-sc"></td>${cols.length ? cols.map(() => gk(false)).join('') : gk(false)}</tr>`).join('');
+  const jp = p?.sign?.safety || '';
+  return `${annexTop(p, 'safety', 'ตารางแผนงานความปลอดภัยงานก่อสร้าง')}
+  ${annexHead(p, 'หัวหน้ากองบริหารงานก่อสร้าง', today)}
+  <div class="an-body">
+    <div class="an-left">
+      <div class="an-gwrap">
+        <table class="an an-grid"><colgroup><col style="width:7mm"><col style="width:58mm"><col style="width:11mm">${Array.from({ length: nc }, () => '<col>').join('')}</colgroup>
+          ${monthHead(months, per, ['<th rowspan="2" class="an-no">ลำดับที่</th><th rowspan="2">รายละเอียด</th>', ''])}
+          <tbody class="an-rows">${body}</tbody>
+        </table>
+      </div>
+      <table class="an an-con"><colgroup><col style="width:66%"><col style="width:34%"></colgroup>
+        <tr><td>${lf('ข้าพเจ้า (บริษัท,ห้าง,ร้าน)', p?.contractor || '', 'contractor')}<div class="lf"><span>ขอมอบอำนาจให้</span><span class="dl f${jp ? ' has' : ''}" data-f>${e(jp)}</span><span>เป็นเจ้าหน้าที่ความปลอดภัย (จป.)</span></div><div>ทำหน้าที่ควบคุมงานด้านความปลอดภัยประจำสถานที่ก่อสร้าง โดย (บริษัท,ห้าง,ร้าน) ขอรับผิดชอบทุกประการ</div></td>
+          <td><div class="lf an-sgl"><span>ลงชื่อ</span><span class="dl">${SG('sg-in')}</span><span>ผู้รับจ้าง</span></div>${lf('ตำแหน่ง', '')}${lfd('วันที่', '')}</td></tr>
+        <tr><td colspan="2" class="c an-for">สำหรับผู้รับจ้าง</td></tr>
+      </table>
+    </div>
+    <div class="an-right">
+      ${approvalBox('เห็นควรเสนออนุมัติ', [...apSign(''), `<div class="lf"><span>ตำแหน่ง</span><span class="dl f" data-f></span><span>จป. ออก.</span><span class="dl f" data-f></span></div>`, lfd('วันที่', '')])}
+      ${approvalBox('อนุมัติ', [...apSign(''), `<div class="lf"><span>ตำแหน่ง</span><span class="dl f" data-f></span><span>กบก-ห.</span><span class="dl f" data-f></span></div>`, lfd('วันที่', '')])}
+      <div class="an-for c">สำหรับ กฟผ.</div>
+    </div>
+  </div>
+  ${annexFoot('safety')}`;
+}
+
+// ----- F-04-03-09 ใบส่งงวดงาน -----
+/** งวดงานของโครงการพร้อมราคา: [{ no, desc, workPct, payPct, amount, cumAmount, due }] */
+export function installmentPlan(p) {
+  const cv = Number(p?.contractValue) || 0;
+  let acc = 0;
+  return (p?.installments || []).map((x, i) => {
+    const pay = x.payPct !== '' && x.payPct != null ? +x.payPct : (x.workPct !== '' && x.workPct != null ? +x.workPct : 0);
+    const amount = Math.round(cv * pay) / 100;
+    acc += amount;
+    return { no: i + 1, desc: x.desc || '', workPct: x.workPct, payPct: x.payPct !== '' && x.payPct != null ? x.payPct : x.workPct, amount, cumAmount: Math.round(acc * 100) / 100, due: x.due || '' };
+  });
+}
+/** งวดที่ควรส่ง: งวดแรกที่กำหนดยังไม่ผ่าน (หรืองวดสุดท้าย) */
+export function currentInstallment(p, today = todayTh()) {
+  const list = installmentPlan(p);
+  if (!list.length) return 0;
+  const hit = list.find((x) => x.due && x.due >= today);
+  return hit ? hit.no : list[list.length - 1].no;
+}
+function formPay({ p, today, inst }) {
+  const list = installmentPlan(p);
+  const k = list.length ? Math.min(Math.max(1, +inst || currentInstallment(p, today)), list.length) : 0;
+  const cur = k ? list[k - 1] : null;
+  const N = Math.max(21, list.length);
+  const pctTxt = (v) => (v === '' || v == null ? '' : (+v).toLocaleString('th-TH', { maximumFractionDigits: 2 }));
+  const rows = pad(list, N, null).map((r) => {
+    const mine = r && cur && r.no === cur.no;
+    return `<tr>${TD(r ? String(r.no) : '', 'class="c"')}${TD(r ? r.desc : '', 'class="an-desc"')}${TD(r ? pctTxt(r.workPct) : '', 'class="r"')}${TD(r ? pctTxt(r.payPct) : '', 'class="r"')}${TD(r ? moneyOr(r.amount) : '', 'class="r"')}${TD(r ? moneyOr(r.cumAmount) : '', 'class="r"')}<td class="c">${r ? FD(r.due, 'short', { ph: '' }) : ''}</td>${TD(mine ? pctTxt(r.workPct) : '', 'class="r"')}${TD(mine ? moneyOr(r.amount) : '', 'class="r"')}${TD(mine ? moneyOr(r.cumAmount) : '', 'class="r"')}</tr>`;
+  }).join('');
+  const amt = cur ? cur.amount : null;
+  const last = cur && cur.no === list.length;
+  const sups = supervisors(p).map((m) => nameOf(p, m.email));
+  if (!sups.length && supervisorName(p)) sups.push(supervisorName(p));
+  const com = committee(p).map((c) => nameOf(p, c.email) || c.name || '');
+  return `${annexTop(p, 'pay', 'ใบส่งงวดงาน')}
+  <table class="an an-top an-pay-top"><colgroup><col style="width:21%"><col style="width:33%"><col style="width:23%"><col style="width:23%"></colgroup><tr>
+    <td>${lf('จาก', p?.contractor || '', 'contractor')}<div class="lf"><span>เรียน</span><span>กรรมการตรวจรับงานจ้าง ผ่านผู้ควบคุมงาน</span></div>${lfd('วันที่', today)}</td>
+    <td><div class="lf"><span>ใบส่งงานครั้งที่</span><span class="dl f${k ? ' has' : ''}" data-f>${k || ''}</span><span data-ckg>${CK(!last && !!k, 'kind')} งวดที่ <span class="f an-inl" data-f>${k || ''}</span> ${CK(last, 'kind')} งวดสุดท้าย</span></div>
+      ${lf('สัญญาเลขที่', p?.contractNo || '', 'contractNo')}
+      <div class="lf an-dates"><span>เริ่มงาน</span>${FD(p?.startDate || '', 'slash', { cls: 'dl', ph: '……/……/……' })}<span>สิ้นสุดสัญญา</span>${FD(p?.endDate || '', 'slash', { cls: 'dl', ph: '……/……/……' })}<span>(สิ้นสุดสัญญาหลังแก้ไขสัญญา</span>${FD('', 'slash', { cls: 'dl', ph: '……/……/……' })}<span>)</span></div></td>
+    <td>${lf('งาน', p?.name || '', 'proj')}${lf('สถานที่', p?.location || '', 'location')}</td>
+    <td>${lf('รหัสงบประมาณ', '')}<div class="lf"><span class="dl f" data-f></span></div></td></tr></table>
+  <div class="an-body">
+    <div class="an-left">
+      <table class="an an-paygrid"><colgroup><col style="width:6%"><col style="width:22%"><col style="width:8%"><col style="width:8%"><col style="width:10%"><col style="width:10%"><col style="width:9%"><col style="width:8%"><col style="width:9.5%"><col style="width:9.5%"></colgroup>
+        <tr class="an-h"><th rowspan="2" class="an-no">ลำดับที่</th><th rowspan="2">รายละเอียด</th><th colspan="4">งานตามสัญญา</th><th rowspan="2" class="an-wrap">วันที่ผลงานถึงเกณฑ์ที่กำหนดแต่ละงวด</th><th colspan="2">ผลงานครั้งนี้</th><th class="an-wrap">เบิกสะสม (รวมครั้งนี้)</th></tr>
+        <tr class="an-h"><th>ร้อยละของงาน</th><th>ร้อยละการเบิก</th><th>ราคาต่องวด (บาท)</th><th>ราคางานสะสม (บาท)</th><th>ร้อยละของงาน</th><th>ราคาต่องวด (บาท)</th><th class="an-wrap">รวมภาษีมูลค่าเพิ่ม</th></tr>
+        <tbody class="an-rows">${rows}</tbody>
+      </table>
+      <table class="an an-con an-payfoot"><colgroup><col style="width:28%"><col style="width:16%"><col style="width:23%"><col style="width:14%"><col style="width:19%"></colgroup>
+        <tr><td rowspan="3"><div class="lf an-sgl"><span>ลงชื่อ</span><span class="dl">${SG('sg-in')}</span><span>ผู้รับจ้าง</span></div>${lf('บริษัท/หจก./ร้าน', p?.contractor || '', 'contractor')}${lfd('วันที่', '')}</td>
+          <td rowspan="3" class="c">ราคาตามสัญญา<br>(รวมภาษีมูลค่าเพิ่ม)</td><td rowspan="3" class="c f an-big" data-f>${e(moneyOr(p?.contractValue))}</td><td class="c">รวมทั้งสิ้น</td>${TD(moneyOr(amt), 'class="r"')}</tr>
+        <tr><td class="c">หัก 10%</td>${TD(amt == null ? '' : money(Math.round(amt * 10) / 100), 'class="r"')}</tr>
+        <tr><td class="c">คงเหลือเบิก</td>${TD(amt == null ? '' : money(Math.round(amt * 90) / 100), 'class="r"')}</tr>
+        <tr><td colspan="5" class="c an-for">สำหรับผู้รับจ้าง</td></tr>
+      </table>
+    </div>
+    <div class="an-right an-payright">
+      ${approvalBox('เสนอ กรรมการตรวจรับงานจ้าง', [
+        '<div class="an-txt">ผลงานที่เสนอถูกต้องครบถ้วนเป็นไปตามรูปแบบ รายละเอียดและข้อกำหนดในสัญญาทุกประการ</div>',
+        lfd('งานแล้วเสร็จเมื่อวันที่', ''),
+        `<div class="lf an-sgl"><span>ผู้ควบคุมงาน</span><span class="dl">${SG('sg-in')}</span>${FD('', 'slash', { cls: 'dl an-dshort', ph: '……/……/……' })}</div><div class="an-nm">(${F(sups[0] || '', { cls: 'nm', ph: '………………………………' })})</div>`,
+        `<div class="lf an-sgl"><span>ผู้ควบคุมงาน</span><span class="dl">${SG('sg-in')}</span>${FD('', 'slash', { cls: 'dl an-dshort', ph: '……/……/……' })}</div><div class="an-nm">(${F(sups[1] || '', { cls: 'nm', ph: '………………………………' })})</div>`,
+        `<div class="lf an-sgl"><span>ลงชื่อ</span><span class="dl">${SG('sg-in')}</span>${FD('', 'slash', { cls: 'dl an-dshort', ph: '……/……/……' })}</div><div class="an-nm">(${F('', { cls: 'nm', ph: '………………………………' })}) แผนก</div>`,
+        `<div class="lf an-sgl"><span>ลงชื่อ</span><span class="dl">${SG('sg-in')}</span>${FD('', 'slash', { cls: 'dl an-dshort', ph: '……/……/……' })}</div><div class="an-nm">(${F('', { cls: 'nm', ph: '………………………………' })}) กอง</div>`,
+      ])}
+      ${approvalBox('เสนอ หน่วยงานตรวจจ่าย', [
+        '<div class="an-txt">กรรมการฯ ได้ตรวจรับมอบงานนี้เรียบร้อยแล้ว</div>',
+        `<div class="an-txt" data-ckg>${CK(false, 'late')} งานแล้วเสร็จภายในกำหนดสัญญา</div>`,
+        `<div class="an-txt" data-ckg>${CK(false, 'late')} งานแล้วเสร็จล่าช้าเกินกำหนดสัญญา <span class="f an-inl" data-f></span> วัน</div>`,
+        ...[0, 1, 2, 3].map((i) => `<div class="lf an-sgl"><span>ลงชื่อ</span><span class="dl">${SG('sg-in')}</span><span>กรรมการ</span></div><div class="an-nm">(${F(com[i] || '', { cls: 'nm', ph: '………………………………' })})</div>`),
+      ])}
+      <div class="an-for c">สำหรับ กฟผ.</div>
+    </div>
+  </div>
+  ${annexFoot('pay', 'แก้ไขครั้งที่ 1 ประกาศใช้ 30/04/64')}`;
+}
+
+// ----- หนังสือรับรองการเป็นวิศวกร/สถาปนิก (แนวตั้ง) -----
+function formEngineer({ p, today }) {
+  const eng = p?.sign?.eng || '';
+  const co = p?.contractor || '';
+  const dl = (v = '', w = '', bind = '') => `<span class="en-f f${v ? ' has' : ''}" data-f${bind ? ` data-bind="${bind}"` : ''}${w ? ` style="min-width:${w}"` : ''}>${e(v)}</span>`;
+  return `<div class="en">
+    <div class="en-ref">เอกสารแนบท้ายสัญญาเลขที่ ${dl(p?.contractNo || '', '30mm', 'contractNo')}<br>(ถือเป็นส่วนหนึ่งของสัญญา)</div>
+    <h1 class="en-title">หนังสือรับรองการเป็นวิศวกร/สถาปนิก</h1>
+    <p class="en-date">วันที่ ${FD(today, 'long', { ph: '…… เดือน ……………… พ.ศ. ……' })}</p>
+    <p class="en-p">ข้าพเจ้า ${dl(eng, '70mm')} คุณวุฒิ ${dl('', '45mm')}</p>
+    <p>อยู่บ้านเลขที่ ${dl('', '15mm')} ซอย/ตรอก ${dl('', '28mm')} ถนน ${dl('', '28mm')} เขต ${dl('', '24mm')}</p>
+    <p>จังหวัด ${dl('', '24mm')} ได้รับอนุญาตจาก ก.ว./ก.ส. ให้มีสิทธิ์ในการประกอบอาชีพวิศวกรรม/สถาปัตยกรรม</p>
+    <p>ควบคุมประเภท ${dl('', '70mm')} สาขา ${dl('', '45mm')}</p>
+    <p>เลขทะเบียนที่ ${dl('', '36mm')} ตั้งแต่วันที่ ${FD('', 'long', { ph: '…… เดือน …………… พ.ศ. ……' })}</p>
+    <p>ถึงวันที่ ${FD('', 'long', { ph: '…… เดือน …………… พ.ศ. ……' })}</p>
+    <p class="en-p">ปัจจุบัน ข้าพเจ้าเป็นวิศวกร/สถาปนิก ประจำบริษัท/ห้างฯ ${dl(co, '60mm', 'contractor')} และขอรับรองว่า ข้าพเจ้าเป็นผู้รับผิดชอบและควบคุมขบวนการผลิตวัสดุ และควบคุมงานในการก่อสร้างและติดตั้งของบริษัท/ห้างฯ</p>
+    <p class="en-p">หนังสือรับรองฉบับนี้ ข้าพเจ้าจะไม่เพิกถอนในระหว่างเวลาที่บริษัท/ห้างฯ ${dl(co, '55mm', 'contractor')} ต้องรับผิดชอบอยู่ตามสัญญาจ้างเหมาทำการก่อสร้าง ${dl(p?.name || '', '70mm', 'proj')} กับ การไฟฟ้าฝ่ายผลิตแห่งประเทศไทย และรับผิดชอบในการทำงานตลอดระยะเวลาที่ข้าพเจ้าควบคุมงานด้วย</p>
+    <div class="en-sign"><div class="lf"><span>ลงชื่อ</span><span class="dl">${SG('sg-in')}</span></div><div>(${F(eng, { cls: 'nm', ph: '………………………………………………' })})</div></div>
+    <p class="en-note"><span class="u">หมายเหตุ</span> ใบอนุญาตต้องมีกำหนดอายุ ครอบคลุมจนงานก่อสร้างแล้วเสร็จ</p>
+  </div>`;
+}
+
+const ANNEX_CSS = `
+.lf { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.lf > span:first-child { flex: none; }
+.lf .dl { flex: 1; min-width: 12px; border-bottom: 1px dotted #000; min-height: 1.05em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: 1.25; font-weight: 600; }
+.lf .dl.has { border-bottom: 0; white-space: pre-wrap; overflow: visible; }
+.lf > span:not(:first-child):not(.dl) { flex: none; }
+.u { text-decoration: underline; }
+body.annex .sheet { font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: 11px; line-height: 1.35; padding: 8mm 9mm 7mm; display: flex; flex-direction: column; }
+body.annex .sheet.land { width: 297mm; height: 210mm; min-height: 0; overflow: hidden; }
+@page { size: A4 landscape; margin: 0; }
+.an-ref { text-align: right; font-size: 11px; }
+.an-org { text-align: center; font-weight: 700; font-size: 13.5px; margin-top: -1mm; }
+.an-title { position: relative; text-align: center; margin: 1.2mm 0 1.6mm; }
+.an-title > span:first-child { font-weight: 700; font-size: 13.5px; text-decoration: underline; }
+.an-sheetno { position: absolute; right: 0; bottom: 0; font-size: 11px; }
+table.an { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.an td, table.an th { border: 1px solid #000; padding: 0 3px; vertical-align: middle; font-weight: 400; overflow: hidden; }
+table.an th { text-align: center; font-size: 10.5px; line-height: 1.15; }
+table.an-top td { padding: 1px 6px; height: 13mm; vertical-align: top; }
+table.an-top .lf { margin: 1px 0; }
+.an-body { display: flex; flex: 1 1 auto; min-height: 0; margin-top: -1px; }
+.an-left { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.an-right { flex: 0 0 50mm; display: flex; flex-direction: column; border: 1px solid #000; border-left: 0; }
+.an-ap { flex: 1 1 auto; display: flex; flex-direction: column; border-bottom: 1px solid #000; min-height: 0; }
+.an-aph { text-align: center; font-weight: 700; padding: 1.2mm 0; border-bottom: 1px solid #000; }
+.an-apb { padding: 1.5mm 2.5mm; display: flex; flex-direction: column; justify-content: flex-end; gap: 1mm; flex: 1; }
+.an-nm { text-align: center; }
+.an-for { padding: 1mm 0; font-size: 10.5px; }
+.an-right > .an-for { border-top: 0; }
+.an-gwrap { position: relative; flex: 0 0 auto; }
+table.an-con { margin-top: auto !important; }
+table.an-grid tr.an-h th { height: 5mm; }
+table.an-grid td { height: 4.55mm; font-size: 10px; white-space: nowrap; text-overflow: ellipsis; }
+table.an-grid td.an-desc, table.an-paygrid td.an-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+table.an-grid td.gc { padding: 0; position: relative; border-top-color: #bbb; border-bottom-color: #bbb; }
+.gk { position: absolute; inset: 0.9mm 0; display: block; cursor: pointer; color: transparent; font-size: 1px; }
+.gk:not(:empty) { background: #1D4F91; }
+@media screen { body.ed .gk:empty:hover { background: rgba(29,79,145,.18); } }
+.an-sc { border-top-color: transparent !important; border-bottom-color: transparent !important; }
+table.an-grid tr.an-sum td { height: 5mm; font-size: 9.5px; }
+.an-mv { font-size: 8.5px !important; padding: 0 1px !important; }
+.an-mini { font-size: 8.5px; padding: 0 1px !important; letter-spacing: -.2px; }
+.an-tot { font-weight: 700; }
+.an-scale { position: absolute; left: 57mm; width: 13mm; top: 10mm; height: calc(var(--n, 23) * 4.55mm); pointer-events: none; }
+.an-scale span { position: absolute; right: 1.5mm; transform: translateY(-50%); font-size: 9px; }
+.an-curve { position: absolute; left: 70mm; top: 10mm; height: calc(var(--n, 23) * 4.55mm); width: calc(100% - 83mm); pointer-events: none; overflow: visible; }
+table.an-con { position: relative; top: -1px; }
+table.an-con td { height: 5mm; padding: 1px 6px; vertical-align: top; }
+table.an-con .lf { margin: 0.5mm 0; }
+.an-sgl .dl { min-width: 25mm; }
+.an-foot { display: flex; justify-content: space-between; font-size: 10px; margin-top: 1.5mm; }
+.an-inl { display: inline-block; min-width: 8mm; border-bottom: 1px dotted #000; text-align: center; }
+.an-dates { flex-wrap: wrap; row-gap: 0; }
+.an-dates .dl { flex: none; min-width: 16mm; text-align: center; }
+.an-dshort { flex: 0 0 15mm !important; text-align: center; font-size: 9.5px; }
+table.an-paygrid tr.an-h th { height: 7mm; font-size: 9.5px; }
+table.an-paygrid th.an-wrap { white-space: normal; }
+table.an-paygrid td { height: 5.6mm; font-size: 10px; white-space: nowrap; }
+.an-payfoot td { vertical-align: middle !important; }
+.an-big { font-weight: 700; font-size: 11.5px; }
+.an-payright .an-apb { gap: 0.4mm; justify-content: flex-start; font-size: 10px; }
+.an-txt { line-height: 1.35; }
+.an-txt .ck { margin-right: 4px; }
+/* หนังสือรับรองวิศวกร/สถาปนิก (แนวตั้ง) */
+body.annex-p .sheet { font-family: 'Sarabun', 'TH Sarabun New', Tahoma, sans-serif; font-size: 14px; line-height: 2.15; padding: 22mm 20mm 20mm 25mm; }
+body.annex-p { --pg: portrait; }
+.en-ref { text-align: right; font-size: 13px; line-height: 1.6; }
+.en-title { font-size: 18px; text-decoration: underline; margin: 10mm 0 6mm; }
+.en-date { text-align: right; margin: 0 0 4mm; }
+.en p { margin: 0; }
+.en .en-p { text-indent: 18mm; }
+.en-f { display: inline-block; border-bottom: 1px dotted #000; min-height: 1.2em; line-height: 1.5; padding: 0 3px; text-indent: 0; vertical-align: baseline; }
+.en-f.has { font-weight: 600; }
+.en-sign { margin: 18mm 0 0 auto; width: 55%; text-align: center; }
+.en-sign .lf { justify-content: center; }
+.en-sign .dl { flex: 0 0 55mm; }
+.en-note { margin-top: 30mm !important; font-size: 13px; }
+`;
 
 // ---------- F06 ใบสั่งการ ----------
 function formInstruction({ p, daily: dy, date, today }) {
@@ -928,13 +1252,17 @@ function formDailyAll(ctx) {
   if (ctx.daily?.files?.length) photoPages(ctx.daily, `ภาพประกอบบันทึกการควบคุมงานประจำวัน วันที่ ${fmtDate(ctx.daily.date, 'long')}`).forEach((pg) => pages.push(pg));
   return pages;
 }
-const BUILD = { sub: formSub, material: formMaterial, daily: formDailyAll, cdaily: formCDaily, weekly: formWeekly, meeting: formMeeting, inspect: formInspect, instruction: formInstruction };
-const EXTRA_CSS = { sub: SUB_CSS, cdaily: CDAILY_CSS + PHOTO_CSS, daily: PHOTO_CSS };
+const BUILD = { sub: formSub, material: formMaterial, daily: formDailyAll, cdaily: formCDaily, weekly: formWeekly, meeting: formMeeting, instruction: formInstruction,
+  plan: formPlan, safety: formSafety, pay: formPay, engineer: formEngineer };
+const EXTRA_CSS = { sub: SUB_CSS, cdaily: CDAILY_CSS + PHOTO_CSS, daily: PHOTO_CSS, plan: ANNEX_CSS, safety: ANNEX_CSS, pay: ANNEX_CSS, engineer: ANNEX_CSS.replace(/@page \{[^}]*\}/, '@page { size: A4; margin: 0; }') };
 
 /** คีย์จำร่างที่กรอก: แบบฟอร์ม + โครงการ + เรื่อง/รายงาน/วันที่ (รายงานประจำสัปดาห์: สัปดาห์ที่) */
 function draftKey(kind, ctx) {
-  const rec = ctx.sub?.id || ctx.daily?.id || ctx.m?.id || (kind === 'weekly' && ctx.week ? `w${ctx.week}` : '') || ctx.date || ctx.to || 'blank';
-  return `${kind}|${ctx.p?.id || '-'}|${rec}`;
+  const rec = ctx.sub?.id || ctx.daily?.id || ctx.m?.id || (kind === 'weekly' && ctx.week ? `w${ctx.week}` : '')
+    || (kind === 'pay' ? `i${+ctx.inst || currentInstallment(ctx.p, ctx.today || todayTh()) || 0}` : '')
+    || (kind === 'plan' || kind === 'safety' || kind === 'engineer' ? 'main' : '') || ctx.date || ctx.to || 'blank';
+  // 1.0.16 สำเนาใช้ภายนอก (ctx.copy) จำร่างแยกจากฉบับของโครงการ
+  return `${kind}|${ctx.p?.id || '-'}|${rec}${ctx.copy ? '|x' : ''}`;
 }
 const HINT = 'คลิกช่องสีฟ้าอ่อนเพื่อพิมพ์ · Enter = ช่องถัดไป · คลิกวันที่เพื่อเลือกจากปฏิทิน · คลิกช่องลงชื่อเพื่อเซ็น · ที่กรอกจำไว้ในเครื่องนี้';
 // ปฏิทิน ลายมือชื่อ คำแนะนำ (หน้าต่างแบบฟอร์ม — แสดงบนจอเท่านั้น)
@@ -994,24 +1322,36 @@ function renderPages(kind, ctx) {
     const wk = ctx.week || weekNo(ctx.p, ctx.to || ctx.today);
     if (wk) dateKey = `สัปดาห์ที่ ${wk}`;
   }
+  if (kind === 'pay') { const k = installmentPlan(ctx.p).length ? (+ctx.inst || currentInstallment(ctx.p, ctx.today)) : 0; dateKey = k ? `งวดที่ ${k}` : ''; }
+  if (kind === 'plan' || kind === 'safety' || kind === 'engineer') dateKey = '';
   const title = `${f.short || f.code} ${f.title}${ctx.p ? ` ${ctx.p.code || ctx.p.name}` : ''} ${dateKey || ''}`.trim();
-  const sheets = pages.map((pg) => `<div class="sheet${pg.cls ? ` ${pg.cls}` : ''}">${pg.html}</div>`).join('');
+  const sheets = pages.map((pg) => `<div class="sheet${pg.cls ? ` ${pg.cls}` : ''}${f.land ? ' land' : ''}">${pg.html}</div>`).join('');
   return { f, pages, long, title, sheets, key: draftKey(kind, ctx) };
 }
 
 /** HTML ของแบบฟอร์ม (ใช้ทดสอบและพิมพ์) — editor/annotate = URL ของสคริปต์กรอกแบบฟอร์ม */
-export function formHtml(kind, ctx = {}, { inline = false, editor = '', annotate = '', saveDoc = false } = {}) {
+const SRC_NOTE = {
+  linked: 'ฉบับเดียวกับรายงานในโครงการ — แก้ข้อมูลที่หน้ารายงานประจำวัน แบบฟอร์มทุกหน้าจะเปลี่ยนตาม',
+  copy: 'สำเนาสำหรับใช้ภายนอก — แก้ได้อิสระ ไม่บันทึกกลับเข้าโครงการ',
+  header: 'แบบเปล่า มีหัวกระดาษของโครงการ',
+};
+export function formHtml(kind, ctx = {}, { inline = false, editor = '', annotate = '', saveDoc = false, preview = false } = {}) {
   if (!FORMS[kind]) throw new Error(`ไม่รู้จักแบบฟอร์ม ${kind}`);
   ctx = { today: todayTh(), ...ctx };
   const { f, long, title, sheets, key } = renderPages(kind, ctx);
-  const cls = [f.official ? 'official' : '', long ? 'of-long' : ''].filter(Boolean).join(' ');
+  const cls = [f.official ? 'official' : '', long ? 'of-long' : '', preview ? 'preview inline-pv' : '', f.land ? 'annex' : '', kind === 'engineer' ? 'annex-p' : ''].filter(Boolean).join(' ');
+  const src = SRC_NOTE[ctx.src] ? `<span class="bar-src" data-src="${e(ctx.src)}">${e(SRC_NOTE[ctx.src])}</span>` : '';
   const fallback = inline ? `<script>if(document.body.getAttribute('data-ed')!=='1'){document.querySelector('[data-pt="print"]').onclick=function(){window.print()};document.querySelector('[data-pt="close"]').onclick=function(){window.close()};}</script>` : '';
   // รายงานประจำสัปดาห์: เลือกสัปดาห์ที่ในแถบด้านบน (ดึงข้อมูลสัปดาห์นั้นจากรายงานประจำวันใหม่)
   const weeks = kind === 'weekly' && ctx.p ? weekOptions(ctx.p, ctx.today) : [];
   const curWeek = kind === 'weekly' && ctx.p?.startDate ? (ctx.week || weekNo(ctx.p, ctx.to || ctx.today)) : null;
+  // 1.0.17 ใบส่งงวดงาน: เลือกงวดที่บนแถบด้านบน
+  const insts = kind === 'pay' && ctx.p ? installmentPlan(ctx.p) : [];
+  const curInst = insts.length ? (+ctx.inst || currentInstallment(ctx.p, ctx.today)) : 0;
+  const instSel = insts.length ? `<label class="bar-week"><span class="sr">เลือกงวดที่</span><select data-pt="inst" aria-label="เลือกงวดที่">${insts.map((x) => `<option value="${x.no}" ${x.no === curInst ? 'selected' : ''}>งวดที่ ${x.no}${x.desc ? ` — ${e(x.desc.slice(0, 40))}` : ''}</option>`).join('')}</select></label>` : '';
   const weekSel = weeks.length ? `<label class="bar-week"><span class="sr">เลือกสัปดาห์</span><select data-pt="week" aria-label="เลือกสัปดาห์ที่">${weeks.map((w) => `<option value="${w.week}" ${w.week === curWeek ? 'selected' : ''}>${e(w.label)}</option>`).join('')}</select></label>` : '';
   return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><title>${e(title)}</title><style>${CSS}${f.official ? OFFICIAL_CSS : ''}${EXTRA_CSS[kind] || ''}${EDIT_CSS}</style></head>
-  <body${cls ? ` class="${cls}"` : ''}${long ? ' data-long="1"' : ''} data-form="${kind}" data-key="${e(key)}"><div class="bar" role="toolbar" aria-label="แบบฟอร์ม"><button type="button" data-pt="print">บันทึก PDF / พิมพ์</button><button type="button" class="ghost" data-pt="preview" aria-pressed="false">ดูแบบพิมพ์</button>${saveDoc ? '<button type="button" data-pt="savedoc" title="เก็บหน้าที่กรอกและลงชื่อแล้วเป็นไฟล์ PDF ในแท็บเอกสารของโครงการ">บันทึกเข้าเอกสาร</button>' : ''}<button type="button" class="ghost" data-pt="reset" hidden>ล้างที่กรอก</button><button type="button" class="ghost" data-pt="close">ปิด</button>${weekSel}<span class="bar-msg" data-pt="msg" role="status">${e(f.code)} · ${ctx.p ? 'กรอกข้อมูลจากระบบแล้ว ตรวจทานและแก้ได้ก่อนพิมพ์' : 'แบบเปล่า'} — ${HINT}${f.official ? ' · ตอนพิมพ์ตั้งระยะขอบกระดาษเป็น "ไม่มี"' : ''}</span></div>
+  <body${cls ? ` class="${cls}"` : ''}${long ? ' data-long="1"' : ''} data-form="${kind}" data-key="${e(key)}"><div class="bar" role="toolbar" aria-label="แบบฟอร์ม"><button type="button" data-pt="print">บันทึก PDF / พิมพ์</button><button type="button" class="ghost" data-pt="preview" aria-pressed="false">ดูแบบพิมพ์</button>${saveDoc ? '<button type="button" data-pt="savedoc" title="เก็บหน้าที่กรอกและลงชื่อแล้วเป็นไฟล์ PDF ในแท็บเอกสารของโครงการ">บันทึกเข้าเอกสาร</button>' : ''}<button type="button" class="ghost" data-pt="reset" hidden>ล้างที่กรอก</button><button type="button" class="ghost" data-pt="close">ปิด</button>${weekSel}${instSel}${src}<span class="bar-msg" data-pt="msg" role="status">${e(f.code)} · ${ctx.p ? 'กรอกข้อมูลจากระบบแล้ว ตรวจทานและแก้ได้ก่อนพิมพ์' : 'แบบเปล่า'} — ${HINT}${f.official ? ' · ตอนพิมพ์ตั้งระยะขอบกระดาษเป็น "ไม่มี"' : ''}</span></div>
   <div class="sheets">${sheets}</div>
   ${annotate ? `<script src="${e(annotate)}"></script>` : ''}${editor ? `<script src="${e(editor)}"></script>` : ''}${fallback}<link rel="stylesheet" href="${FONTS_URL}"></body></html>`;
 }
@@ -1024,6 +1364,8 @@ export function dailyPhotos(dy) {
 
 /** เปิดแบบฟอร์มในแท็บใหม่ (ถ้าเบราว์เซอร์กันหน้าต่างใหม่ จะดาวน์โหลดเป็นไฟล์ .html แทน) */
 export function openForm(kind, ctx = {}) {
+  // 1.0.17 ป้ายโครงการไม่ใช่หน้าแบบฟอร์ม — เปิดหน้าต่างทำป้ายแทน
+  if (FORMS[kind]?.maker) { import('./sign.js').then((m) => m.openSignMaker(ctx.p || null)); return null; }
   ctx = { today: todayTh(), ...ctx };
   const editor = new URL(`assets/js/form-editor.js?v=${APP_VERSION}`, location.href).href;
   const annotate = new URL(`assets/js/annotate.js?v=${APP_VERSION}`, location.href).href;
@@ -1034,6 +1376,12 @@ export function openForm(kind, ctx = {}) {
   }
   // คำแนะนำในช่องกรอก (คำของหน่วยงาน + คำที่โครงการใช้ครบ 3 วัน) และสร้างหน้าสัปดาห์อื่น — หน้าต่างแบบฟอร์มเรียกใช้
   try { w.ptSug = allSuggestions(ctx.p?.id); } catch { /* ไม่มีคำแนะนำก็กรอกได้ */ }
+  if (kind === 'pay') {
+    w.ptRebuild = ({ inst } = {}) => {
+      const r = renderPages(kind, { ...ctx, inst: +inst || null });
+      return { html: r.sheets, key: r.key, title: r.title, msg: `งวดที่ ${inst} — ราคาต่องวด ยอดสะสม และผลงานครั้งนี้ตามตารางงวดงานของโครงการ` };
+    };
+  }
   if (kind === 'weekly') {
     w.ptRebuild = ({ week } = {}) => {
       const r = renderPages(kind, { ...ctx, week: +week || null, to: null });

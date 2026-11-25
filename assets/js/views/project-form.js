@@ -14,7 +14,8 @@ export function projectFieldsHTML(p, { full = true } = {}) {
   <div class="form-grid">
     <label class="field span-2"><span>ชื่อโครงการ <em>*</em></span>
       <input name="name" value="${esc(p.name)}" required placeholder="เช่น ก่อสร้างอาคารโรงพัสดุ คสล. 1 ชั้น" autocomplete="off"></label>
-    <label class="field"><span>รหัสโครงการ</span><input name="code" value="${esc(p.code)}" placeholder="เช่น CN-69-001"></label>
+    <div class="field pf-code"><span id="pf-code-l">รหัสโครงการ</span><input aria-labelledby="pf-code-l" name="code" value="${esc(p.code)}" maxlength="60" placeholder="เช่น CN-69-001" autocomplete="off" spellcheck="false">
+      ${codeFixHTML(p.code)}</div>
     <label class="field"><span>ประเภทโครงการ</span>
       <input name="type" list="dl-types" value="${esc(p.type)}" placeholder="เลือกหรือพิมพ์ประเภทใหม่">
       <datalist id="dl-types">${types.map((t) => `<option value="${esc(t)}">`).join('')}</datalist></label>
@@ -51,8 +52,35 @@ export function projectFieldsHTML(p, { full = true } = {}) {
   </div>`;
 }
 
-/** ผูกการคำนวณวันสิ้นสุด ⇄ ระยะเวลา */
+/** 1.0.16 รหัสโครงการที่พิมพ์บนแป้นไทยโดยไม่ตั้งใจ (เช่น "่ดนไ่ด") — เตือนและแปลงเป็นปุ่มภาษาอังกฤษให้ */
+function codeFixHTML(code) {
+  if (!R.looksMistyped(code)) return '<p class="pf-codefix" hidden></p>';
+  const en = R.thaiKeysToEn(code).toUpperCase();
+  return `<p class="pf-codefix notice notice-warn" role="alert">${icon('alert')}<span>รหัสนี้อ่านไม่ออก (น่าจะพิมพ์ตอนแป้นเป็นภาษาไทย) — รหัสจะไปอยู่ในหัวอีเมลและชื่อไฟล์ <button type="button" class="btn btn-sm" data-codefix="${esc(en)}">เปลี่ยนเป็น ${esc(en)}</button></span></p>`;
+}
+function bindCodeFix(form) {
+  const inp = form.elements.code;
+  if (!inp) return;
+  const box = inp.closest('.field');
+  const draw = () => {
+    const old = box.querySelector('.pf-codefix');
+    const tmp = document.createElement('div');
+    tmp.innerHTML = codeFixHTML(inp.value.trim());
+    old.replaceWith(tmp.firstElementChild);
+  };
+  inp.addEventListener('input', draw);
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-codefix]');
+    if (!b) return;
+    inp.value = b.dataset.codefix;
+    draw();
+    inp.focus();
+  });
+}
+
+/** ผูกการคำนวณวันสิ้นสุด ⇄ ระยะเวลา + ตรวจรหัสโครงการ */
 export function bindDateSync(form) {
+  bindCodeFix(form);
   const s = form.elements.startDate, d = form.elements.duration, e = form.elements.endDate;
   if (!s || !d || !e) return;
   d.addEventListener('input', () => { if (s.value && +d.value > 0) e.value = addDays(s.value, +d.value); });

@@ -1118,6 +1118,11 @@ export const store = {
       }
     }
     if (kind === 'contractor') delete input.boq;
+    // 1.0.16 ความคืบหน้ารวม (%) ที่กรอกในรายงาน (โครงการที่คิดแบบกรอก % เอง) — เก็บในบันทึกความคืบหน้าที่ผูกกับรายงาน ไม่ใช่ในรายงาน
+    const hasManual = kind === '' && Object.prototype.hasOwnProperty.call(input, 'manualPct');
+    const manualPct = hasManual ? input.manualPct : undefined;
+    if ('manualPct' in input) { input = { ...input }; delete input.manualPct; }
+    if (hasManual && manualPct !== '' && !(Number.isFinite(+manualPct) && +manualPct >= 0 && +manualPct <= 100)) throw new Error('ความคืบหน้ารวมต้องเป็นตัวเลข 0–100');
     // ตรวจสิทธิ์และข้อมูลก่อนอัปโหลดรูป
     R.cleanDaily({ ...input, kind, id: old ? old.id : 'check' }, p, me, nowIso(), old);
     if (this.data.daily.some((x) => x.projectId === p.id && x.date === input.date && R.dailyKind(x) === kind && x.id !== old?.id)) {
@@ -1159,14 +1164,15 @@ export const store = {
     }
     this._upsert('daily', saved);
     this._commit();
-    if (kind === '' && boq && typeof boq === 'object' && this.can(p, 'recordProgress')) {
-      // ปริมาณงานตาม BOQ ของวันนั้น → บันทึกความคืบหน้า (กราฟ S-Curve รายงานประจำสัปดาห์ และแบบฟอร์มใช้ข้อมูลเดียวกัน)
+    if (kind === '' && ((boq && typeof boq === 'object') || hasManual) && this.can(p, 'recordProgress')) {
+      // ปริมาณงานตาม BOQ ของวันนั้น (และ % รวมที่กรอก) → บันทึกความคืบหน้า (กราฟ S-Curve รายงานประจำสัปดาห์ และแบบฟอร์มใช้ข้อมูลเดียวกัน)
       const uidLink = this.dailyUpdateId(saved.id);
       const prev = this.data.updates.find((u) => u.id === uidLink);
-      const entries = R.cleanEntries(boq, this.data.boq.filter((b) => b.projectId === p.id).map((b) => b.id));
+      const entries = boq && typeof boq === 'object' ? R.cleanEntries(boq, this.data.boq.filter((b) => b.projectId === p.id).map((b) => b.id)) : { ...(prev?.entries || {}) };
+      const mp = hasManual ? (manualPct === '' ? '' : +manualPct) : (prev && prev.manualPct != null ? prev.manualPct : '');
       try {
-        if (Object.keys(entries).length) {
-          await this.saveUpdate({ ...(prev || {}), id: uidLink, projectId: p.id, date: saved.date, entries, note: prev?.note || `บันทึกพร้อมรายงานประจำวัน ${saved.date}`, issues: prev?.issues || '' });
+        if (Object.keys(entries).length || mp !== '') {
+          await this.saveUpdate({ ...(prev || {}), id: uidLink, projectId: p.id, date: saved.date, entries, manualPct: mp, note: prev?.note || `บันทึกพร้อมรายงานประจำวัน ${saved.date}`, issues: prev?.issues || '' });
         } else if (prev) {
           await this.deleteUpdate(uidLink);
         }

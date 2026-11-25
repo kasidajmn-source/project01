@@ -504,6 +504,15 @@
 
   // ---------- ร่างที่กรอกไว้ (จำในเครื่องนี้) ----------
   function counts() { return [fields().length, dates().length, checks().length, signs().length].join(','); }
+  // 1.0.16 ข้อมูลจากระบบตอนเปิดหน้า (ก่อนใส่ร่าง) — ใช้แยก "ที่ผู้ใช้แก้" ออกจาก "ข้อมูลที่ระบบเปลี่ยนภายหลัง"
+  var BASE = null;
+  function baseNow() {
+    return {
+      v: fields().map(txt),
+      d: dates().map(function (x) { return x.getAttribute('data-date') || ''; }),
+      c: checks().map(function (x) { return x.textContent.trim() ? 1 : 0; }),
+    };
+  }
   function snapshot() {
     var sg = signs().map(function (s) { var i = s.querySelector('img'); return i ? i.getAttribute('src') || '' : ''; });
     // ลายเซ็นในร่างรวมไม่เกิน ~400 KB (เครื่องจำร่างได้หลายฉบับ)
@@ -514,6 +523,7 @@
       d: dates().map(function (x) { return x.getAttribute('data-date') || ''; }),
       c: checks().map(function (x) { return x.textContent.trim() ? 1 : 0; }),
       s: sg,
+      b: BASE,
       at: Date.now(),
     };
   }
@@ -544,28 +554,54 @@
     var hh = t.getUTCHours(), mm = t.getUTCMinutes();
     return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm + ' น.';
   }
+  var STALE = 0;
   function restore() {
+    BASE = baseNow();
+    STALE = 0;
     if (!KEY) return false;
     var s = null;
     try { s = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { s = null; }
     if (!s || typeof s !== 'object') return false;
     // ร่างจากเวอร์ชันก่อน (ยังไม่มีช่องลงชื่อ) ใช้ได้ถ้าช่องอื่นตรงกัน
     var n = String(s.n || '');
-    if (n !== counts() && n !== counts().split(',').slice(0, 3).join(',')) return false;
+    if (n !== counts() && n !== counts().split(',').slice(0, 3).join(',')) {
+      // 1.0.16 จำนวนช่องเปลี่ยน (เช่น รายงานมีงานเพิ่ม) → ใช้ข้อมูลล่าสุดของระบบ แต่เก็บลายมือชื่อที่ลงไว้
+      var sg0 = Array.isArray(s.s) ? s.s : [];
+      if (sg0.length === signs().length) putSigns(sg0);
+      STALE = 1;
+      return false;
+    }
     var v = Array.isArray(s.v) ? s.v : [], d = Array.isArray(s.d) ? s.d : [], c = Array.isArray(s.c) ? s.c : [], sg = Array.isArray(s.s) ? s.s : [];
+    // 1.0.16 รวมร่างกับข้อมูลล่าสุดของระบบทีละช่อง (แบบฟอร์มของรายงานในโครงการต้องตรงกับรายงานเสมอ):
+    // ช่องที่ระบบเปลี่ยนหลังทำร่าง → ใช้ข้อมูลใหม่ · ช่องที่ผู้ใช้แก้เอง → ใช้ที่แก้ · ร่างรุ่นเก่า (ไม่มีข้อมูลตั้งต้น) → เติมเฉพาะช่องที่ว่าง
+    var b = s.b && typeof s.b === 'object' ? s.b : null;
+    var bv = b && Array.isArray(b.v) && b.v.length === BASE.v.length ? b.v : null;
+    var bd = b && Array.isArray(b.d) && b.d.length === BASE.d.length ? b.d : null;
+    var bc = b && Array.isArray(b.c) && b.c.length === BASE.c.length ? b.c : null;
+    function pick(cur, was, mine, legacyOk) {
+      if (was == null) return legacyOk ? mine : cur;
+      if (String(was) !== String(cur)) { if (String(mine) !== String(was)) STALE++; return cur; }
+      return mine;
+    }
     fields().forEach(function (el, i) {
-      var t = v[i] == null ? '' : String(v[i]);
+      var mine = v[i] == null ? '' : String(v[i]);
+      var t = pick(BASE.v[i], bv ? bv[i] : null, mine, BASE.v[i] === '');
       if (txt(el) !== t) el.textContent = t;
       norm(el);
     });
     dates().forEach(function (el, i) {
-      var x = /^\d{4}-\d{2}-\d{2}$/.test(String(d[i] || '')) ? d[i] : '';
-      showDate(el, x);
+      var mine = /^\d{4}-\d{2}-\d{2}$/.test(String(d[i] || '')) ? d[i] : '';
+      showDate(el, pick(BASE.d[i], bd ? bd[i] : null, mine, BASE.d[i] === ''));
     });
     checks().forEach(function (el, i) {
-      el.textContent = c[i] ? '✓' : '';
-      el.setAttribute('aria-checked', c[i] ? 'true' : 'false');
+      var on = pick(BASE.c[i], bc ? bc[i] : null, c[i] ? 1 : 0, true);
+      el.textContent = on ? '✓' : '';
+      el.setAttribute('aria-checked', on ? 'true' : 'false');
     });
+    putSigns(sg);
+    return s.at || true;
+  }
+  function putSigns(sg) {
     signs().forEach(function (el, i) {
       var src = String(sg[i] || '');
       if (/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(src)) {
@@ -573,7 +609,6 @@
         img.src = src; el.classList.add('has');
       }
     });
-    return s.at || true;
   }
   function say(t) { if (msg) msg.textContent = t; }
   /** 1.0.15 บันทึกหน้าที่กรอก/ลงชื่อแล้วเป็นไฟล์ PDF ในแท็บเอกสารของโครงการ (หน้าเว็บหลักเป็นผู้สร้างไฟล์) */
@@ -627,12 +662,13 @@
   }
 
   // ---------- เปลี่ยนสัปดาห์ (รายงานประจำสัปดาห์) — หน้าที่เปิดแบบฟอร์มสร้างเนื้อหาใหม่ให้ ----------
-  var weekSel = doc.querySelector('[data-pt="week"]');
+  // 1.0.17 ใบส่งงวดงาน: เลือกงวดที่ (ใช้ทางเดียวกับเลือกสัปดาห์)
+  var weekSel = doc.querySelector('[data-pt="week"], [data-pt="inst"]');
   if (weekSel) {
     weekSel.addEventListener('change', function () {
-      if (typeof win.ptRebuild !== 'function') { say('เปิดแบบฟอร์มนี้ใหม่จากระบบเพื่อเปลี่ยนสัปดาห์'); return; }
+      if (typeof win.ptRebuild !== 'function') { say('เปิดแบบฟอร์มนี้ใหม่จากระบบเพื่อเปลี่ยน' + (weekSel.getAttribute('data-pt') === 'inst' ? 'งวด' : 'สัปดาห์')); return; }
       var out;
-      try { out = win.ptRebuild({ week: +weekSel.value }); } catch (e) { out = null; }
+      try { out = win.ptRebuild({ week: +weekSel.value, inst: +weekSel.value }); } catch (e) { out = null; }
       if (!out || !out.html) { say('ดึงข้อมูลสัปดาห์นี้ไม่ได้ — เปิดแบบฟอร์มใหม่จากระบบ'); return; }
       if (saveTimer) { clearTimeout(saveTimer); save(); }
       closeCal(false); closeSigMenu(); closeSug();
@@ -646,7 +682,7 @@
       setup();
       var at = restore();
       if (at) { if (resetBtn) resetBtn.hidden = false; recalc(); }
-      say(out.msg || 'เปลี่ยนเป็นสัปดาห์ที่ ' + weekSel.value + ' แล้ว');
+      say(out.msg || ((weekSel.getAttribute('data-pt') === 'inst' ? 'เปลี่ยนเป็นงวดที่ ' : 'เปลี่ยนเป็นสัปดาห์ที่ ') + weekSel.value + ' แล้ว'));
       drawSigChip();
     });
   }
@@ -801,9 +837,9 @@
     if (resetBtn) resetBtn.hidden = false;
     recalc();
     fit();
-    say('กรอกต่อจากที่บันทึกไว้ในเครื่องนี้' + (typeof at === 'number' ? ' (' + clock(at) + ')' : '') + ' — กด "ล้างที่กรอก" เพื่อเริ่มจากข้อมูลในระบบ');
+    if (STALE) say('ข้อมูลรายงานในระบบเปลี่ยนหลังจากที่กรอกไว้ — ใช้ข้อมูลล่าสุดของระบบใน ' + STALE + ' ช่อง ส่วนที่แก้เองช่องอื่นยังอยู่'); else say('กรอกต่อจากที่บันทึกไว้ในเครื่องนี้' + (typeof at === 'number' ? ' (' + clock(at) + ')' : '') + ' — กด "ล้างที่กรอก" เพื่อเริ่มจากข้อมูลในระบบ');
   } else if (msg) {
-    say(hint);
+    say(STALE ? 'ข้อมูลรายงานในระบบเปลี่ยนหลังจากที่กรอกไว้ — แบบฟอร์มใช้ข้อมูลล่าสุดของระบบแล้ว' : hint);
   }
   drawSigChip();
   // ฟอนต์โหลดเสร็จทีหลัง (ขนาดตัวอักษรเปลี่ยน) → ตรวจว่าล้นหน้าอีกครั้ง

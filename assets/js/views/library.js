@@ -6,6 +6,8 @@ import { esc, fmt, icon, emptyState, toast, confirmBox, openModal, setBusy, file
 import { pageHead } from './common.js';
 import { FORMS, EGAT_ORIGINALS, DAILY_FORMS, openForm } from '../forms.js';
 import { preview } from './tab-docs.js';
+import { openDailyForm } from '../daily-pdf.js';
+import { openSignMaker } from '../sign.js';
 
 const R = globalThis.PTRules;
 const st = { kind: '', q: '', work: '' };
@@ -64,7 +66,9 @@ export function libraryBox({ use, category = '', workType = '', forms = [], titl
 export function bindLibraryBox(root, forms = []) {
   root.querySelectorAll('[data-libbox] [data-form]').forEach((b) => b.addEventListener('click', () => {
     const [k, , ctx] = forms[+b.dataset.form];
-    openForm(k, typeof ctx === 'function' ? ctx() : ctx || {});
+    const c = typeof ctx === 'function' ? ctx() : ctx || {};
+    if (k === 'sign') { openSignMaker(c.p || null); return; }
+    openForm(k, c);
   }));
   root.querySelectorAll('[data-libbox] [data-open]').forEach((b) => b.addEventListener('click', () => openLibItem(store.data.library.find((x) => x.id === b.dataset.open))));
 }
@@ -93,7 +97,7 @@ export function renderLibrary(el) {
       <button type="button" class="lib-form" data-print="${k}" title="เปิด ${esc(f.code)} ${esc(f.title)} — กรอกบนเว็บแล้วบันทึก PDF">
         <span class="lf-head"><span class="lib-code ${f.official ? 'is-official' : ''}" title="${esc(f.code)}">${esc(f.short || f.code)}</span><b>${esc(f.title)}</b></span>
         <span class="lf-use">${esc(f.use)}</span>
-        <span class="lf-foot"><small class="muted">ใช้ที่: ${esc(f.where)}</small><span class="lf-go">${icon('edit')}กรอก / PDF</span></span>
+        <span class="lf-foot"><small class="muted">ใช้ที่: ${esc(f.where)}</small><span class="lf-go">${f.maker ? `${icon('image')}ทำป้าย (PDF ขนาดจริง)` : `${icon('edit')}กรอก / PDF`}</span></span>
       </button>`).join('')}</div>
     <div class="lib-orig"><span class="lo-head">${icon('file')}ต้นฉบับ กฟผ. (PDF ไม่มีตรา CONTROLLED)</span>${EGAT_ORIGINALS.map((o) => `<a class="lo-link" href="${esc(o.href)}" target="_blank" rel="noopener" title="${esc(o.title)}">${icon('download')}<b>${esc(o.label)}</b><small>${esc(o.title)}</small></a>`).join('')}</div>
     <p class="hint">ทุกแบบกรอกบนเว็บได้เลย — คลิกช่องเพื่อพิมพ์ วันที่ตั้งเป็นวันนี้และคลิกเปลี่ยนได้ แล้วกด "บันทึก PDF / พิมพ์" · ระบบจำที่กรอกไว้ในเครื่องนี้ · แบบฟอร์มเหล่านี้เปิดได้จากจุดที่ใช้งานด้วย เช่น หน้าเรื่องขออนุมัติ (พิมพ์พร้อมผลการพิจารณา) รายงานประจำวัน และหน้าการประชุม</p>
@@ -157,9 +161,43 @@ export function renderLibrary(el) {
     const p = store.project(el.querySelector('#lb-p').value) || null;
     const k = b.dataset.print;
     const day = el.querySelector('#lb-d')?.value || store.thaiNow().date;
-    const dy = p && DAILY_FORMS.includes(k) ? (k === 'cdaily' ? store.dailyAt(p.id, day, 'contractor') || store.dailyAt(p.id, day) : store.dailyAt(p.id, day)) : null;
+    // 1.0.16 รายงานประจำวันของโครงการ: ฉบับเดียวกับในโครงการ หรือสำเนาใช้ภายนอก — ให้ผู้ใช้เลือก
+    if (p && (k === 'daily' || k === 'cdaily')) { chooseDailySource(p, k, day); return; }
+    // 1.0.17 ป้ายโครงการ: หน้าต่างทำป้าย (ข้อมูลจากโครงการ)
+    if (k === 'sign') { openSignMaker(p); return; }
+    if (k === 'pay' && p && !(p.installments || []).length) toast('โครงการนี้ยังไม่มีตารางงวดงาน — ใส่ได้ที่ ตั้งค่าโครงการ › งวดงานและแผนการเบิกจ่าย (ระบบจะคำนวณราคาต่องวดให้)', 'info', 7000);
+    const dy = p && DAILY_FORMS.includes(k) ? store.dailyAt(p.id, day) : null;
     openForm(k, { p, daily: dy, date: day, to: day });
   }));
+}
+
+/** 1.0.16 เปิด FM-002 / PT-F07 จากหน้าแบบฟอร์ม: รายงานของโครงการ (ฉบับเดียวกัน) · สำเนาใช้ภายนอก · แบบเปล่าหัวโครงการ */
+export function chooseDailySource(p, k, day) {
+  const kind = k === 'cdaily' ? 'contractor' : '';
+  const own = store.canSeeDaily(p) ? store.dailyAt(p.id, day, kind) : null;
+  const sup = k === 'cdaily' && !own && store.canSeeDaily(p) ? store.dailyAt(p.id, day, '') : null;
+  const src = own || sup;
+  const f = FORMS[k];
+  const canWrite = store.canWriteDaily(p, kind);
+  const dayTxt = fmt.dateLong(day);
+  const opt = (v, title, note, on, dis = false) => `<label class="check dsrc${dis ? ' is-off' : ''}"><input type="radio" name="dsrc" value="${v}"${on ? ' checked' : ''}${dis ? ' disabled' : ''}><span><b>${esc(title)}</b><small class="muted">${note}</small></span></label>`;
+  const editHref = `#/p/${encodeURIComponent(p.id)}/daily${kind ? '/c' : ''}/${/^\d{4}-\d{2}-\d{2}$/.test(day) ? day : store.thaiNow().date}/edit`;
+  const m = openModal({
+    title: `${f.short || f.code} — ${p.code ? `${p.code} ` : ''}${p.name}`,
+    body: `<div class="dsrc-list">
+      ${opt('linked', `รายงานของโครงการ วันที่ ${dayTxt}`, own
+        ? `ฉบับเดียวกับในหน้ารายงานประจำวันของโครงการ — ข้อมูล ร่างที่กรอก และไฟล์ PDF ชุดเดียวกัน${store.canWriteDaily(p, kind) ? ' · กด "บันทึกเข้าเอกสาร" ได้' : ''}`
+        : `ยังไม่มี${kind ? ' Daily Report ของผู้รับจ้าง' : 'รายงานประจำวัน'}ของวันนี้ในโครงการ${canWrite ? ` — <a href="${esc(editHref)}" data-close>บันทึกรายงานในโครงการ</a> แล้วแบบฟอร์มจะใช้ข้อมูลนั้น` : ''}`, !!own, !own)}
+      ${opt('copy', 'สำเนาสำหรับใช้ภายนอก', src ? `ดึงข้อมูล${sup ? 'จากรายงานของผู้ควบคุมงาน' : 'รายงาน'}มาใส่ แก้ได้อิสระ <b>ไม่บันทึกกลับเข้าโครงการ</b>` : 'ไม่มีรายงานของวันนี้ให้ดึงข้อมูล', !own && !!src, !src)}
+      ${opt('header', 'แบบเปล่า มีหัวกระดาษของโครงการ', 'ชื่องาน ผู้รับจ้าง สถานที่ — นอกนั้นกรอกเอง ไม่ผูกกับรายงานในระบบ', !src)}
+    </div>`,
+    footer: `<button class="btn" data-close>ยกเลิก</button><button class="btn btn-primary" data-go>${icon('edit')}เปิดแบบฟอร์ม</button>`,
+  });
+  m.el.querySelector('[data-go]').addEventListener('click', () => {
+    const mode = m.el.querySelector('[name="dsrc"]:checked')?.value || 'header';
+    m.close();
+    openDailyForm(p, k, { day, rec: mode === 'header' ? null : src, mode });
+  });
 }
 
 /** ฟอร์มเพิ่ม/แก้ไขเอกสารในคลัง (ผู้ดูแลระบบ) */

@@ -2,7 +2,7 @@
 // - บันทึกรายงานแล้วสร้างให้อัตโนมัติ (ลงลายมือชื่อที่จำไว้ในเครื่องได้)
 // - หรือเปิดแบบฟอร์ม ลงชื่อ/แก้ แล้วกด "บันทึกเข้าเอกสาร" ในหน้าต่างแบบฟอร์ม
 import { store, DAILY_DOC_CATEGORY } from './store.js';
-import { formHtml, FONTS_URL, FORMS, dailyPhotos } from './forms.js';
+import { formHtml, FONTS_URL, FORMS, dailyPhotos, openForm } from './forms.js';
 import { sheetsToPdf, sheetsToHtml, shrinkImage, blobToDataUrl } from './pdf.js';
 
 const R = globalThis.PTRules;
@@ -187,3 +187,82 @@ export async function saveFormWindowPdf(win, p, d, { onProgress } = {}) {
 }
 
 export { blobToDataUrl };
+
+// ---------- 1.0.16 แบบฟอร์มรายงานประจำวันฉบับเดียวกันทุกหน้า ----------
+/**
+ * ข้อมูลให้หน้าต่างแบบฟอร์มของรายงานประจำวัน — ใช้ทั้งในโครงการและหน้า "แบบฟอร์มและระเบียบ"
+ * mode: 'linked' = รายงานของโครงการ (ข้อมูล ร่างที่กรอก และไฟล์ PDF ชุดเดียวกัน บันทึกเข้าเอกสารได้ถ้ามีสิทธิ์)
+ *       'copy'   = สำเนาสำหรับใช้ภายนอก (ดึงข้อมูลรายงานมาใส่ แก้แยก ไม่บันทึกกลับเข้าโครงการ)
+ *       'header' = แบบเปล่า มีหัวกระดาษของโครงการ
+ */
+export function dailyFormCtx(p, form, { day = '', rec = null, mode = 'linked' } = {}) {
+  const date = day || rec?.date || store.thaiNow().date;
+  if (!p) return { date };
+  if (mode === 'header' || !rec) return { p, date, src: 'header' };
+  if (mode === 'copy' || dailyForm(rec) !== form) return { p, date, daily: rec, copy: true, src: 'copy' };
+  const ctx = { p, date, daily: rec, src: 'linked' };
+  if (store.canWriteDaily(p, R.dailyKind(rec))) ctx.saveDoc = (w, onProgress) => saveFormWindowPdf(w, p, rec, { onProgress });
+  return ctx;
+}
+export function openDailyForm(p, form, opts = {}) { return openForm(form, dailyFormCtx(p, form, opts)); }
+
+/** ไฟล์ PDF ของรายงานเก่ากว่าข้อมูลรายงาน (แก้รายงานหลังสร้างไฟล์) */
+export function dailyDocStale(d, docs = store.dailyDocs(d)) {
+  if (!d || !docs.length) return false;
+  const last = docs.map((f) => String(f.uploadedAt || '')).sort().pop();
+  return !!(d.updatedAt && last && String(d.updatedAt) > last);
+}
+
+/**
+ * ภาพแบบฟอร์ม (FM-002 / PT-F07) ของรายงานในหน้ารายงานประจำวัน — สร้างจากแบบฟอร์มเดียวกับหน้าต่างแบบฟอร์มและไฟล์ PDF
+ * กรอบไม่รันสคริปต์ (sandbox) ย่อให้พอดีความกว้าง · คืนฟังก์ชันเลิกติดตามขนาดจอ
+ */
+export function mountFormPreview(host, p, d) {
+  const form = dailyForm(d);
+  const fr = document.createElement('iframe');
+  fr.className = 'dy-pvframe';
+  fr.title = `แบบฟอร์ม ${FORMS[form].short || FORMS[form].code} ของรายงานวันที่ ${d.date}`;
+  fr.setAttribute('sandbox', 'allow-same-origin');
+  fr.setAttribute('scrolling', 'no');
+  fr.tabIndex = -1;
+  host.querySelectorAll('iframe').forEach((x) => x.remove());
+  host.insertBefore(fr, host.firstChild);
+  const doc = fr.contentDocument;
+  doc.open();
+  doc.write(formHtml(form, { p, daily: d, src: 'linked', today: store.thaiNow().date }, { preview: true }));
+  doc.close();
+  // รูปของรายงานในช่องภาพประกอบ
+  dailyPhotos(d).forEach(async ([i, f]) => {
+    try {
+      const u = await store.thumbUrl(f);
+      const cell = doc.querySelector(`.sheets [data-photo="${i}"]`);
+      if (!u || !cell || cell.querySelector('img') || !/^(blob:|data:image\/|https:)/.test(u)) return;
+      const img = doc.createElement('img');
+      img.alt = '';
+      img.src = u;
+      cell.insertBefore(img, cell.firstChild);
+      cell.classList.add('has-img');
+      fit();
+    } catch { /* ไม่มีรูปก็แสดงแบบฟอร์มได้ */ }
+  });
+  let W = 0;
+  function fit() {
+    const root = doc.documentElement;
+    if (!root || !host.isConnected) return;
+    W = Math.max(W, root.scrollWidth, 820);
+    const H = Math.max(root.scrollHeight, doc.body?.scrollHeight || 0);
+    const hw = host.clientWidth || W;
+    const k = Math.min(1, hw / W);
+    fr.style.width = `${k < 1 ? W : hw}px`; // จอกว้างกว่าแบบฟอร์ม → กรอบเต็มความกว้าง แบบฟอร์มอยู่กลาง
+    fr.style.height = `${H}px`;
+    fr.style.transform = `scale(${k})`;
+    host.style.height = `${Math.ceil(H * k)}px`;
+  }
+  fr.addEventListener('load', fit);
+  doc.fonts?.ready?.then(fit).catch(() => {});
+  setTimeout(fit, 50);
+  setTimeout(fit, 800);
+  const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => fit()) : null;
+  ro?.observe(host);
+  return () => ro?.disconnect();
+}

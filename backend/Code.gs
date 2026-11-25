@@ -56,7 +56,7 @@ var CONFIG = {
   MAIL_RESERVE: 15,
 };
 
-var VERSION = '1.0.15';
+var VERSION = '1.0.17';
 var LIBRARY_FOLDER = 'คลังแบบฟอร์มและระเบียบ';
 var DAILY_FILE_CATEGORY = 'รูปถ่ายความคืบหน้า';
 var SUB_FILE_CATEGORY = 'เอกสารแนบเรื่องขออนุมัติ';
@@ -67,7 +67,7 @@ var SCHEMA = {
     'startDate', 'endDate', 'contractValue', 'description', 'progressMethod', 'priceBasis', 'allowOver', 'planMode',
     'planPoints', 'docCategories', 'folderId', 'folderUrl', 'createdBy', 'createdAt', 'updatedAt',
     'ownerEmail', 'ownerName', 'ownerRole', 'members', 'rolePerms', 'workflow', 'slaWarnDays', 'slaLateDays', 'ownerSeat',
-    'orgSection', 'orgDivision', 'orgDept', 'pmOrder', 'contractorRep', 'contractDate'],
+    'orgSection', 'orgDivision', 'orgDept', 'pmOrder', 'contractorRep', 'contractDate', 'installments', 'sign'],
   BOQ: ['id', 'projectId', 'group', 'no', 'desc', 'unit', 'qty', 'mat', 'labor', 'weight', 'order', 'ps', 'pe', 'auto'],
   Updates: ['id', 'projectId', 'date', 'week', 'entries', 'manualPct', 'note', 'issues', 'createdBy', 'createdAt', 'updatedAt', 'createdByEmail'],
   Files: ['id', 'projectId', 'category', 'name', 'mime', 'size', 'driveId', 'url', 'note', 'updateId', 'uploadedBy', 'uploadedAt', 'subId', 'uploadedByEmail'],
@@ -88,7 +88,7 @@ var SCHEMA = {
   MailLog: ['at', 'to', 'subject', 'event', 'projectId', 'ok', 'error'],
 };
 var JSON_FIELDS = {
-  Projects: ['tags', 'planPoints', 'docCategories', 'members', 'rolePerms', 'workflow'],
+  Projects: ['tags', 'planPoints', 'docCategories', 'members', 'rolePerms', 'workflow', 'installments', 'sign'],
   Updates: ['entries'], Settings: ['value'], Submissions: ['files', 'steps', 'history', 'vote', 'form'],
   Messages: ['files'], Meetings: ['attendees', 'actions'],
   Daily: ['weather', 'manpower', 'equipment', 'stoppage', 'files', 'captions', 'request', 'rows'], Library: ['uses', 'file'],
@@ -2575,6 +2575,39 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
   /** ตัดข้อความยาวเกิน (กันข้อมูลล้นช่องของ Google Sheet ที่เก็บได้ราว 50,000 ตัวอักษร) */
   var MAX_TITLE = 200, MAX_DETAIL = 8000, MAX_COMMENT = 3000;
   function cut(s, n) { s = String(s == null ? '' : s).trim(); return s.length > n ? s.slice(0, n) : s; }
+
+  // ---------- 1.0.16 ข้อความที่พิมพ์ผิดแป้น (ลืมสลับภาษา) ----------
+  // แป้นเกษมณี: อักษรไทย → ปุ่มภาษาอังกฤษตำแหน่งเดียวกัน (ไม่กด Shift / กด Shift)
+  var TH_KEYS = 'ๅ/-ภถุึคตจขชๆไำพะัีรนยบลฃฟหกดเ้่าสวงผปแอิืทมใฝ';
+  var EN_KEYS = '1234567890-=qwertyuiop[]\\asdfghjkl;\'zxcvbnm,./';
+  var TH_SHIFT = '+๑๒๓๔ู฿๕๖๗๘๙๐"ฎฑธํ๊ณฯญฐ,ฅฤฆฏโฌ็๋ษศซ.()ฉฮฺ์?ฒฬฦ';
+  var EN_SHIFT = '!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:"ZXCVBNM<>?';
+  /** สระ/วรรณยุกต์ที่ต้องตามหลังพยัญชนะ */
+  function thaiMark(ch) { var c = ch.charCodeAt(0); return c === 0x0E31 || (c >= 0x0E34 && c <= 0x0E3A) || (c >= 0x0E47 && c <= 0x0E4E); }
+  function thaiCons(ch) { var c = ch.charCodeAt(0); return c >= 0x0E01 && c <= 0x0E2E; }
+  /** ข้อความไทยที่สะกดไม่ได้ (สระ/วรรณยุกต์ไม่มีพยัญชนะนำ) — มักเกิดจากพิมพ์ภาษาอังกฤษบนแป้นไทย */
+  function looksMistyped(text) {
+    var t = String(text || '').trim();
+    if (!/[\u0E00-\u0E7F]/.test(t)) return false;
+    var prev = '';
+    for (var i = 0; i < t.length; i++) {
+      var ch = t.charAt(i);
+      if (thaiMark(ch) && !(prev && (thaiCons(prev) || thaiMark(prev)))) return true;
+      if (/[เแโใไ]/.test(prev) && !thaiCons(ch)) return true;
+      prev = ch;
+    }
+    return /[เแโใไ]$/.test(t);
+  }
+  /** แปลงข้อความที่พิมพ์บนแป้นไทยกลับเป็นปุ่มภาษาอังกฤษ (ใช้กับรหัส เช่น รหัสโครงการ) */
+  function thaiKeysToEn(text) {
+    return String(text || '').split('').map(function (ch) {
+      if (!/[\u0E00-\u0E7F]/.test(ch)) return ch; // ตัวอักษรอังกฤษ ตัวเลข และเครื่องหมายเดิมคงไว้
+      var i = TH_KEYS.indexOf(ch);
+      if (i >= 0) return EN_KEYS.charAt(i);
+      i = TH_SHIFT.indexOf(ch);
+      return i >= 0 ? EN_SHIFT.charAt(i) : ch;
+    }).join('');
+  }
   /** ข้อผิดพลาดพร้อมรหัส: forbidden = ไม่มีสิทธิ์, invalid = ข้อมูลไม่ถูกต้อง */
   function fail(msg, code) { var e = new Error(msg); e.code = code; return e; }
 
@@ -3096,7 +3129,38 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
       if (!isFinite(v) || v < 0) throw fail('มูลค่าสัญญาต้องเป็นตัวเลขที่ไม่ติดลบ', 'invalid');
       p.contractValue = v;
     }
+    // 1.0.17 งวดงาน/แผนการเบิกจ่าย และข้อมูลป้ายโครงการ
+    if (p.installments != null) p.installments = cleanInstallments(p.installments);
+    if (p.sign != null) p.sign = cleanSign(p.sign);
     return p;
+  }
+  // ---------- 1.0.17 งวดงาน (ใบส่งงวดงาน F-04-03-09) และป้ายโครงการ ----------
+  var INSTALL_MAX = 60;
+  function pctNum(v) {
+    if (v === '' || v == null) return '';
+    var n = Number(String(v).replace(/[,%\s]/g, ''));
+    return isFinite(n) ? Math.round(Math.min(100, Math.max(0, n)) * 10000) / 10000 : '';
+  }
+  /** [{ desc, workPct, payPct, due }] — งวดที่ = ลำดับในรายการ · due = วันที่ผลงานถึงเกณฑ์ (ISO) */
+  function cleanInstallments(list) {
+    if (!Array.isArray(list)) return [];
+    return list.slice(0, INSTALL_MAX).filter(isPlainObj).map(function (x) {
+      return { desc: cut(x.desc, 300), workPct: pctNum(x.workPct), payPct: pctNum(x.payPct), due: validIsoDate(x.due) ? x.due : '' };
+    }).filter(function (x) { return x.desc || x.workPct !== '' || x.payPct !== '' || x.due; });
+  }
+  var SIGN_KEYS = ['by', 'addr', 'tel', 'rep', 'repTel', 'eng', 'engTel', 'safety', 'safetyTel', 'sup1', 'sup1Tel', 'sup2', 'sup2Tel', 'sup3', 'sup3Tel', 'officeTel', 'officeFax', 'size'];
+  var SIGN_SIZES = { s: { w: 2400, h: 1200, label: '1.20 × 2.40 เมตร (ราคางานไม่เกิน 50 ล้านบาท)' }, l: { w: 4800, h: 2400, label: '2.40 × 4.80 เมตร (ราคางานเกิน 50 ล้านบาท)' }, i: { w: 1200, h: 600, label: '0.60 × 1.20 เมตร (งานก่อสร้างภายในอาคาร)' } };
+  function cleanSign(o) {
+    var out = {};
+    if (!isPlainObj(o)) return out;
+    SIGN_KEYS.forEach(function (k) { if (o[k] != null && o[k] !== '') out[k] = cut(o[k], k === 'size' ? 1 : 200); });
+    if (out.size && !SIGN_SIZES[out.size]) delete out.size;
+    return out;
+  }
+  /** ขนาดป้ายตามหมายเหตุในแบบ: ราคางาน < 50 ล้านบาท 1.20×2.40 ม. · > 50 ล้านบาท 2.40×4.80 ม. */
+  function signSizeFor(p) {
+    if (p && p.sign && SIGN_SIZES[p.sign.size]) return p.sign.size;
+    return p && Number(p.contractValue) > 50000000 ? 'l' : 's';
   }
   /** ค่ากลาง: จำนวนวัน/เปอร์เซ็นต์ต้องเป็นตัวเลขบวก */
   function checkSettings(s) {
@@ -3928,12 +3992,13 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     var p = c.p, code = p.code ? '[' + p.code + '] ' : '';
     var pend = pendingLines(p, c.subs || [], c.settings, c.nowIso);
     var overdue = (c.reqs || []).map(function (r) { return { r: r, st: reqStatus(r, p, c.subs || [], c.today) }; }).filter(function (x) { return x.st.overdueDays > 0; });
-    var body = c.daily ? dailyHtml(c.daily) : '<p style="background:#FCEFD8;padding:10px 14px;border-radius:6px;color:#8A5D00"><b>ยังไม่ได้บันทึกรายงานประจำวันของวันนี้</b> — ผู้ควบคุมงานบันทึกได้ที่แท็บ "บันทึกความคืบหน้า → รายงานประจำวัน"</p>';
+    var body = c.daily ? dailyHtml(c.daily) : '<p style="background:#FCEFD8;padding:10px 14px;border-radius:6px;color:#8A5D00"><b>ยังไม่ได้บันทึกรายงานประจำวันของวันนี้</b> — ผู้ควบคุมงานบันทึกได้ที่แท็บ "รายงานประจำวัน" ของโครงการ</p>';
     body += box('เรื่องที่รอพิจารณา (' + pend.length + ')', ul(pend));
     if (overdue.length) body += box('เอกสารที่ต้องส่งเลยกำหนด', ul(overdue.map(function (x) { return esc(x.r.title) + ' — เลยกำหนด ' + x.st.overdueDays + ' วัน'; })));
     return {
       subject: code + 'รายงานประจำวัน ' + thaiDateTime(c.today, false) + ' — ' + p.name + (c.daily ? '' : ' (ยังไม่ได้บันทึก)'),
-      html: layout('รายงานประจำวัน', '', [['โครงการ', esc(p.name)], ['วันที่', esc(thaiDateTime(c.today, false))], ['ผู้บันทึก', esc(c.daily ? c.daily.createdBy || c.daily.createdByEmail : '–')]], body, linkFor(c.appUrl, p, '/daily'), 'เปิดรายงานประจำวัน'),
+      html: layout('รายงานประจำวัน', '', [['โครงการ', esc((p.code ? p.code + ' ' : '') + p.name)], ['วันที่', esc(thaiDateTime(c.today, false))]].concat(c.daily ? [['ผู้บันทึก', esc(c.daily.createdBy || c.daily.createdByEmail || '')]] : []), body,
+        c.daily ? linkFor(c.appUrl, p, '/daily/' + c.daily.date) : linkFor(c.appUrl, p, '/daily/' + c.today + '/edit'), c.daily ? 'เปิดรายงานประจำวัน' : 'บันทึกรายงานประจำวัน'),
     };
   }
   /** รายงานประจำสัปดาห์ — c = { p, progress:{actual, plan, prevActual}, daily:[], subs, reqs, meetings, updates:[], settings, from, to, nowIso, appUrl } */
@@ -4226,7 +4291,8 @@ return { METHODS: METHODS, PRICE_BASIS: PRICE_BASIS, PLAN_MODES: PLAN_MODES, STA
     DEFAULT_ROLE_PERMS: DEFAULT_ROLE_PERMS, NOTIFY: NOTIFY, DEFAULT_NOTIFY: DEFAULT_NOTIFY,
     DEFAULT_WORKFLOWS: DEFAULT_WORKFLOWS, REQUIRED_TEMPLATE: REQUIRED_TEMPLATE, DUE_TYPES: DUE_TYPES,
     SUB_STATUS: SUB_STATUS, ACTIONS: ACTIONS,
-    norm: norm, validEmail: validEmail, listHas: listHas, parseList: parseList, subNo: subNo,
+    norm: norm, validEmail: validEmail, looksMistyped: looksMistyped, thaiKeysToEn: thaiKeysToEn,
+    INSTALL_MAX: INSTALL_MAX, cleanInstallments: cleanInstallments, SIGN_KEYS: SIGN_KEYS, SIGN_SIZES: SIGN_SIZES, cleanSign: cleanSign, signSizeFor: signSizeFor, listHas: listHas, parseList: parseList, subNo: subNo,
     members: members, roleOf: roleOf, memberName: memberName, permsOf: permsOf, isOwner: isOwner,
     canView: canView, can: can, canCreateProject: canCreateProject,
     workflows: workflows, workflowFor: workflowFor, stepLabel: stepLabel, approversFor: approversFor, ownerActsAs: ownerActsAs,

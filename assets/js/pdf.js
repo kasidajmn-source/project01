@@ -231,9 +231,11 @@ export async function sheetsToPdf(doc, opts = {}) {
   for (const sheet of sheets) {
     n++;
     onProgress?.(n, sheets.length);
-    const W = Math.round(sheet.offsetWidth || 210 * PX_MM);
-    const H = Math.max(1, Math.ceil(sheet.scrollHeight || sheet.offsetHeight || 297 * PX_MM));
-    const pageH = Math.round(W * (A4H / A4W));
+    // 1.0.17 หน้าแนวนอน (แบบ F-04-03-07/08/09): <div class="sheet land">
+    const land = sheet.classList.contains('land');
+    const W = Math.round(sheet.offsetWidth || (land ? 297 : 210) * PX_MM);
+    const H = Math.max(1, Math.ceil(sheet.scrollHeight || sheet.offsetHeight || (land ? 210 : 297) * PX_MM));
+    const pageH = Math.round(W * (land ? A4W / A4H : A4H / A4W));
     const clone = sheet.cloneNode(true);
     cleanClone(clone);
     await sheetImages(sheet, clone, resolveImage);
@@ -253,7 +255,7 @@ export async function sheetsToPdf(doc, opts = {}) {
     const cuts = slices(H, pageH, Math.round(12 * PX_MM), breakPoints(sheet));
     for (const sl of cuts) {
       const jpg = await renderSlice(url, W, H, sheet, sl, pageH, scale);
-      pages.push(jpg);
+      pages.push(land ? { src: jpg, w: A4H, h: A4W } : jpg);
     }
   }
   return buildPdf(pages, { title });
@@ -291,41 +293,82 @@ function pdfText(s) {
   }
   return `<${hex.toUpperCase()}>`;
 }
-/** ภาพ JPEG (data URL) หน้าละภาพ → PDF A4 */
-export function buildPdf(jpegs, { title = '' } = {}) {
+/**
+ * หน้าเอกสาร → ไฟล์ PDF
+ * pages: data URL ของ JPEG (เต็มหน้า A4 แนวตั้ง) หรือ { src, w, h } (JPEG เต็มหน้าขนาด w×h point)
+ *        หรือ { w, h, images: [{ x, y, w, h, jpeg?: Uint8Array, rgb?: { bytes (zlib), width, height } }] } (1.0.17 ป้ายโครงการ: หลายภาพต่อหน้า)
+ */
+export function buildPdf(pages, { title = '' } = {}) {
   const enc = new TextEncoder();
   const parts = [];
   const offsets = [];
   let pos = 0;
   const push = (x) => { const b = typeof x === 'string' ? enc.encode(x) : x; parts.push(b); pos += b.length; };
   const obj = (id, body) => { offsets[id] = pos; push(`${id} 0 obj\n`); body(); push('\nendobj\n'); };
+  const norm = pages.map((pg) => {
+    if (typeof pg === 'string') pg = { src: pg, w: A4W, h: A4H };
+    if (pg.src) {
+      const bytes = dataUrlBytes(pg.src);
+      return { w: pg.w, h: pg.h, images: [{ x: 0, y: 0, w: pg.w, h: pg.h, jpeg: bytes }] };
+    }
+    return pg;
+  });
   push('%PDF-1.4\n');
   push(new Uint8Array([0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A]));
-  const N = jpegs.length;
-  const pageId = (i) => 4 + i * 3;
+  // หมายเลขอ็อบเจ็กต์: 1 แคตตาล็อก · 2 รายการหน้า · 3 ข้อมูลเอกสาร · ต่อด้วย [หน้า, เนื้อหา, ภาพ…] ของแต่ละหน้า
+  const ids = [];
+  let next = 4;
+  norm.forEach((pg) => { ids.push(next); next += 2 + pg.images.length; });
+  const N = norm.length;
   obj(1, () => push('<< /Type /Catalog /Pages 2 0 R >>'));
-  obj(2, () => push(`<< /Type /Pages /Count ${N} /Kids [${jpegs.map((_, i) => `${pageId(i)} 0 R`).join(' ')}] >>`));
+  obj(2, () => push(`<< /Type /Pages /Count ${N} /Kids [${ids.map((id) => `${id} 0 R`).join(' ')}] >>`));
   obj(3, () => push(`<< /Title ${pdfText(title)} /Producer ${pdfText('ระบบติดตามโครงการ')} /CreationDate (D:${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)}Z) >>`));
-  jpegs.forEach((u, i) => {
-    const bytes = dataUrlBytes(u);
-    const { w, h } = jpegSize(bytes);
-    const pid = pageId(i);
-    const content = `q ${A4W} 0 0 ${A4H} 0 0 cm /Im0 Do Q`;
-    obj(pid, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${A4W} ${A4H}] /Resources << /XObject << /Im0 ${pid + 2} 0 R >> >> /Contents ${pid + 1} 0 R >>`));
-    obj(pid + 1, () => { push(`<< /Length ${content.length} >>\nstream\n`); push(content); push('\nendstream'); });
-    obj(pid + 2, () => {
-      push(`<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${bytes.length} >>\nstream\n`);
-      push(bytes);
+  const f = (n) => (Math.round(n * 1000) / 1000).toString();
+  norm.forEach((pg, i) => {
+    const pid = ids[i];
+    const names = pg.images.map((_, k) => `/Im${k} ${pid + 2 + k} 0 R`).join(' ');
+    const content = pg.images.map((im, k) => `q ${f(im.w)} 0 0 ${f(im.h)} ${f(im.x)} ${f(pg.h - im.y - im.h)} cm /Im${k} Do Q`).join('\n');
+    obj(pid, () => push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${f(pg.w)} ${f(pg.h)}] /Resources << /XObject << ${names} >> >> /Contents ${pid + 1} 0 R >>`));
+    obj(pid + 1, () => { push(`<< /Length ${enc.encode(content).length} >>\nstream\n`); push(content); push('\nendstream'); });
+    pg.images.forEach((im, k) => obj(pid + 2 + k, () => {
+      if (im.jpeg) {
+        const { w, h } = jpegSize(im.jpeg);
+        push(`<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.jpeg.length} >>\nstream\n`);
+        push(im.jpeg);
+      } else {
+        push(`<< /Type /XObject /Subtype /Image /Width ${im.rgb.width} /Height ${im.rgb.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${im.rgb.bytes.length} >>\nstream\n`);
+        push(im.rgb.bytes);
+      }
       push('\nendstream');
-    });
+    }));
   });
-  const total = 4 + N * 3;
+  const total = next;
   const xref = pos;
   let x = `xref\n0 ${total}\n0000000000 65535 f \n`;
   for (let i = 1; i < total; i++) x += `${String(offsets[i] || 0).padStart(10, '0')} 00000 n \n`;
   push(x);
   push(`trailer\n<< /Size ${total} /Root 1 0 R /Info 3 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
   return new Blob(parts, { type: 'application/pdf' });
+}
+
+/** 1.0.17 พิกเซล RGBA ของ canvas → RGB บีบอัดแบบ zlib (FlateDecode) — ไม่มี CompressionStream = null */
+export async function canvasRgbFlate(canvas) {
+  if (typeof CompressionStream !== 'function') return null;
+  const { width, height } = canvas;
+  const g = canvas.getContext('2d');
+  const cs = new CompressionStream('deflate');
+  const w = cs.writable.getWriter();
+  const out = new Response(cs.readable).arrayBuffer();
+  const band = 256; // ทีละแถบ ไม่ใช้หน่วยความจำมากเกิน
+  for (let y = 0; y < height; y += band) {
+    const h = Math.min(band, height - y);
+    const px = g.getImageData(0, y, width, h).data;
+    const rgb = new Uint8Array(width * h * 3);
+    for (let i = 0, j = 0; i < px.length; i += 4, j += 3) { rgb[j] = px[i]; rgb[j + 1] = px[i + 1]; rgb[j + 2] = px[i + 2]; }
+    await w.write(rgb);
+  }
+  await w.close();
+  return { bytes: new Uint8Array(await out), width, height };
 }
 
 /** สำรอง: หน้าแบบฟอร์มเป็นไฟล์ HTML ไฟล์เดียว (รูปฝังในไฟล์ เปิดแล้วสั่งพิมพ์เป็น PDF ได้) */

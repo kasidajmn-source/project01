@@ -20,7 +20,10 @@ export function renderOverview(el, { p, a }) {
   const catCount = Object.create(null); // ชื่อหมวดมาจากผู้ใช้
   for (const f of files) catCount[f.category || 'อื่นๆ'] = (catCount[f.category || 'อื่นๆ'] || 0) + 1;
 
+  // 1.0.16 รหัสโครงการพิมพ์ผิดแป้น → อ่านไม่ออกในหัวอีเมล/ชื่อไฟล์
+  const codeBad = R.looksMistyped(p.code) && store.can(p, 'editProject');
   el.innerHTML = `
+  ${codeBad ? `<p class="notice notice-warn ov-codefix">${icon('alert')}<span>รหัสโครงการ "<b>${esc(p.code)}</b>" อ่านไม่ออก (น่าจะพิมพ์ตอนแป้นเป็นภาษาไทย) และไปแสดงในหัวอีเมลทุกฉบับ — <a href="#/p/${pid}/settings">แก้ที่ตั้งค่าโครงการ</a> (เช่น ${esc(R.thaiKeysToEn(p.code).toUpperCase())})</span></p>` : ''}
   <div class="ov-grid">
     <section class="panel ov-chart">
       <header class="panel-head">

@@ -237,7 +237,7 @@ function renderDetail(el, ctx, id) {
         ? `<p class="notice">${icon('calendar')}<span><b>อนุมัติขยายเวลา/เปลี่ยนแปลงงานแล้ว</b> — ระบบไม่เปลี่ยนสัญญาให้เอง ปรับ <b>วันสิ้นสุดสัญญา</b> หรือ <b>มูลค่าสัญญา</b> ตามที่อนุมัติ เพื่อให้แผนงาน S-Curve และวันคงเหลือถูกต้อง
           <a class="btn btn-sm" href="#/p/${pid}/settings">${icon('edit')}แก้ข้อมูลสัญญา</a></span></p>` : ''}
       <section class="panel">
-        <header class="panel-head"><h2>ขั้นตอนการพิจารณา</h2><span class="ph-acts">${/วัสดุ/.test(sub.category || '') ? `<button type="button" class="btn btn-sm" data-act="fm001" title="แบบ FM-001/QP-CMD-MS-005 รายละเอียดผลการตรวจวัสดุก่อสร้าง — กรอกข้อมูลโครงการและวัสดุให้แล้ว">${icon('print')}ผลการตรวจวัสดุ FM-001</button>` : ''}<button type="button" class="btn btn-sm" data-act="f01" title="หนังสือขออนุมัติ บันทึกการขออนุมัติ/ผลการตรวจสอบ และผลการพิจารณาทุกขั้น — กรอกเพิ่มบนเว็บแล้วบันทึก PDF ได้">${icon('print')}หนังสือขออนุมัติ PT-F01</button></span></header>
+        <header class="panel-head"><h2>ขั้นตอนการพิจารณา</h2><span class="ph-acts">${annexBtns(sub)}${/วัสดุ/.test(sub.category || '') ? `<button type="button" class="btn btn-sm" data-act="fm001" title="แบบ FM-001/QP-CMD-MS-005 รายละเอียดผลการตรวจวัสดุก่อสร้าง — กรอกข้อมูลโครงการและวัสดุให้แล้ว">${icon('print')}ผลการตรวจวัสดุ FM-001</button>` : ''}<button type="button" class="btn btn-sm" data-act="f01" title="หนังสือขออนุมัติ บันทึกการขออนุมัติ/ผลการตรวจสอบ และผลการพิจารณาทุกขั้น — กรอกเพิ่มบนเว็บแล้วบันทึก PDF ได้">${icon('print')}หนังสือขออนุมัติ PT-F01</button></span></header>
         <ol class="stepper">${sub.steps.map((x, i) => {
           const t = stepState(x, i);
           return `<li class="sp-${t.cls}"><span class="sp-ic">${icon(t.ic)}</span>
@@ -326,6 +326,11 @@ function renderDetail(el, ctx, id) {
   }));
   el.querySelector('[data-act="f01"]')?.addEventListener('click', () => openForm('sub', { p, sub }));
   el.querySelector('[data-act="fm001"]')?.addEventListener('click', () => openForm('material', { p, sub }));
+  // 1.0.17 แบบผนวกท้ายสัญญาตามหมวด/ชื่อเรื่อง
+  el.querySelectorAll('[data-annex]').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.annex;
+    openForm(k, k === 'pay' ? { p, inst: instOf(sub) } : { p });
+  }));
   const drops = {};
   for (const k of ['d', 'r', 'c']) if (el.querySelector(`#${k}-drop`)) drops[k] = bindDrop(el, k);
   const readRf = bindSubForm(el, 'r');
@@ -555,7 +560,8 @@ function renderNew(el, ctx) {
       return `${i ? `<span class="flow-arrow">${icon('chevR')}</span>` : ''}<span class="flow-step"><b>${i + 1}. ${esc(s.label)}</b><small>ภายใน ${esc(s.days)} วัน${who.length ? ` · ${esc(who.join(', '))}` : ''}</small></span>`;
     }).join('')}</div>`;
     const rc = R.recipients(p, 'submitted', fake, me.email);
-    const forms = [['sub', 'หนังสือขออนุมัติ (แบบเปล่า)', { p }], ...(/วัสดุ/.test(wf.name) ? [['material', 'ผลการตรวจวัสดุก่อสร้าง FM-001 (แบบเปล่า)', { p }]] : [])];
+    const forms = [['sub', 'หนังสือขออนุมัติ (แบบเปล่า)', { p }], ...(/วัสดุ/.test(wf.name) ? [['material', 'ผลการตรวจวัสดุก่อสร้าง FM-001 (แบบเปล่า)', { p }]] : []),
+      ...annexFor(wf.name, '').map(([k, label]) => [k, label, { p }])];
     const lib = el.querySelector('#nf-lib');
     lib.innerHTML = libraryBox({ use: 'sub', category: wf.name, workType: p.type, forms, title: `แบบฟอร์มและระเบียบสำหรับ "${wf.name}"` });
     bindLibraryBox(lib, forms);
@@ -603,6 +609,29 @@ function renderNew(el, ctx) {
 // =============================================================
 // รายการเอกสารที่ต้องส่งตามสัญญา
 // =============================================================
+/** 1.0.17 แบบผนวกท้ายสัญญาที่เกี่ยวกับเรื่องขออนุมัติ: [[แบบ, ชื่อปุ่ม]] */
+function annexFor(category, title) {
+  const t = `${category || ''} ${title || ''}`;
+  const out = [];
+  if (/แผนงาน|แผนการทำงาน|work schedule/i.test(t) && !/ปลอดภัย|safety/i.test(title || '')) out.push(['plan', 'ตารางแผนงานก่อสร้าง F-04-03-07']);
+  if (/ปลอดภัย|safety/i.test(t) || (/แผนงาน/.test(category || '') && !title)) out.push(['safety', 'ตารางแผนงานความปลอดภัย F-04-03-08']);
+  if (/งวดงาน|ตรวจรับ|ส่งมอบ|เบิก/.test(t)) out.push(['pay', 'ใบส่งงวดงาน F-04-03-09']);
+  if (/วิศวกร|สถาปนิก|บุคลากร/.test(t) || (/^อื่น/.test(category || '') && !title)) out.push(['engineer', 'หนังสือรับรองวิศวกร/สถาปนิก']);
+  return out;
+}
+const instOf = (sub) => { const m = /งวด(?:ที่)?\s*(\d{1,2})/.exec(sub?.title || ''); return m ? +m[1] : null; };
+function annexBtns(sub) {
+  return annexFor(sub.category, sub.title).map(([k, label]) => `<button type="button" class="btn btn-sm" data-annex="${k}" title="เปิดแบบ ${esc(label)} — ข้อมูลโครงการใส่ให้แล้ว">${icon('print')}${esc(label.replace(/ F-04-03-0\d$/, ''))}</button>`).join('');
+}
+/** แบบฟอร์มสำหรับเอกสารที่ต้องส่งตามสัญญา */
+const reqForms = (p) => [
+  ['plan', 'ตารางแผนงานก่อสร้าง (F-04-03-07)', { p }],
+  ['safety', 'ตารางแผนงานความปลอดภัย (F-04-03-08)', { p }],
+  ['engineer', 'หนังสือรับรองวิศวกร/สถาปนิก', { p }],
+  ['sign', 'ป้ายแสดงรายละเอียดงานก่อสร้าง', { p }],
+  ['pay', 'ใบส่งงวดงาน (F-04-03-09)', { p }],
+];
+
 function renderRequired(el, ctx) {
   const { p } = ctx;
   const pid = encodeURIComponent(p.id);
@@ -662,7 +691,7 @@ function renderRequired(el, ctx) {
     <div class="tb-info">${p.startDate ? `เริ่มสัญญา ${fmt.date(p.startDate)}` : '<span class="is-bad">ยังไม่ได้ระบุวันเริ่มสัญญา</span>'} <span class="sep"></span> สิ้นสุด ${fmt.date(p.endDate)}</div>
     <div class="tb-actions">${editBtn}</div>
   </div>
-  ${libraryBox({ use: 'required', workType: p.type, title: 'แบบฟอร์มสำหรับเอกสารที่ต้องส่ง' })}
+  ${libraryBox({ use: 'required', workType: p.type, title: 'แบบฟอร์มสำหรับเอกสารที่ต้องส่ง', forms: reqForms(p) })}
   <section class="panel panel-flush">
     <div class="table-wrap">
       <table class="boq req-table">
@@ -685,7 +714,7 @@ function renderRequired(el, ctx) {
   </section>
   <p class="hint">"ส่งเมื่อ" นับจากการส่งครั้งแรก ถ้าไม่ผ่านแล้วส่งใหม่ยังนับวันที่ส่งครั้งแรก · ${store.serverRules ? 'ระบบส่งอีเมลเตือนผู้รับจ้างอัตโนมัติก่อนครบกำหนด 7, 3, 1 วัน วันครบกำหนด และเมื่อเลยกำหนด' : 'อีเมลเตือนผู้รับจ้างก่อนครบกำหนด/เลยกำหนด ส่งเมื่อผู้ดูแลระบบกด "ส่งอีเมลเตือนงานค้าง" (หน้าตั้งค่า › อีเมลอัตโนมัติ)'}</p>`;
   el.querySelector('[data-act="edit"]')?.addEventListener('click', () => startReqEdit(el, ctx));
-  bindLibraryBox(el);
+  bindLibraryBox(el, reqForms(p));
 }
 
 function startReqEdit(el, ctx) {

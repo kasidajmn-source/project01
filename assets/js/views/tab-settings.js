@@ -4,6 +4,9 @@ import { METHODS, PRICE_BASIS, PLAN_MODES, planSeries, num, hasPlan } from '../c
 import { esc, icon, toast, confirmBox, setBusy, guard, emptyState, safeUrl } from '../ui.js';
 import { projectFieldsHTML, bindDateSync, readProjectFields, validateProject, rememberType } from './project-form.js';
 import { mountSCurve } from '../charts.js';
+import { openSignMaker } from '../sign.js';
+
+const R = globalThis.PTRules;
 
 export function renderProjectSettings(el, ctx) {
   const { p } = ctx;
@@ -18,12 +21,13 @@ export function renderProjectSettings(el, ctx) {
     bindDelete(el, p);
     return;
   }
-  const d = { ...p, planPoints: [...(p.planPoints || [])], docCategories: [...(p.docCategories || [])] };
+  const d = { ...p, planPoints: [...(p.planPoints || [])], docCategories: [...(p.docCategories || [])], installments: (p.installments || []).map((x) => ({ ...x })) };
+  const instOld = store.mode === 'gas' && store.serverOutdated('1.0.17');
 
   el.innerHTML = `
   <form class="settings" id="ps" novalidate>
     <section class="panel">
-      <header class="panel-head"><h2>ข้อมูลโครงการ</h2></header>
+      <header class="panel-head"><h2>ข้อมูลโครงการ</h2><button type="button" class="btn btn-sm" data-act="sign" title="ป้ายแสดงรายละเอียดงานก่อสร้าง — ไฟล์ขนาดจริงส่งร้านทำป้าย">${icon('image')}ป้ายโครงการ</button></header>
       ${projectFieldsHTML(d, { full: true })}
     </section>
 
@@ -50,6 +54,13 @@ export function renderProjectSettings(el, ctx) {
       </div>
       <div id="pp-box"></div>
       <div id="pp-chart" class="pp-chart"></div>
+    </section>
+
+    <section class="panel" id="inst-panel">
+      <header class="panel-head"><h2>งวดงานและแผนการเบิกจ่าย</h2></header>
+      ${instOld ? `<p class="notice notice-warn">${icon('alert')}<span>Code.gs ยังเป็นเวอร์ชัน ${esc(store.meta.version || 'เก่า')} — ต้องอัปเดต Code.gs เป็น 1.0.17 ก่อน จึงจะบันทึกงวดงานได้</span></p>` : ''}
+      <p class="hint">ใช้ในใบส่งงวดงาน (F-04-03-09): ราคาต่องวด = มูลค่าสัญญา × ร้อยละการเบิก (ว่าง = เท่ากับร้อยละของงาน) · วันที่ = วันที่ผลงานต้องถึงเกณฑ์ของงวด</p>
+      <div id="inst-box"></div>
     </section>
 
     <section class="panel">
@@ -125,6 +136,56 @@ export function renderProjectSettings(el, ctx) {
   form.elements.endDate.addEventListener('change', drawChart);
   drawPlan();
 
+  // ---------- 1.0.17 งวดงาน ----------
+  const money = (v) => (+v || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const drawInst = () => {
+    const box = el.querySelector('#inst-box');
+    const cv = num(form.elements.contractValue?.value ?? d.contractValue);
+    const rows = d.installments;
+    const payOf = (x) => (x.payPct !== '' && x.payPct != null ? num(x.payPct) : num(x.workPct));
+    const sumW = rows.reduce((a, x) => a + num(x.workPct), 0);
+    const sumP = rows.reduce((a, x) => a + payOf(x), 0);
+    let acc = 0;
+    box.innerHTML = `${rows.length ? `<div class="table-wrap"><table class="pp inst"><thead><tr><th>งวดที่</th><th>รายละเอียดงานของงวด</th><th class="r">ร้อยละของงาน</th><th class="r">ร้อยละการเบิก</th><th>วันที่ผลงานถึงเกณฑ์</th><th class="r">ราคาต่องวด (บาท)</th><th class="r">ราคางานสะสม</th><th></th></tr></thead>
+      <tbody>${rows.map((x, i) => { const amt = (cv * payOf(x)) / 100; acc += amt; return `<tr>
+        <td class="c num">${i + 1}</td>
+        <td><input data-ii="${i}" data-if="desc" value="${esc(x.desc || '')}" maxlength="300" placeholder="เช่น งานฐานรากและตอม่อแล้วเสร็จ" aria-label="รายละเอียดงานงวดที่ ${i + 1}"></td>
+        <td class="r"><input data-ii="${i}" data-if="workPct" value="${esc(x.workPct ?? '')}" inputmode="decimal" aria-label="ร้อยละของงาน งวดที่ ${i + 1}"></td>
+        <td class="r"><input data-ii="${i}" data-if="payPct" value="${esc(x.payPct ?? '')}" inputmode="decimal" placeholder="${esc(x.workPct ?? '')}" aria-label="ร้อยละการเบิก งวดที่ ${i + 1}"></td>
+        <td><input type="date" data-ii="${i}" data-if="due" value="${esc(x.due || '')}" aria-label="วันที่ผลงานถึงเกณฑ์ งวดที่ ${i + 1}"></td>
+        <td class="r num">${cv ? money(amt) : '–'}</td><td class="r num">${cv ? money(acc) : '–'}</td>
+        <td><button type="button" class="icon-btn danger" data-irm="${i}" aria-label="ลบงวดที่ ${i + 1}">${icon('trash')}</button></td></tr>`; }).join('')}</tbody>
+      <tfoot><tr><td></td><td class="r">รวม</td><td class="r num ${Math.abs(sumW - 100) > 0.01 ? 'is-bad' : ''}">${sumW.toLocaleString('th-TH', { maximumFractionDigits: 2 })}%</td><td class="r num ${Math.abs(sumP - 100) > 0.01 ? 'is-bad' : ''}">${sumP.toLocaleString('th-TH', { maximumFractionDigits: 2 })}%</td><td></td><td class="r num">${cv ? money(acc) : ''}</td><td></td><td></td></tr></tfoot></table></div>
+      ${Math.abs(sumW - 100) > 0.01 || Math.abs(sumP - 100) > 0.01 ? `<p class="hint is-bad">${icon('alert')}ร้อยละรวมควรเท่ากับ 100%</p>` : ''}` : '<p class="muted small">ยังไม่มีงวดงาน — เพิ่มตามงวดในสัญญา</p>'}
+      <div class="row-actions"><button type="button" class="btn btn-sm" data-act="addinst"${rows.length >= R.INSTALL_MAX ? ' disabled' : ''}>${icon('plus')}เพิ่มงวด</button>
+        ${!rows.length ? `<label class="field field-inline"><span>หรือแบ่งเท่ากัน</span><select data-act="splitinst"><option value="">— จำนวนงวด —</option>${[2, 3, 4, 5, 6, 8, 10, 12].map((n) => `<option value="${n}">${n} งวด</option>`).join('')}</select></label>` : ''}</div>`;
+  };
+  el.querySelector('#inst-box').addEventListener('change', (e) => {
+    const t = e.target;
+    if (t.dataset.act === 'splitinst' && +t.value) {
+      const n = +t.value;
+      const each = Math.floor((100 / n) * 100) / 100;
+      d.installments = Array.from({ length: n }, (_, i) => ({ desc: '', workPct: i === n - 1 ? Math.round((100 - each * (n - 1)) * 100) / 100 : each, payPct: '', due: '' }));
+      markDirty(); drawInst(); return;
+    }
+    if (t.dataset.ii == null) return;
+    d.installments[+t.dataset.ii][t.dataset.if] = t.value.trim();
+    markDirty(); drawInst();
+    el.querySelector(`[data-ii="${t.dataset.ii}"][data-if="${t.dataset.if}"]`)?.focus();
+  });
+  el.querySelector('#inst-box').addEventListener('click', (e) => {
+    const rm = e.target.closest('[data-irm]');
+    if (rm) { d.installments.splice(+rm.dataset.irm, 1); markDirty(); drawInst(); return; }
+    if (e.target.closest('[data-act="addinst"]')) {
+      d.installments.push({ desc: '', workPct: '', payPct: '', due: '' });
+      markDirty(); drawInst();
+      el.querySelector(`[data-ii="${d.installments.length - 1}"][data-if="desc"]`)?.focus();
+    }
+  });
+  form.elements.contractValue?.addEventListener('change', drawInst);
+  drawInst();
+  el.querySelector('[data-act="sign"]').addEventListener('click', () => openSignMaker(store.project(p.id) || p));
+
   // ---------- หมวดเอกสาร ----------
   const drawCats = () => {
     const ul = el.querySelector('#cats');
@@ -171,6 +232,7 @@ export function renderProjectSettings(el, ctx) {
     out.planMode = form.elements.planMode.value;
     out.planPoints = out.planMode === 'custom' ? d.planPoints.filter((x) => x.date && x.pct !== '').map((x) => ({ date: x.date, pct: num(x.pct) })) : d.planPoints;
     out.docCategories = [...new Set(d.docCategories.filter(Boolean))];
+    out.installments = R.cleanInstallments(d.installments);
     if (form.elements.folderId && form.elements.folderId.value.trim()) out.folderId = form.elements.folderId.value.trim();
     const err = validateProject(out);
     if (err) { toast(err, 'bad'); return; }
